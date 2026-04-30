@@ -1,0 +1,61 @@
+#!/usr/bin/fish
+
+# Garante execução na raiz do projeto
+cd (dirname (status -f))/..
+
+# Exportação Global para Wayland (Força para todas as opções)
+set -gx FYNE_VIDEO wayland
+
+# Cores
+set blue (set_color blue)
+set green (set_color green)
+set red (set_color red)
+set yellow (set_color yellow)
+set purple (set_color magenta)
+set normal (set_color normal)
+
+function show_menu
+    echo ""
+    echo "$purple" "┌──────────────────────────────────────────────────┐"
+    echo "$purple" "│          🤖 ADA-LOVE-AI - DASHBOARD UI           │"
+    echo "$purple" "└──────────────────────────────────────────────────┘"
+    echo "$normal"
+    echo "$blue 1$normal 🌀 Hot-Reload (Air)"
+    echo "$blue 2$normal 🚀 Compilar e Executar"
+    echo "$blue 3$normal 📦 Build Produção"
+    echo "$blue 4$normal 🛠️  Instalar Dependências"
+    echo "$blue 5$normal 🧹 Limpar Cache"
+    echo "$red 6$normal ❌ Sair"
+    echo ""
+end
+
+while true
+    show_menu
+    read -p 'echo -e "$yellow 👉 Escolha uma opção (1-6): $normal"' opt
+
+    switch "$opt"
+        case 1
+            if command -v air > /dev/null
+                echo "$blue" "[INFO] Hot-Reload Wayland Ativo..."
+                air
+            else
+                echo "$red" "[ERRO] Air não encontrado."
+            end
+        case 2
+            echo "$blue" "[INFO] Executando em modo Wayland Nativo..."
+            # Força o rebuild para garantir que o cache do X11 não seja usado
+            go run -tags wayland -v -a main.go
+        case 3
+            echo "$green" "[BUILD] Gerando binário Wayland..."
+            mkdir -p bin
+            go build -v -a -ldflags="-s -w" -o bin/ada-ai main.go
+        case 4
+            go mod tidy
+            go install github.com/air-verse/air@latest
+        case 5
+            go clean -cache
+            rm -rf bin/ tmp/
+        case 6
+            break
+    end
+end

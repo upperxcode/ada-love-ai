@@ -1,0 +1,37 @@
+# Binários do projeto
+ada-love-ai
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Hot-reload (Air)
+tmp/
+
+# Configurações locais (Ada-Love)
+ada_config.json
+# config.json # Descomente se quiser ignorar a configuração principal do Picoclaw
+
+# Skills e Ferramentas instaladas dinamicamente
+skills/
+picoclaw/
+
+# Dependências (se usar vendor)
+vendor/
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go
+go.work
+go.work.sum

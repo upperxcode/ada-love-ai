@@ -15,11 +15,14 @@ import (
 func ShowAgentSelectionDialog(engine *backend.Engine, onSelect func(string)) {
 	cfg := engine.GetAdaConfig()
 
-	// Filtra agentes que já não estão no workspace (opcional, mas recomendado)
+	// Filtra agentes que já não estão no workspace ativo
 	availableAgents := []backend.AgentConfig{}
 	activeMap := make(map[string]bool)
-	for _, name := range cfg.WorkspaceAgents {
-		activeMap[name] = true
+	if len(cfg.Workspaces) > 0 {
+		activeWS := cfg.Workspaces[cfg.ActiveWorkspaceIndex]
+		for _, name := range activeWS.WorkspaceAgents {
+			activeMap[name] = true
+		}
 	}
 
 	for _, a := range cfg.Agents {

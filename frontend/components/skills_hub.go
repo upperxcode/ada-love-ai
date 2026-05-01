@@ -18,7 +18,6 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/sipeed/picoclaw/pkg/skills"
 )
 
 type SkillsHub struct {
@@ -465,7 +464,7 @@ func (h *SkillsHub) createMgmtCard(name string) fyne.CanvasObject {
 	return container.NewStack(bg, container.NewPadded(content))
 }
 
-func (h *SkillsHub) createRemoteCard(res skills.SearchResult, installed map[string]bool) fyne.CanvasObject {
+func (h *SkillsHub) createRemoteCard(res backend.SearchResult, installed map[string]bool) fyne.CanvasObject {
 	title := widget.NewLabelWithStyle(res.DisplayName, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	regBadge := widget.NewLabelWithStyle(strings.ToUpper(res.RegistryName), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	regBadge.Importance = widget.WarningImportance
@@ -495,7 +494,7 @@ func (h *SkillsHub) createRemoteCard(res skills.SearchResult, installed map[stri
 	return container.NewStack(bg, container.NewPadded(content))
 }
 
-func (h *SkillsHub) installSkill(res skills.SearchResult) {
+func (h *SkillsHub) installSkill(res backend.SearchResult) {
 	fyne.Do(func() { h.loading.Show() })
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

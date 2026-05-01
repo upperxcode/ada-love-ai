@@ -19,12 +19,16 @@ type SidebarMenu struct {
 	Labels    []string
 	Icons     []string
 	OnSelect  func(string)
+	OnToggle  func(bool)
 }
 
 // Toggle reconstrói o conteúdo para aplicar os tamanhos corretamente
 func (s *SidebarMenu) Toggle() {
 	s.Collapsed = !s.Collapsed
 	s.refresh()
+	if s.OnToggle != nil {
+		s.OnToggle(s.Collapsed)
+	}
 }
 
 func (s *SidebarMenu) refresh() {
@@ -39,20 +43,19 @@ func (s *SidebarMenu) refresh() {
 
 	s.Container.Objects = nil
 	for i := range s.Labels {
-		icon := canvas.NewText(s.Icons[i], adaTheme.TextColor)
-		icon.TextSize = adaTheme.SizeMenuBig
-
-		margin := canvas.NewRectangle(color.Transparent)
-		margin.SetMinSize(fyne.NewSize(12, 0))
+		icon := adaTheme.NewIcon(s.Icons[i], adaTheme.SizeMenuBig)
 
 		iconSlotBase := canvas.NewRectangle(color.Transparent)
-		iconSlotBase.SetMinSize(fyne.NewSize(40, 0))
+		iconSlotBase.SetMinSize(fyne.NewSize(64, 48))
 		iconSlot := container.NewStack(iconSlotBase, container.NewCenter(icon))
 
 		var item fyne.CanvasObject
 		if s.Collapsed {
-			item = container.NewHBox(margin, iconSlot)
+			// Apenas ícone centralizado, sem margens extras ou labels
+			item = iconSlot
 		} else {
+			margin := canvas.NewRectangle(color.Transparent)
+			margin.SetMinSize(fyne.NewSize(12, 0))
 			label := widget.NewLabel(s.Labels[i])
 			item = container.NewHBox(margin, iconSlot, label)
 		}
@@ -62,7 +65,7 @@ func (s *SidebarMenu) refresh() {
 				s.OnSelect(s.Labels[i])
 			}
 		})
-		styledBtn := container.NewThemeOverride(btn, adaTheme.GhostTheme{})
+		styledBtn := container.NewThemeOverride(btn, &adaTheme.GhostTheme{})
 		s.Container.Add(container.NewStack(styledBtn, item))
 	}
 	s.Container.Refresh()
@@ -78,29 +81,23 @@ func NewNavMenu(titleObj fyne.CanvasObject) *SidebarMenu {
 		Container: container.NewVBox(),
 		TitleObj:  tContainer,
 		Collapsed: false,
-		Labels:    []string{"Workspaces", "Chat", "Agentes", "Skills", "Configurações"},
-		Icons:     []string{adaTheme.IconStorage, "󰭻", adaTheme.IconRobot, adaTheme.IconTools, adaTheme.IconSettings},
+		Labels:    []string{"Workspace", "Chat", "Agentes", "Skills", "Ferramentas", "Configurações"},
+		Icons:     []string{adaTheme.IconStorage, adaTheme.IconChat, adaTheme.IconRobot, adaTheme.IconTools, adaTheme.IconHammer, adaTheme.IconSettings},
 	}
 	sm.refresh()
 	return sm
 }
 
 func NewSidebarTitle() fyne.CanvasObject {
-	// Margem esquerda de 16px
-	margin := canvas.NewRectangle(color.Transparent)
-	margin.SetMinSize(fyne.NewSize(16, 0))
-
-	// Ícone Logo Tech
-	logo := canvas.NewText("󰚩", adaTheme.AccentColor)
-	logo.TextSize = 32
-	logo.TextStyle = fyne.TextStyle{Bold: true}
+	// Ícone Logo Tech - Usando o componente padrão para garantir alinhamento
+	logo := adaTheme.NewIcon(adaTheme.IconLogo, 32, adaTheme.AccentColor)
 
 	logoSlotBase := canvas.NewRectangle(color.Transparent)
-	logoSlotBase.SetMinSize(fyne.NewSize(40, 0))
+	logoSlotBase.SetMinSize(fyne.NewSize(64, 48))
 	logoSlot := container.NewStack(logoSlotBase, container.NewCenter(logo))
 
 	name := widget.NewLabel("Ada Love AI")
 	name.TextStyle = fyne.TextStyle{Bold: true}
 
-	return container.NewHBox(margin, logoSlot, name)
+	return container.NewHBox(logoSlot, name)
 }

@@ -14,7 +14,6 @@ import (
 )
 
 func main() {
-	os.Setenv("FYNE_VIDEO", "wayland")
 	myApp := app.New()
 	myApp.Settings().SetTheme(&theme.MyTheme{})
 

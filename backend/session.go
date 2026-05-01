@@ -8,20 +8,32 @@ import (
 	"time"
 )
 
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type ChatMessage struct {
-	Role    string    `json:"role"`
-	Content string    `json:"content"`
-	Time    time.Time `json:"time"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Time       time.Time  `json:"time"`
 }
 
 type ChatSession struct {
-	ID        string        `json:"id"`
-	Title     string        `json:"title"`
-	Summary   string        `json:"summary"` // Memória de longo prazo (resumo)
-	Messages  []ChatMessage `json:"messages"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Pinned    bool          `json:"pinned"`
+	ID          string        `json:"id"`
+	WorkspaceID string        `json:"workspace_id"` // Vínculo com o Workspace
+	Title       string        `json:"title"`
+	Summary     string        `json:"summary"` // Memória de longo prazo (resumo)
+	Messages    []ChatMessage `json:"messages"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+	Pinned      bool          `json:"pinned"`
 }
 
 type SessionManager struct {
@@ -35,22 +47,52 @@ func NewSessionManager() *SessionManager {
 		sessions: make(map[string]*ChatSession),
 	}
 }
+func (s *SessionManager) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = make(map[string]*ChatSession)
+	s.activeID = ""
+}
 
-func (s *SessionManager) CreateSession(title string) *ChatSession {
+func (s *SessionManager) LoadSessions(sessions []*ChatSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sess := range sessions {
+		s.sessions[sess.ID] = sess
+	}
+}
+
+func (s *SessionManager) CreateSession(title string, workspaceID string) *ChatSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	uniqueTitle := UniquifyName(title, func(t string) bool {
+		for _, sess := range s.sessions {
+			if sess.WorkspaceID == workspaceID && strings.EqualFold(sess.Title, t) {
+				return true
+			}
+		}
+		return false
+	})
+
 	id := fmt.Sprintf("session_%d", time.Now().UnixNano())
 	session := &ChatSession{
-		ID:        id,
-		Title:     title,
-		Messages:  []ChatMessage{},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:          id,
+		WorkspaceID: workspaceID,
+		Title:       uniqueTitle,
+		Messages:    []ChatMessage{},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 	s.sessions[id] = session
 	s.activeID = id
 	return session
+}
+
+func (s *SessionManager) GetActiveID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activeID
 }
 
 func (s *SessionManager) GetActiveSession() *ChatSession {
@@ -65,27 +107,40 @@ func (s *SessionManager) GetSession(id string) *ChatSession {
 	return s.sessions[id]
 }
 
-func (s *SessionManager) ListSessions() []*ChatSession {
+func (s *SessionManager) ListSessions(workspaceID string) []*ChatSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	list := make([]*ChatSession, 0, len(s.sessions))
+	list := make([]*ChatSession, 0)
 	for _, sess := range s.sessions {
-		list = append(list, sess)
+		if sess.WorkspaceID == workspaceID {
+			list = append(list, sess)
+		}
 	}
 
-	// Ordena por Pinned primeiro, depois por data de atualização (mais recentes primeiro)
-	sort.Slice(list, func(i, j int) bool {
+	// Ordena por Pinned primeiro, depois por Título (ordem alfabética) e por fim data de atualização
+	sort.SliceStable(list, func(i, j int) bool {
 		if list[i].Pinned != list[j].Pinned {
-			return list[i].Pinned // true vem antes de false no sort descending? Não, temos que retornar se i deve vir antes de j
+			return list[i].Pinned // True (pinned) vem antes de False
 		}
-		return list[i].UpdatedAt.After(list[j].UpdatedAt)
+		titleI := strings.ToLower(list[i].Title)
+		titleJ := strings.ToLower(list[j].Title)
+		if titleI == "" {
+			titleI = "zzz" 
+		}
+		if titleJ == "" {
+			titleJ = "zzz"
+		}
+		if titleI == titleJ {
+			return list[i].UpdatedAt.After(list[j].UpdatedAt)
+		}
+		return titleI < titleJ
 	})
 
 	return list
 }
 
-func (s *SessionManager) SearchSessions(query string) []*ChatSession {
-	all := s.ListSessions()
+func (s *SessionManager) SearchSessions(query string, workspaceID string) []*ChatSession {
+	all := s.ListSessions(workspaceID)
 	if query == "" {
 		return all
 	}
@@ -127,13 +182,31 @@ func (s *SessionManager) RenameSession(id string, newTitle string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
-		sess.Title = newTitle
+		sess.Title = UniquifyName(newTitle, func(t string) bool {
+			for sid, sptr := range s.sessions {
+				if sid == id {
+					continue
+				}
+				if sptr.WorkspaceID == sess.WorkspaceID && strings.EqualFold(sptr.Title, t) {
+					return true
+				}
+			}
+			return false
+		})
 		sess.UpdatedAt = time.Now()
 	}
 }
 
-// AddMessage adiciona uma mensagem e retorna o total de mensagens e se a sessão existe
+// AddMessage adiciona uma mensagem simples e retorna o total de mensagens e se a sessão existe
 func (s *SessionManager) AddMessage(id, role, content string) (int, bool) {
+	return s.AddRichMessage(id, ChatMessage{
+		Role:    role,
+		Content: content,
+	})
+}
+
+// AddRichMessage adiciona uma mensagem completa com metadados
+func (s *SessionManager) AddRichMessage(id string, msg ChatMessage) (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -142,11 +215,10 @@ func (s *SessionManager) AddMessage(id, role, content string) (int, bool) {
 		return 0, false
 	}
 
-	sess.Messages = append(sess.Messages, ChatMessage{
-		Role:    role,
-		Content: content,
-		Time:    time.Now(),
-	})
+	if msg.Time.IsZero() {
+		msg.Time = time.Now()
+	}
+	sess.Messages = append(sess.Messages, msg)
 	sess.UpdatedAt = time.Now()
 
 	return len(sess.Messages), true

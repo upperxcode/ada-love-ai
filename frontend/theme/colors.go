@@ -21,7 +21,10 @@ type MyTheme struct{}
 
 // Obrigatório: Define as cores customizadas
 
-func (m MyTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+func (m *MyTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if m == nil {
+		return theme.DefaultTheme().Color(n, v)
+	}
 	switch n {
 	case theme.ColorNameBackground:
 		return BgColor
@@ -46,9 +49,11 @@ func (m MyTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
 }
 
 // Obrigatório: Retornar o padrão para evitar erro de compilação
-func (m MyTheme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
-func (m MyTheme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
-func (m MyTheme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) }
+func (m *MyTheme) Font(s fyne.TextStyle) fyne.Resource {
+	return JetBrainsNerdFont
+}
+func (m *MyTheme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
+func (m *MyTheme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) }
 
 // GhostTheme é um tema que torna o fundo dos botões transparente
 type GhostTheme struct {
@@ -56,7 +61,10 @@ type GhostTheme struct {
 	TextSize float32
 }
 
-func (g GhostTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+func (g *GhostTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if g == nil {
+		return theme.DefaultTheme().Color(n, v)
+	}
 	if n == theme.ColorNameButton {
 		return color.Transparent
 	}
@@ -69,7 +77,10 @@ func (g GhostTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Colo
 	return g.MyTheme.Color(n, v)
 }
 
-func (g GhostTheme) Size(n fyne.ThemeSizeName) float32 {
+func (g *GhostTheme) Size(n fyne.ThemeSizeName) float32 {
+	if g == nil {
+		return theme.DefaultTheme().Size(n)
+	}
 	if n == theme.SizeNameText && g.TextSize > 0 {
 		return g.TextSize
 	}

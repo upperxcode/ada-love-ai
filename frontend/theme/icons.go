@@ -1,6 +1,8 @@
 package theme
 
 import (
+	"image/color"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -8,39 +10,40 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Centralização de ícones Unicode (Emojis/Símbolos)
-// Isso facilita a manutenção e garante consistência visual em todo o app.
 const (
-	IconSearch   = "󰍉"
-	IconSettings = "󰒓"
-	IconDelete   = "󰆴"
-	IconInfo     = "󰋽"
-	IconView     = "󰈈"
-	IconAdd      = "󰐕"
-	IconClose    = "󰅖"
-	IconCheck    = "󰄬"
-	IconStorage  = "󰋊"
-	IconDocument = "󰈙"
-	IconFolder   = "󰉋"
-	IconMail     = "󰇰"
-	IconTerminal = "󰞷"
-	IconWarning  = "󰀪"
-	IconUser     = "󰙄"
-	IconRobot    = "󰚩"
-	IconStats    = "󰏘"
-	IconHistory  = "󰄉"
-	IconTools    = "󰓠"
-	IconStar     = "󰓎"
-	IconCloud    = "󰅟"
+	IconLogo     = "󰚩 "
+	IconSearch   = "󰍉 "
+	IconSettings = "󰒓 "
+	IconDelete   = "󰆴 "
+	IconInfo     = "󰋽 "
+	IconView     = "󰈈 "
+	IconAdd      = "󰐕 "
+	IconClose    = "󰅖 "
+	IconCheck    = "󰄬 "
+	IconStorage  = "󰋊 "
+	IconDocument = "󰈙 "
+	IconFolder   = "󰉋 "
+	IconMail     = "󰇰 "
+	IconTerminal = "󰞷 "
+	IconWarning  = "󰀪 "
+	IconUser     = "󰙄  "
+	IconRobot    = "󰚩  "
+	IconStats    = "󰏘 "
+	IconHistory  = "󰄉 "
+	IconTools    = "󰓠 "
+	IconStar     = "󰓎 "
+	IconCloud    = "󰅟 "
+	IconChat     = "󰭻 "
+	IconHammer   = "󰓠 "
 )
 
 // Ícones de Menu (específicos para itens de lista e contextos)
 const (
-	MenuShareIcon   = "🔗"
-	MenuPinIcon     = "📌"
-	MenuEditIcon    = "✏️"
-	MenuProjectIcon = "📁"
-	MenuDeleteIcon  = "🗑️"
+	MenuShareIcon   = "󰒄 "
+	MenuPinIcon     = "󰐃 "
+	MenuEditIcon    = "󰏫 "
+	MenuProjectIcon = "󰉋 "
+	MenuDeleteIcon  = "󰆴 "
 )
 
 // Constantes de tamanho para padronização da UI
@@ -51,12 +54,22 @@ const (
 	SizeMenuBig      = 30
 	SizeControlSmall = 28
 	SizeControlBig   = 24
+	SizeIconTiny     = 16 // Ícones muito pequenos (check, pin)
+	SizeIconSmall    = 20 // Ícones pequenos em botões de ação
+	SizeCardMedium   = 32 // Ícones médios para cards de agente
 )
 
-// NewIcon cria um ícone Unicode (canvas.Text) com tamanho personalizado.
+// NewIcon cria um ícone Unicode (canvas.Text) com tamanho e cor personalizados.
 // Se size for 0, usa um tamanho padrão (18).
-func NewIcon(icon string, size float32) *canvas.Text {
-	t := canvas.NewText(icon, TextColor)
+// Se textColor não for fornecido, usa a cor padrão TextColor.
+func NewIcon(icon string, size float32, textColor ...color.Color) *canvas.Text {
+	var c color.Color = TextColor
+	if len(textColor) > 0 && textColor[0] != nil {
+		c = textColor[0]
+	}
+
+	t := canvas.NewText(icon, c)
+	t.Alignment = fyne.TextAlignCenter // Centraliza para evitar cortes laterais
 	if size > 0 {
 		t.TextSize = size
 	} else {
@@ -66,11 +79,11 @@ func NewIcon(icon string, size float32) *canvas.Text {
 }
 
 // NewIconButton cria um botão de ícone customizado com tamanho de ícone garantido e cursor de mão.
-func NewIconButton(icon string, size float32, tapped func()) fyne.CanvasObject {
-	iconObj := NewIcon(icon, size)
+func NewIconButton(icon string, size float32, tapped func(), textColor ...color.Color) fyne.CanvasObject {
+	iconObj := NewIcon(icon, size, textColor...)
 	btn := NewClickableButton(tapped)
 	// GhostTheme garante transparência, tamanho correto e cursor de mão
-	styledBtn := container.NewThemeOverride(btn, GhostTheme{TextSize: size})
+	styledBtn := container.NewThemeOverride(btn, &GhostTheme{TextSize: size})
 	return container.NewStack(container.NewCenter(iconObj), styledBtn)
 }
 
@@ -78,7 +91,7 @@ func NewIconButton(icon string, size float32, tapped func()) fyne.CanvasObject {
 func NewTextIconButton(icon, label string, size float32, tapped func()) fyne.CanvasObject {
 	btn := NewClickableButton(tapped)
 	btn.Text = icon + " " + label
-	return container.NewThemeOverride(btn, GhostTheme{TextSize: size})
+	return container.NewThemeOverride(btn, &GhostTheme{TextSize: size})
 }
 
 // NewClickableButton cria um botão transparente que mostra o cursor de mão (pointer)

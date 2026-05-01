@@ -11,21 +11,46 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+const (
+	UserBubbleMaxWidthPercent = 0.45
+	AIBubbleMaxWidthPercent   = 0.75
+	BubbleMinWidth            = 120.0
+	BubblePaddingH            = 60.0
+	BubblePaddingV            = 24.0
+)
+
 // ChatBubble representa a estrutura visual de uma mensagem
 type ChatBubble struct {
 	fyne.CanvasObject
-	label *widget.Label
+	label fyne.CanvasObject
+	text  string
 }
 
 // UpdateText atualiza o conteúdo da bolha dinamicamente (útil para streaming)
 func (b *ChatBubble) UpdateText(text string) {
-	b.label.SetText(text)
+	b.text = text
+	if rt, ok := b.label.(*widget.RichText); ok {
+		rt.ParseMarkdown(text)
+	} else if lbl, ok := b.label.(*widget.Label); ok {
+		lbl.SetText(text)
+	}
 }
 
 // NewChatBubble cria uma bolha base com alinhamento e cores específicas
 func NewChatBubble(text string, isUser bool) *ChatBubble {
-	label := widget.NewLabel(text)
-	label.Wrapping = fyne.TextWrapWord
+	b := &ChatBubble{text: text}
+
+	var display fyne.CanvasObject
+	if isUser {
+		lbl := widget.NewLabel(text)
+		lbl.Wrapping = fyne.TextWrapWord
+		display = lbl
+	} else {
+		rt := widget.NewRichTextFromMarkdown(text)
+		rt.Wrapping = fyne.TextWrapWord
+		display = rt
+	}
+	b.label = display
 
 	// Define a cor de fundo baseado no autor
 	bgColor := myTheme.AIMsgColor
@@ -34,31 +59,46 @@ func NewChatBubble(text string, isUser bool) *ChatBubble {
 	}
 
 	bg := canvas.NewRectangle(bgColor)
-	bg.CornerRadius = 16 // Cantos mais suaves
+	bg.CornerRadius = 16
 
-	// Botão de cópia discreto
-	copyBtn := widget.NewButton("󰆏", func() {
+	// Botão de cópia discreto - agora usa b.text que é atualizado pelo UpdateText
+	copyBtn := widget.NewButton("󰆏 ", func() {
 		app := fyne.CurrentApp()
 		if len(app.Driver().AllWindows()) > 0 {
 			win := app.Driver().AllWindows()[0]
-			win.Clipboard().SetContent(label.Text)
+			textToCopy := b.text
+			if textToCopy == "" {
+				// Fallback para o label se b.text estiver vazio
+				if lbl, ok := b.label.(*widget.Label); ok {
+					textToCopy = lbl.Text
+				} else if rt, ok := b.label.(*widget.RichText); ok {
+					// Extrai texto bruto do RichText
+					for _, seg := range rt.Segments {
+						if tseg, ok := seg.(*widget.TextSegment); ok {
+							textToCopy += tseg.Text
+						}
+					}
+				}
+			}
+			win.Clipboard().SetContent(textToCopy)
 		}
 	})
 	copyBtn.Importance = widget.LowImportance
 
-	// Conteúdo interno com preenchimento mais generoso
-	content := container.NewPadded(label)
-
-	// Layout para o botão ficar no topo direito para não atrapalhar o texto
+	content := container.NewPadded(display)
 	copyOverlay := container.NewHBox(layout.NewSpacer(), container.NewVBox(copyBtn, layout.NewSpacer()))
-
 	bubble := container.NewStack(bg, content, container.NewPadded(copyOverlay))
 
-	// Aplicamos restrições de tamanho (Min: 120px, Max: 750px)
+	// Calculamos o MaxWidth baseado na largura da janela/painel
+	percent := AIBubbleMaxWidthPercent
+	if isUser {
+		percent = UserBubbleMaxWidthPercent
+	}
+
 	constrained := container.New(&bubbleLayout{
-		label:    label,
-		minWidth: 120,
-		maxWidth: 750,
+		content: display,
+		isUser:  isUser,
+		percent: percent,
 	}, bubble)
 
 	var alignment fyne.CanvasObject
@@ -68,19 +108,17 @@ func NewChatBubble(text string, isUser bool) *ChatBubble {
 		alignment = container.NewHBox(constrained, layout.NewSpacer())
 	}
 
-	// Adiciona uma margem externa para as bolhas não grudarem nas bordas
 	outer := container.NewPadded(alignment)
+	b.CanvasObject = outer
 
-	return &ChatBubble{
-		CanvasObject: outer,
-		label:        label,
-	}
+	return b
 }
 
 // bubbleLayout impõe limites de largura para as bolhas de chat
 type bubbleLayout struct {
-	label              *widget.Label
-	minWidth, maxWidth float32
+	content fyne.CanvasObject
+	isUser  bool
+	percent float64
 }
 
 func (l *bubbleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
@@ -91,35 +129,54 @@ func (l *bubbleLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 
 func (l *bubbleLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	if len(objects) == 0 {
-		return fyne.NewSize(l.minWidth, 0)
+		return fyne.NewSize(BubbleMinWidth, 0)
 	}
 
-	// Mede o texto de forma precisa usando as configurações do tema
+	// Obtemos a largura total disponível do sistema (janela)
+	// Isso é uma aproximação para o painel de chat
+	windowWidth := float32(1000) // Valor padrão de segurança
+	app := fyne.CurrentApp()
+	if len(app.Driver().AllWindows()) > 0 {
+		windowWidth = app.Driver().AllWindows()[0].Canvas().Size().Width
+	}
+	
+	// O painel de chat ocupa aprox 70% da janela (descontando sidebar)
+	chatPanelWidth := windowWidth * 0.7 
+	maxWidth := chatPanelWidth * float32(l.percent)
+
+	// Mede o texto de forma precisa para evitar "atrofia"
+	var textSize fyne.Size
 	ts := fyne.CurrentApp().Settings().Theme().Size(theme.SizeNameText)
-	textSize := fyne.MeasureText(l.label.Text, ts, l.label.TextStyle)
-
-	// Adicionamos padding (aprox 40px horizontais e 20px verticais)
-	paddingH := float32(60)
-	paddingV := float32(24)
-
-	width := textSize.Width + paddingH
-
-	if width < l.minWidth {
-		width = l.minWidth
+	
+	if lbl, ok := l.content.(*widget.Label); ok {
+		textSize = fyne.MeasureText(lbl.Text, ts, lbl.TextStyle)
+	} else if rt, ok := l.content.(*widget.RichText); ok {
+		// Para evitar atrofia no RichText, medimos o texto bruto
+		rawText := ""
+		for _, seg := range rt.Segments {
+			if tseg, ok := seg.(*widget.TextSegment); ok {
+				rawText += tseg.Text
+			}
+		}
+		textSize = fyne.MeasureText(rawText, ts, fyne.TextStyle{})
 	}
-	if width > l.maxWidth {
-		width = l.maxWidth
+
+	width := textSize.Width + BubblePaddingH
+	if width < BubbleMinWidth {
+		width = BubbleMinWidth
+	}
+	if width > maxWidth {
+		width = maxWidth
 	}
 
-	// Forçamos o label a assumir a largura disponível (descontando o botão de cópia se necessário)
-	// O botão de cópia ocupa aprox 30px
-	availableWidth := width - paddingH
+	// Forçamos o conteúdo a assumir a largura disponível
+	availableWidth := width - BubblePaddingH
 	if availableWidth < 20 {
 		availableWidth = 20
 	}
 
-	l.label.Resize(fyne.NewSize(availableWidth, 0))
-	h := l.label.MinSize().Height + paddingV
+	l.content.Resize(fyne.NewSize(availableWidth, 0))
+	h := l.content.MinSize().Height + BubblePaddingV
 
 	return fyne.NewSize(width, h)
 }

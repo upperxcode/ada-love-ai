@@ -3,8 +3,8 @@
 # Garante execução na raiz do projeto
 cd (dirname (status -f))/..
 
-# Exportação Global para Wayland (Força para todas as opções)
-set -gx FYNE_VIDEO wayland
+# Exportação Global para Wayland (Comentado para teste de estabilidade)
+# set -gx FYNE_VIDEO wayland
 
 # Cores
 set blue (set_color blue)

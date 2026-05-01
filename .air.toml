@@ -1,6 +1,6 @@
 [build]
   # Forçamos o build nativo Wayland com recompilação total
-  cmd = "go build -tags wayland -v -a -o ./tmp/main ."
+  cmd = "go build -tags wayland -v -o ./tmp/main ."
   full_bin = "env FYNE_VIDEO=wayland ./tmp/main"
   include_ext = ["go", "tpl", "tmpl", "html"]
   

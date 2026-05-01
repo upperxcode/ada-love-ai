@@ -21,11 +21,14 @@ func ShowSkillSelectionDialog(engine *backend.Engine, onSelect func(string)) {
 		return
 	}
 
-	// Filtra skills que já não estão no workspace
+	// Filtra skills que já não estão no workspace ativo
 	availableSkills := []string{}
 	activeMap := make(map[string]bool)
-	for _, name := range cfg.Skills {
-		activeMap[name] = true
+	if len(cfg.Workspaces) > 0 {
+		activeWS := cfg.Workspaces[cfg.ActiveWorkspaceIndex]
+		for _, name := range activeWS.Skills {
+			activeMap[name] = true
+		}
 	}
 
 	for _, s := range installed {

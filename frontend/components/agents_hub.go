@@ -4,6 +4,9 @@ import (
 	"ada-love-ai/backend"
 	adaTheme "ada-love-ai/frontend/theme"
 	"fmt"
+	"image/color"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -11,8 +14,6 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"image/color"
-	"strings"
 )
 
 // Temas customizados para botões de ação
@@ -21,7 +22,10 @@ type ActionTheme struct {
 	ContrastColor color.Color
 }
 
-func (t ActionTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+func (t *ActionTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if t == nil {
+		return theme.DefaultTheme().Color(n, v)
+	}
 	if n == theme.ColorNameHover {
 		return color.NRGBA{R: 129, G: 140, B: 248, A: 100}
 	}
@@ -36,7 +40,10 @@ type DangerTheme struct {
 	ContrastColor color.Color
 }
 
-func (t DangerTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+func (t *DangerTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if t == nil {
+		return theme.DefaultTheme().Color(n, v)
+	}
 	if n == theme.ColorNameHover {
 		return color.NRGBA{R: 239, G: 68, B: 68, A: 100} // Red-500
 	}
@@ -189,11 +196,11 @@ func createAgentCard(a *backend.AgentConfig, onSelect func(), onEdit func(), onD
 
 	editBtn := adaTheme.NewClickableButton(onEdit)
 	editBtn.Text = adaTheme.MenuEditIcon
-	editWithTheme := container.NewThemeOverride(editBtn, ActionTheme{ContrastColor: contrastColor})
+	editWithTheme := container.NewThemeOverride(editBtn, &ActionTheme{ContrastColor: contrastColor})
 
 	delBtn := adaTheme.NewClickableButton(onDelete)
 	delBtn.Text = adaTheme.IconDelete
-	delWithTheme := container.NewThemeOverride(delBtn, DangerTheme{ContrastColor: contrastColor})
+	delWithTheme := container.NewThemeOverride(delBtn, &DangerTheme{ContrastColor: contrastColor})
 
 	name := widget.NewLabelWithStyle(a.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	name.Wrapping = fyne.TextWrapWord
@@ -204,9 +211,9 @@ func createAgentCard(a *backend.AgentConfig, onSelect func(), onEdit func(), onD
 
 	var iconObj fyne.CanvasObject
 	if a.Icon != "" {
-		iconObj = adaTheme.NewIcon(a.Icon, 32)
+		iconObj = adaTheme.NewIcon(a.Icon, adaTheme.SizeCardMedium)
 	} else {
-		iconObj = adaTheme.NewIcon(adaTheme.IconRobot, 32)
+		iconObj = adaTheme.NewIcon(adaTheme.IconRobot, adaTheme.SizeCardMedium)
 	}
 
 	headerBg := canvas.NewRectangle(headerColor)
@@ -237,7 +244,7 @@ func createAgentCard(a *backend.AgentConfig, onSelect func(), onEdit func(), onD
 	bg.StrokeWidth = 0.5
 
 	clickable := adaTheme.NewClickableButton(onSelect)
-	ghostBtn := container.NewThemeOverride(clickable, adaTheme.GhostTheme{})
+	ghostBtn := container.NewThemeOverride(clickable, &adaTheme.GhostTheme{})
 
 	// O botão de seleção (ghostBtn) deve cobrir apenas a área de conteúdo,
 	// deixando o cabeçalho (header) com os botões de ação livre para interação.

@@ -28,6 +28,10 @@ export function GetToolProfiles():Promise<Array<backend.ToolProfile>>;
 
 export function GetWorkspaces():Promise<Array<backend.WorkspaceConfig>>;
 
+export function OpenDirectoryDialog():Promise<string>;
+
+export function OpenFileDialog():Promise<string>;
+
 export function RemoveModel(arg1:string,arg2:string):Promise<void>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;

@@ -20,7 +20,16 @@ const categoryColors: Record<string, string> = {
   'Testing': '#8b5cf6',
   'Build': '#ec4899',
   'Web': '#22c55e',
+  'Media': '#eab308',
+  'MCP': '#a855f7',
   'Communication': '#8b5cf6',
+  'Shell': '#ef4444',
+  'Scheduled Tasks': '#14b8a6',
+  'Memory': '#f43f5e',
+  'Knowledge': '#06b6d4',
+  'Hardware': '#06b6d4',
+  'Skills': '#a855f7',
+  'Agent': '#f97316',
   'Other': '#6b7280',
 }
 
@@ -321,39 +330,60 @@ function WorkspacesSection() {
             />
           </div>
 
-          <div className="col-span-2 flex gap-4 min-h-[150px]">
-            <div className="w-20 shrink-0 flex flex-col gap-0.5 border-r border-border pr-2">
+          <div className="col-span-2 flex gap-0 min-h-[180px]">
+            <div className="w-28 shrink-0 flex flex-col gap-0 pt-0">
               {['folders', 'knowledge', 'workspace_agents', 'skills', 'tools'].map(key => (
                 <button
                   key={key}
-                  className={`text-left px-2 py-1 rounded text-xs transition-colors ${
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                     selectedField === key ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                   onClick={() => setSelectedField(key)}
                 >
-                  {{'folders':'Folders','knowledge':'Knowledge','workspace_agents':'Agents','skills':'Skills','tools':'Tools'}[key]}
+                  <span className="grow text-left">{{'folders':'Folders','knowledge':'Knowledge','workspace_agents':'Agents','skills':'Skills','tools':'Tools'}[key]}</span>
+                  {selectedField === key && (
+                    <button
+                      className="shrink-0 flex items-center justify-center w-4 h-4 rounded hover:bg-muted-foreground/20"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (key === 'folders') {
+                          const dir = await api.openDirectoryDialog()
+                          if (dir) { const f = fieldMap[key]; if (!f.state.includes(dir)) f.set([...f.state, dir]) }
+                        } else if (key === 'knowledge') {
+                          const file = await api.openFileDialog()
+                          if (file) { const f = fieldMap[key]; if (!f.state.includes(file)) f.set([...f.state, file]) }
+                        }
+                      }}
+                      title={key === 'folders' ? 'Add folder' : key === 'knowledge' ? 'Add file' : 'Add'}
+                    >
+                      <Icon name="Plus" className="w-3 h-3" />
+                    </button>
+                  )}
                 </button>
               ))}
             </div>
-            <div className="flex-1 min-h-[28px] max-h-[120px] overflow-y-auto p-1.5 rounded border border-border">
-              <div className="flex gap-1 overflow-x-auto">
+            <div className="flex-1 min-h-[28px] max-h-[160px] overflow-y-auto p-1.5 rounded border border-border">
+              <div className="flex flex-wrap gap-1">
                 {fieldMap[selectedField]?.state.map((item: string) => (
                   <span key={item} className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted text-muted-foreground whitespace-nowrap">
                     {item}
                     <button onClick={() => fieldMap[selectedField].set(fieldMap[selectedField].state.filter((x: string) => x !== item))}
                       className="text-destructive hover:text-destructive/80">✕</button>
                   </span>
-                ))}
-                <input
-                  placeholder="Add..."
-                  className="h-6 border-0 p-0 text-xs bg-transparent outline-none min-w-[80px]"
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
-                      const f = fieldMap[selectedField]
-                      f.set([...f.state, (e.target as HTMLInputElement).value.trim()])
-                      ;(e.target as HTMLInputElement).value = ''
-                    }
-                  }} />
+)}
+                {selectedField !== 'folders' && selectedField !== 'knowledge' && (
+                  <input
+                    placeholder="Add..."
+                    className="h-5 border-0 p-0 text-xs bg-transparent outline-none min-w-[60px]"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                        const f = fieldMap[selectedField]
+                        f.set([...f.state, (e.target as HTMLInputElement).value.trim()])
+                        ;(e.target as HTMLInputElement).value = ''
+                      }
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -389,6 +419,8 @@ function ToolsSection() {
   const [newProfileName, setNewProfileName] = useState('')
   const [newProfileColor, setNewProfileColor] = useState('#6b7280')
   const [newProfileIcon, setNewProfileIcon] = useState('🔧')
+  const [showActive, setShowActive] = useState(true)
+  const [showInactive, setShowInactive] = useState(true)
 
   useEffect(() => {
     api.getAvailableTools().then(setTools)
@@ -400,16 +432,12 @@ function ToolsSection() {
   }, [])
 
   const handleToggle = async (toolName: string, enabled: boolean) => {
-    if (selectedProfileID) {
-      await api.toggleProfileTool(selectedProfileID, toolName, enabled)
+    const profile = profiles.find(p => p.id === selectedProfileID)
+    if (profile && profile.name !== 'Default') {
+      await api.toggleProfileTool(profile.id, toolName, enabled)
       setProfiles(prev => prev.map(p => {
-        if (p.id === selectedProfileID) {
-          return {
-            ...p,
-            tools: enabled 
-              ? [...p.tools, toolName] 
-              : p.tools.filter(t => t !== toolName)
-          }
+        if (p.id === profile.id) {
+          return { ...p, tools: enabled ? [...p.tools, toolName] : p.tools.filter(t => t !== toolName) }
         }
         return p
       }))
@@ -455,7 +483,19 @@ function ToolsSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-foreground">Tools</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-foreground">Tools</h3>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+              <Switch checked={showActive} onCheckedChange={setShowActive} className="scale-75" />
+              Active
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+              <Switch checked={showInactive} onCheckedChange={setShowInactive} className="scale-75" />
+              Inactive
+            </label>
+          </div>
+        </div>
         <p className="text-sm text-muted-foreground">Configure agent tools for the active workspace.</p>
       </div>
 
@@ -504,11 +544,21 @@ function ToolsSection() {
         </div>
       </div>
 
-      {Object.entries(groupedTools).map(([category, categoryTools]) => (
+      {Object.entries(groupedTools).map(([category, categoryTools]) => {
+        const filtered = categoryTools.filter(tool => {
+          const isEnabled = isProfileActive 
+            ? selectedProfile?.tools.includes(tool.name) ?? false
+            : tool.enabled
+          if (isEnabled && !showActive) return false
+          if (!isEnabled && !showInactive) return false
+          return true
+        })
+        if (filtered.length === 0) return null
+        return (
         <div key={category}>
           <h4 className="text-sm font-medium text-foreground mb-2">{category}</h4>
           <div className="tools-grid">
-            {categoryTools.map(tool => {
+            {filtered.map(tool => {
               const isEnabled = isProfileActive 
                 ? selectedProfile?.tools.includes(tool.name) ?? false
                 : tool.enabled
@@ -533,7 +583,7 @@ function ToolsSection() {
             })}
           </div>
         </div>
-      ))}
+      )}
       
       {tools.length === 0 && (
         <Card>

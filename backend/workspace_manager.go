@@ -83,19 +83,79 @@ func (e *Engine) DeleteWorkspace(title string) {
 func (e *Engine) RegisterWorkspaceTools(title string) {}
 
 func (e *Engine) GetAvailableTools() []ToolUIInfo {
-	// Lista fixa de ferramentas disponíveis no momento
 	available := []struct {
 		Name        string
 		Description string
 		Category    string
 	}{
+		// File System
 		{"read_file", "Lê o conteúdo de um arquivo", "File System"},
 		{"write_file", "Cria ou sobrescreve um arquivo", "File System"},
 		{"list_dir", "Lista arquivos em um diretório", "File System"},
 		{"edit_file", "Edita blocos específicos de um arquivo", "File System"},
+		{"append_file", "Adiciona conteúdo ao final de um arquivo", "File System"},
+		{"send_file", "Envia um arquivo para o agente", "File System"},
+		{"load_image", "Carrega e analisa uma imagem", "File System"},
+		{"view_file_outline", "Extrai a estrutura de um arquivo", "File System"},
+		{"grep_code", "Busca padrões em arquivos", "Code Search"},
+		{"find_files", "Localiza arquivos por nome", "Code Search"},
+		{"list_dir_tree", "Lista diretório em árvore", "File System"},
+
+		// Git
+		{"git_status", "Mostra o status do repositório git", "Git"},
+		{"git_diff", "Mostra as diferenças não commitadas", "Git"},
+		{"git_log", "Mostra o histórico de commits", "Git"},
+		{"git_commit", "Cria um commit com as mudanças staged", "Git"},
+		{"git_push", "Envia commits para o repositório remoto", "Git"},
+		{"git_pull", "Atualiza o repositório local", "Git"},
+		{"git_clone", "Clona um repositório", "Git"},
+
+		// Web
 		{"web_search", "Pesquisa na web", "Web"},
 		{"web_fetch", "Busca conteúdo de uma URL", "Web"},
+		{"http_request", "Envia requisições HTTP (GET, POST, PUT, DELETE)", "Web"},
+
+		// Media
+		{"media_cleanup", "Limpa arquivos de mídia temporários", "Media"},
+
+		// MCP (Model Context Protocol)
+		{"mcp", "Ferramentas via MCP (Model Context Protocol)", "MCP"},
+
+		// Communication
 		{"message", "Envia mensagem para canais", "Communication"},
+		{"reaction", "Reage a eventos/mensagens", "Communication"},
+
+		// Testing
+		{"run_tests", "Executa os testes do projeto", "Testing"},
+
+		// Build
+		{"build_project", "Compila o projeto", "Build"},
+		{"install_deps", "Instala dependências do projeto", "Build"},
+		{"lint_code", "Executa linter no projeto", "Build"},
+		{"code_metrics", "Analisa métricas do código", "Build"},
+
+		// Exec & Tasks (orquestrador)
+		{"exec", "Executa comandos shell no sistema", "Shell"},
+		{"cron", "Agenda lembretes, tarefas ou comandos", "Scheduled Tasks"},
+
+		// Memory & Knowledge
+		{"tool_save_memory", "Salva informações na memória de longo prazo", "Memory"},
+		{"get_agent_memory", "Recupera memórias salvas anteriormente", "Memory"},
+		{"search_knowledge_base", "Busca na base de conhecimento local", "Knowledge"},
+
+		// Hardware
+		{"i2c", "Comunicação I2C com dispositivos", "Hardware"},
+		{"spi", "Comunicação SPI com dispositivos", "Hardware"},
+
+		// Skills
+		{"find_skills", "Busca skills disponíveis", "Skills"},
+		{"install_skill", "Instala uma skill", "Skills"},
+
+		// Agent
+		{"spawn", "Cria um sub-agente para tarefa específica", "Agent"},
+		{"spawn_status", "Verifica o status de um sub-agente", "Agent"},
+		{"subagent", "Gerencia sub-agentes", "Agent"},
+		{"send_tts", "Envia texto para síntese de voz", "Agent"},
 	}
 
 	workspacePath := e.GetActiveWorkspace()

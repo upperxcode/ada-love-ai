@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"ada-love-ai/backend"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
@@ -17,6 +19,26 @@ func NewApp(engine *backend.Engine) *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
+
+func (a *App) OpenDirectoryDialog() string {
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Folder",
+	})
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+func (a *App) OpenFileDialog() string {
+	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select File",
+	})
+	if err != nil {
+		return ""
+	}
+	return file
 }
 
 // Config

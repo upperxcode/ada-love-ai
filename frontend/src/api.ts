@@ -6,6 +6,8 @@ declare global {
     go: {
       main: {
         App: {
+          OpenDirectoryDialog(): Promise<string>
+          OpenFileDialog(): Promise<string>
           GetAdaConfig(): Promise<backend.AdaConfig | null>
           SetAdaConfig(cfg: backend.AdaConfig): Promise<void>
           GetEnvProviderKeys(): Promise<string[]>
@@ -222,6 +224,18 @@ function getApp() {
     return window.go.main.App
   }
   return null
+}
+
+export async function openDirectoryDialog(): Promise<string> {
+  const app = getApp()
+  if (!app) return ''
+  try { return await app.OpenDirectoryDialog() } catch { return '' }
+}
+
+export async function openFileDialog(): Promise<string> {
+  const app = getApp()
+  if (!app) return ''
+  try { return await app.OpenFileDialog() } catch { return '' }
 }
 
 export async function getAdaConfig(): Promise<backend.AdaConfig | null> {

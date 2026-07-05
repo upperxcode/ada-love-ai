@@ -30,13 +30,12 @@ func (e *Engine) AddWorkspace(w WorkspaceConfig) error {
 	return e.SaveAdaConfig()
 }
 
-func (e *Engine) SetActiveWorkspace(path string) {
+func (e *Engine) SetActiveWorkspace(title string) {
 	e.mu.Lock()
-	e.adaCfg.ActiveWorkspacePath = path
+	e.adaCfg.ActiveWorkspacePath = title
 	
-	// Sincroniza o índice para o UI
 	for i, w := range e.adaCfg.Workspaces {
-		if w.Path == path {
+		if w.Path == title || w.Title == title {
 			e.adaCfg.ActiveWorkspaceIndex = i
 			break
 		}
@@ -45,31 +44,28 @@ func (e *Engine) SetActiveWorkspace(path string) {
 
 	e.SaveAdaConfig()
 	e.ReloadAgentLoop()
-	
-	// Recarregar sessões do banco de dados para este workspace
 	e.RefreshSessions()
 
-	// Notificar que o workspace mudou
 	e.eventBus.Emit(Event{
 		Kind:    EventKindWorkspaceChanged,
-		Payload: path,
+		Payload: title,
 		Time:    time.Now(),
 	})
 }
 
-func (e *Engine) DeleteWorkspace(path string) {
+func (e *Engine) DeleteWorkspace(title string) {
 	e.mu.Lock()
 	var newList []WorkspaceConfig
 	for _, w := range e.adaCfg.Workspaces {
-		if w.Path == path {
+		if w.Title == title {
 			continue
 		}
 		newList = append(newList, w)
 	}
 	e.adaCfg.Workspaces = newList
-	if e.adaCfg.ActiveWorkspacePath == path {
+	if e.adaCfg.ActiveWorkspacePath == title {
 		if len(newList) > 0 {
-			e.adaCfg.ActiveWorkspacePath = newList[0].Path
+			e.adaCfg.ActiveWorkspacePath = newList[0].Title
 		} else {
 			e.adaCfg.ActiveWorkspacePath = ""
 		}
@@ -78,15 +74,13 @@ func (e *Engine) DeleteWorkspace(path string) {
 	e.SaveAdaConfig()
 	
 	e.eventBus.Emit(Event{
-		Kind:    EventKindWorkspaceChanged, // Usamos changed para forçar refresh
+		Kind:    EventKindWorkspaceChanged,
 		Payload: e.adaCfg.ActiveWorkspacePath,
 		Time:    time.Now(),
 	})
 }
 
-func (e *Engine) RegisterWorkspaceTools(path string) {
-	// Implementação futura para carregar ferramentas específicas do workspace
-}
+func (e *Engine) RegisterWorkspaceTools(title string) {}
 
 func (e *Engine) GetAvailableTools() []ToolUIInfo {
 	// Lista fixa de ferramentas disponíveis no momento
@@ -108,7 +102,7 @@ func (e *Engine) GetAvailableTools() []ToolUIInfo {
 	enabledTools := make(map[string]bool)
 	e.mu.RLock()
 	for _, w := range e.adaCfg.Workspaces {
-		if w.Path == workspacePath {
+		if w.Title == workspacePath {
 			for _, t := range w.Tools {
 				enabledTools[t] = true
 			}
@@ -130,10 +124,10 @@ func (e *Engine) GetAvailableTools() []ToolUIInfo {
 }
 
 func (e *Engine) ToggleTool(toolName string, enabled bool) {
-	workspacePath := e.GetActiveWorkspace()
+	activeTitle := e.GetActiveWorkspace()
 	e.mu.Lock()
 	for i, w := range e.adaCfg.Workspaces {
-		if w.Path == workspacePath {
+		if w.Title == activeTitle {
 			found := false
 			idx := -1
 			for j, t := range w.Tools {
@@ -169,10 +163,10 @@ func (e *Engine) GetWorkspaceName(path string) string {
 	return filepath.Base(path)
 }
 
-func (e *Engine) ToggleWorkspace(path string) {
+func (e *Engine) ToggleWorkspace(title string) {
 	e.mu.Lock()
 	for i, w := range e.adaCfg.Workspaces {
-		if w.Path == path {
+		if w.Title == title {
 			e.adaCfg.Workspaces[i].Enabled = !e.adaCfg.Workspaces[i].Enabled
 			break
 		}
@@ -180,3 +174,90 @@ func (e *Engine) ToggleWorkspace(path string) {
 	e.mu.Unlock()
 	e.SaveAdaConfig()
 }
+
+func (e *Engine) UpdateWorkspace(originalTitle string, ws WorkspaceConfig) {
+	e.mu.Lock()
+	for i, w := range e.adaCfg.Workspaces {
+		if w.Title == originalTitle {
+			e.adaCfg.Workspaces[i] = ws
+			break
+		}
+	}
+	e.mu.Unlock()
+	e.SaveAdaConfig()
+}
+
+func (e *Engine) GetToolProfiles() []ToolProfile {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.adaCfg.ToolProfiles
+}
+
+func (e *Engine) CreateToolProfile(name, color, icon string) ToolProfile {
+	e.mu.Lock()
+	id := int64(1)
+	for _, p := range e.adaCfg.ToolProfiles {
+		if p.ID >= id {
+			id = p.ID + 1
+		}
+	}
+	profile := ToolProfile{
+		ID:    id,
+		Name:  name,
+		Color: color,
+		Icon:  icon,
+		Tools: []string{},
+	}
+	e.adaCfg.ToolProfiles = append(e.adaCfg.ToolProfiles, profile)
+	e.mu.Unlock()
+	e.SaveAdaConfig()
+	return profile
+}
+
+func (e *Engine) DeleteToolProfile(id int64) bool {
+	e.mu.Lock()
+	for i, p := range e.adaCfg.ToolProfiles {
+		if p.ID == id {
+			e.adaCfg.ToolProfiles = append(e.adaCfg.ToolProfiles[:i], e.adaCfg.ToolProfiles[i+1:]...)
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			return true
+		}
+	}
+	e.mu.Unlock()
+	return false
+}
+
+func (e *Engine) ToggleProfileTool(profileID int64, toolName string, enabled bool) bool {
+	e.mu.Lock()
+	for i, p := range e.adaCfg.ToolProfiles {
+		if p.ID == profileID {
+			if enabled {
+				found := false
+				for _, t := range p.Tools {
+					if t == toolName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					e.adaCfg.ToolProfiles[i].Tools = append(p.Tools, toolName)
+				}
+			} else {
+				newTools := make([]string, 0, len(p.Tools))
+				for _, t := range p.Tools {
+					if t != toolName {
+						newTools = append(newTools, t)
+					}
+				}
+				e.adaCfg.ToolProfiles[i].Tools = newTools
+			}
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			return true
+		}
+	}
+	e.mu.Unlock()
+	return false
+}
+

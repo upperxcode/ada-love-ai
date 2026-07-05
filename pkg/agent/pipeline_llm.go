@@ -13,6 +13,7 @@ import (
 	"ada-love-ai/pkg/constants"
 	"ada-love-ai/pkg/logger"
 	"ada-love-ai/pkg/providers"
+	"ada-love-ai/pkg/utils"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.

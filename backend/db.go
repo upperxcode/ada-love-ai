@@ -297,6 +297,33 @@ func (s *Store) DeleteMemory(id int) error {
 	return err
 }
 
+// --- Operações de Providers ---
+
+func (s *Store) SaveProviders(providers map[string]ProviderConfig) error {
+	data, err := json.Marshal(providers)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, "providers", string(data))
+	return err
+}
+
+func (s *Store) GetProviders() (map[string]ProviderConfig, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, "providers").Scan(&value)
+	if err == sql.ErrNoRows {
+		return make(map[string]ProviderConfig), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var providers map[string]ProviderConfig
+	if err := json.Unmarshal([]byte(value), &providers); err != nil {
+		return nil, err
+	}
+	return providers, nil
+}
+
 // --- Utilitários de Vetor ---
 
 func Float32ToByte(f []float32) []byte {

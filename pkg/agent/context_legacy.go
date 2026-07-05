@@ -9,6 +9,7 @@ import (
 
 	"ada-love-ai/pkg/logger"
 	"ada-love-ai/pkg/providers"
+	"ada-love-ai/pkg/utils"
 )
 
 // legacyContextManager wraps the existing summarization/compression logic

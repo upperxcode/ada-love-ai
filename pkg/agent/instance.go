@@ -18,6 +18,10 @@ import (
 	"ada-love-ai/pkg/routing"
 	"ada-love-ai/pkg/session"
 	"ada-love-ai/pkg/tools"
+	fstools "ada-love-ai/pkg/tools/fs"
+	gittools "ada-love-ai/pkg/tools/git"
+	integrationtools "ada-love-ai/pkg/tools/integration"
+	runtimetools "ada-love-ai/pkg/tools/runtime"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -120,8 +124,68 @@ func NewAgentInstance(
 		toolsRegistry.Register(tools.NewAppendFileTool(workspace, restrict, allowWritePaths))
 	}
 
+	// --- New tools: File System ---
+	if cfg.Tools.IsToolEnabled("locate_files") {
+		toolsRegistry.Register(fstools.NewLocateFilesTool(workspace, readRestrict, allowReadPaths))
+	}
+	if cfg.Tools.IsToolEnabled("view_file_outline") {
+		toolsRegistry.Register(fstools.NewViewFileOutlineTool(workspace, readRestrict, allowReadPaths))
+	}
+	if cfg.Tools.IsToolEnabled("grep_search") {
+		toolsRegistry.Register(fstools.NewGrepSearchTool(workspace, readRestrict, allowReadPaths))
+	}
+
+	// --- New tools: Git ---
+	if cfg.Tools.IsToolEnabled("git_init") {
+		toolsRegistry.Register(gittools.NewGitInitTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_status") {
+		toolsRegistry.Register(gittools.NewGitStatusTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_diff") {
+		toolsRegistry.Register(gittools.NewGitDiffTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_create_branch") {
+		toolsRegistry.Register(gittools.NewGitCreateBranchTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_switch_branch") {
+		toolsRegistry.Register(gittools.NewGitSwitchBranchTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_commit") {
+		toolsRegistry.Register(gittools.NewGitCommitTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_log") {
+		toolsRegistry.Register(gittools.NewGitLogTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("git_reset") {
+		toolsRegistry.Register(gittools.NewGitResetTool(workspace))
+	}
+
+	// --- New tools: Runtime ---
+	if cfg.Tools.IsToolEnabled("run_tests") {
+		toolsRegistry.Register(runtimetools.NewRunTestsTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("run_linter_formatter") {
+		toolsRegistry.Register(runtimetools.NewRunLinterFormatterTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("check_port_status") {
+		toolsRegistry.Register(runtimetools.NewCheckPortStatusTool(workspace))
+	}
+
+	// --- New tools: HTTP ---
+	if cfg.Tools.IsToolEnabled("http_request") {
+		toolsRegistry.Register(integrationtools.NewHTTPRequestTool())
+	}
+
 	if memStore != nil {
 		toolsRegistry.Register(tools.NewSaveMemoryTool(workspace, memStore))
+		// --- New tools: Memory ---
+		if cfg.Tools.IsToolEnabled("get_agent_memory") {
+			toolsRegistry.Register(tools.NewGetAgentMemoryTool(workspace, memStore))
+		}
+	}
+	if cfg.Tools.IsToolEnabled("search_knowledge_base") {
+		toolsRegistry.Register(tools.NewSearchKnowledgeBaseTool(workspace))
 	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")

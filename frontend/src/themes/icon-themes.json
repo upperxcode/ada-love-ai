@@ -1,0 +1,34 @@
+[
+  {
+    "id": "default",
+    "name": "Default",
+    "vars": {
+      "icon-stroke-width": "1.5",
+      "icon-size": "16px"
+    }
+  },
+  {
+    "id": "bold",
+    "name": "Bold",
+    "vars": {
+      "icon-stroke-width": "2.5",
+      "icon-size": "18px"
+    }
+  },
+  {
+    "id": "light",
+    "name": "Light",
+    "vars": {
+      "icon-stroke-width": "1",
+      "icon-size": "16px"
+    }
+  },
+  {
+    "id": "large",
+    "name": "Large",
+    "vars": {
+      "icon-stroke-width": "1.5",
+      "icon-size": "20px"
+    }
+  }
+]

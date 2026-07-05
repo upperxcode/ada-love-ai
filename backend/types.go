@@ -39,16 +39,21 @@ type SearchResult struct {
 }
 
 type WorkspaceConfig struct {
-	Title           string   `json:"title"`
-	Description     string   `json:"description"`
-	Path            string   `json:"path"`
-	Folders         []string `json:"folders"`
-	Personality     string   `json:"personality"`
-	Knowledge       []string `json:"knowledge"`
-	WorkspaceAgents []string `json:"workspace_agents"`
-	Skills          []string `json:"skills"`
-	Tools           []string `json:"tools"` // Ferramentas habilitadas no workspace
-	Enabled         bool     `json:"enabled"`
+	Title            string   `json:"title"`
+	Description      string   `json:"description"`
+	Path             string   `json:"path"`
+	Folders          []string `json:"folders"`
+	Personality      string   `json:"personality"`
+	Knowledge        []string `json:"knowledge"`
+	WorkspaceAgents  []string `json:"workspace_agents"`
+	Skills           []string `json:"skills"`
+	Tools            []string `json:"tools"`
+	Enabled          bool     `json:"enabled"`
+	Color            string   `json:"color"`
+	Icon             string   `json:"icon"`
+	MaxPromptSend    int      `json:"max_prompt_send"`
+	CommitChanges    bool     `json:"commit_changes"`
+	MaxContextLength int      `json:"max_context_length"`
 }
 
 type ToolUIInfo struct {
@@ -75,7 +80,7 @@ type ModelConfig struct {
 
 type AdaConfig struct {
 	ActiveWorkspacePath string            `json:"active_workspace_path"`
-	ActiveWorkspaceIndex int               `json:"active_workspace_index"`
+	ActiveWorkspaceIndex int              `json:"active_workspace_index"`
 	Workspaces          []WorkspaceConfig `json:"workspaces"`
 	TinyBrain           struct {
 		ModelName         string `json:"model_name"`
@@ -89,6 +94,32 @@ type AdaConfig struct {
 	ProviderBases       map[string]string `json:"provider_bases"`
 	ModelSettings       map[string]ExtraModelConfig `json:"model_settings"`
 	ModelList           config.SecureModelList      `json:"model_list"`
+	Providers           map[string]ProviderConfig   `json:"providers,omitempty"`
+	ToolProfiles        []ToolProfile               `json:"tool_profiles,omitempty"`
+}
+
+// ProviderConfig represents a unified provider configuration.
+type ProviderConfig struct {
+	ApiUrl         string                    `json:"api_url"`
+	ApiKey         string                    `json:"api_key"`
+	TypeConnection string                    `json:"type_connection"`
+	Models         map[string]ModelSettings  `json:"models"`
+}
+
+// ModelSettings represents per-model settings.
+type ModelSettings struct {
+	ContextSize int     `json:"context_size,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"`
+	MaxTokens   int     `json:"max_tokens,omitempty"`
+	TopP        float64 `json:"top_p,omitempty"`
+}
+
+type ToolProfile struct {
+	ID    int64    `json:"id"`
+	Name  string   `json:"name"`
+	Color string   `json:"color"`
+	Icon  string   `json:"icon"`
+	Tools []string `json:"tools"`
 }
 
 // --- Eventos da UI ---

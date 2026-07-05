@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +38,9 @@ type Engine struct {
 }
 
 func NewEngine() (*Engine, error) {
+	configDir := getOSConfigDir()
+	fmt.Printf("[Engine] Using config directory: %s\n", configDir)
+
 	// Carrega a configuração do arquivo config.json no diretório config/
 	cfg, err := config.LoadConfig("config/config.json")
 	if err != nil {
@@ -44,8 +49,14 @@ func NewEngine() (*Engine, error) {
 
 	// Carrega configuração persistente do Ada-Love
 	var adaCfg AdaConfig
-	if data, err := os.ReadFile("config/ada_config.json"); err == nil {
+	adaConfigPath := filepath.Join(configDir, "ada_config.json")
+	if data, err := os.ReadFile(adaConfigPath); err == nil {
 		json.Unmarshal(data, &adaCfg)
+	} else {
+		// Fallback to local config/ directory
+		if data, err := os.ReadFile("config/ada_config.json"); err == nil {
+			json.Unmarshal(data, &adaCfg)
+		}
 	}
 
 	// Migração e saneamento básico
@@ -62,10 +73,27 @@ func NewEngine() (*Engine, error) {
 	msgBus := bus.NewMessageBus()
 	eventBus := NewEventBus()
 
-	// Inicializa o Store (SQLite)
-	db, err := NewStore("config/ada_love.db")
+	// Inicializa o Store (SQLite) no diretório de configuração do SO
+	dbPath := filepath.Join(configDir, "ada_love.db")
+	db, err := NewStore(dbPath)
 	if err != nil {
 		fmt.Printf("[Engine] Aviso: Erro ao inicializar banco de dados: %v\n", err)
+		// Fallback to local path
+		db, err = NewStore("config/ada_love.db")
+		if err != nil {
+			fmt.Printf("[Engine] Erro fatal ao inicializar banco: %v\n", err)
+		}
+	}
+
+	// Carrega providers do SQLite
+	if db != nil {
+		providers, err := db.GetProviders()
+		if err != nil {
+			fmt.Printf("[Engine] Erro ao carregar providers: %v\n", err)
+		} else if len(providers) > 0 {
+			adaCfg.Providers = providers
+			fmt.Printf("[Engine] Carregados %d providers do SQLite\n", len(providers))
+		}
 	}
 
 	e := &Engine{
@@ -205,6 +233,25 @@ func (e *Engine) SaveAdaConfig() error {
 	return nil
 }
 
+// SaveProvidersConfig saves providers to SQLite (providers table in config.db)
+func (e *Engine) SaveProvidersConfig() error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.db == nil {
+		return fmt.Errorf("banco de dados não disponível")
+	}
+	return e.db.SaveProviders(e.adaCfg.Providers)
+}
+
+// GetProvidersConfig returns the current providers from memory
+func (e *Engine) GetProvidersConfig() map[string]ProviderConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.adaCfg.Providers
+}
+
 func (e *Engine) ReloadAgentLoop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -278,4 +325,21 @@ func (e *Engine) Close() {
 	if e.db != nil {
 		e.db.Close()
 	}
+}
+
+// getOSConfigDir returns the OS-specific config directory
+func getOSConfigDir() string {
+	var configDir string
+	switch runtime.GOOS {
+	case "linux":
+		configDir = filepath.Join(os.Getenv("HOME"), ".config", "ada-love")
+	case "darwin":
+		configDir = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "ada-love")
+	case "windows":
+		configDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "ada-love")
+	default:
+		configDir = "config"
+	}
+	os.MkdirAll(configDir, 0755)
+	return configDir
 }

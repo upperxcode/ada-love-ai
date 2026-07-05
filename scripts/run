@@ -1,12 +1,7 @@
 #!/usr/bin/fish
 
-# Garante execução na raiz do projeto
 cd (dirname (status -f))/..
 
-# Exportação Global para Wayland (Comentado para teste de estabilidade)
-# set -gx FYNE_VIDEO wayland
-
-# Cores
 set blue (set_color blue)
 set green (set_color green)
 set red (set_color red)
@@ -20,9 +15,9 @@ function show_menu
     echo "$purple" "│          🤖 ADA-LOVE-AI - DASHBOARD UI           │"
     echo "$purple" "└──────────────────────────────────────────────────┘"
     echo "$normal"
-    echo "$blue 1$normal 🌀 Hot-Reload (Air)"
-    echo "$blue 2$normal 🚀 Compilar e Executar"
-    echo "$blue 3$normal 📦 Build Produção"
+    echo "$blue 1$normal 🌐 Wails Dev (React Hot-Reload)"
+    echo "$blue 2$normal 🔧 Wails Build (Produção)"
+    echo "$blue 3$normal 📦 Build Frontend"
     echo "$blue 4$normal 🛠️  Instalar Dependências"
     echo "$blue 5$normal 🧹 Limpar Cache"
     echo "$red 6$normal ❌ Sair"
@@ -35,26 +30,25 @@ while true
 
     switch "$opt"
         case 1
-            if command -v air > /dev/null
-                echo "$blue" "[INFO] Hot-Reload Wayland Ativo..."
-                air
-            else
-                echo "$red" "[ERRO] Air não encontrado."
-            end
+            echo "$blue" "[INFO] Iniciando Wails Dev (React Hot-Reload)..."
+            echo "$yellow" "[INFO] Certifique-se de que o frontend tem as dependências instaladas: cd frontend && npm install"
+            wails dev -tags "webkit2_41"
         case 2
-            echo "$blue" "[INFO] Executando em modo Wayland Nativo..."
-            # Força o rebuild para garantir que o cache do X11 não seja usado
-            go run -tags wayland -v -a main.go
-        case 3
-            echo "$green" "[BUILD] Gerando binário Wayland..."
+            echo "$green" "[BUILD] Gerando binário Wails Produção..."
             mkdir -p bin
-            go build -v -a -ldflags="-s -w" -o bin/ada-ai main.go
+            cd frontend && npm run build && cd ..
+            wails build -tags "webkit2_41" -o bin/ada-love-ai
+        case 3
+            echo "$green" "[BUILD] Compilando Frontend React..."
+            cd frontend && npm run build && cd ..
         case 4
+            echo "$green" "[INSTALL] Instalando dependências..."
+            cd frontend && npm install && cd ..
             go mod tidy
-            go install github.com/air-verse/air@latest
         case 5
+            echo "$yellow" "[CLEAN] Limpando cache..."
             go clean -cache
-            rm -rf bin/ tmp/
+            rm -rf bin/ frontend/dist/
         case 6
             break
     end

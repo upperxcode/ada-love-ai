@@ -1,23 +1,22 @@
 package main
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-
-	// USE SEMPRE O NOME DO MÓDULO DEFINIDO NO GO.MOD
 	"ada-love-ai/backend"
-	"ada-love-ai/frontend/theme"
-	"ada-love-ai/frontend/ui"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
-func main() {
-	myApp := app.New()
-	myApp.Settings().SetTheme(&theme.MyTheme{})
+//go:embed frontend/dist
+var frontendAssets embed.FS
 
-	// Inicializa o motor Picoclaw
+func main() {
 	engine, err := backend.NewEngine()
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o motor: %v\n", err)
@@ -25,10 +24,25 @@ func main() {
 	}
 	defer engine.Close()
 
-	window := myApp.NewWindow("Ada-Love-Ai")
-	window.SetContent(ui.CreateMainLayout(engine))
+	app := NewApp(engine)
 
-	window.Resize(fyne.NewSize(1400, 900))
+	assets, _ := fs.Sub(frontendAssets, "frontend/dist")
 
-	window.ShowAndRun()
+	err = wails.Run(&options.App{
+		Title:  "Ada Love AI",
+		Width:  1400,
+		Height: 900,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup: app.startup,
+		Bind: []interface{}{
+			app,
+		},
+	})
+
+	if err != nil {
+		fmt.Printf("Erro ao iniciar o app: %v\n", err)
+		os.Exit(1)
+	}
 }

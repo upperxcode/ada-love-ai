@@ -30,6 +30,7 @@ type Engine struct {
 	agentLoop  *agent.AgentLoop
 	mu         sync.RWMutex
 	adaCfg     AdaConfig
+	adaConfigPath string
 	SessionMgr *SessionManager
 	skillReg   *skills.RegistryManager
 	eventBus   *EventBus
@@ -69,6 +70,26 @@ func NewEngine() (*Engine, error) {
 	if adaCfg.ModelSettings == nil {
 		adaCfg.ModelSettings = make(map[string]ExtraModelConfig)
 	}
+	if adaCfg.ToolProfiles == nil {
+		adaCfg.ToolProfiles = []ToolProfile{}
+	}
+	// Garante a existência de um perfil "Default" para a UI de Tools.
+	hasDefault := false
+	for _, p := range adaCfg.ToolProfiles {
+		if p.Name == "Default" {
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault {
+		adaCfg.ToolProfiles = append([]ToolProfile{{
+			ID:    1,
+			Name:  "Default",
+			Color: "#6b7280",
+			Icon:  "🔧",
+			Tools: []string{},
+		}}, adaCfg.ToolProfiles...)
+	}
 
 	msgBus := bus.NewMessageBus()
 	eventBus := NewEventBus()
@@ -97,11 +118,12 @@ func NewEngine() (*Engine, error) {
 	}
 
 	e := &Engine{
-		cfg:        cfg,
-		msgBus:     msgBus,
-		eventBus:   eventBus,
-		adaCfg:     adaCfg,
-		SessionMgr: NewSessionManager(),
+		cfg:           cfg,
+		msgBus:        msgBus,
+		eventBus:      eventBus,
+		adaCfg:        adaCfg,
+		adaConfigPath: adaConfigPath,
+		SessionMgr:    NewSessionManager(),
 		skillReg:   skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
 		db:         db,
 	}
@@ -137,7 +159,7 @@ func NewEngine() (*Engine, error) {
 	// Sincroniza o workspace ativo com a configuração antes de iniciar
 	if e.adaCfg.ActiveWorkspacePath != "" {
 		e.cfg.Agents.Defaults.Workspace = e.adaCfg.ActiveWorkspacePath
-		
+
 		// Sincroniza as pastas, personalidade e conhecimento do workspace ativo
 		if e.adaCfg.ActiveWorkspaceIndex >= 0 && e.adaCfg.ActiveWorkspaceIndex < len(e.adaCfg.Workspaces) {
 			ws := e.adaCfg.Workspaces[e.adaCfg.ActiveWorkspaceIndex]
@@ -210,6 +232,36 @@ func (e *Engine) SetAdaConfig(cfg AdaConfig) {
 	e.SaveAdaConfig()
 }
 
+// GetAgents retorna os agentes configurados.
+func (e *Engine) GetAgents() []AgentConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.adaCfg.Agents
+}
+
+// SetAgents substitui a lista de agentes e persiste.
+func (e *Engine) SetAgents(agents []AgentConfig) {
+	e.mu.Lock()
+	e.adaCfg.Agents = agents
+	e.mu.Unlock()
+	e.SaveAdaConfig()
+}
+
+// GetAgentCategories retorna as categorias de agentes.
+func (e *Engine) GetAgentCategories() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.adaCfg.AgentCategories
+}
+
+// SetAgentCategories substitui as categorias e persiste.
+func (e *Engine) SetAgentCategories(categories []string) {
+	e.mu.Lock()
+	e.adaCfg.AgentCategories = categories
+	e.mu.Unlock()
+	e.SaveAdaConfig()
+}
+
 func (e *Engine) SaveAdaConfig() error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -218,7 +270,13 @@ func (e *Engine) SaveAdaConfig() error {
 	if err != nil {
 		return err
 	}
-	err = os.WriteFile("config/ada_config.json", data, 0644)
+	// Sempre persiste no mesmo arquivo de onde foi carregado (OS config dir),
+	// evitando que os dados sejam salvos num caminho relativo diferente.
+	path := e.adaConfigPath
+	if path == "" {
+		path = "config/ada_config.json"
+	}
+	err = os.WriteFile(path, data, 0644)
 	if err != nil {
 		return err
 	}
@@ -259,7 +317,7 @@ func (e *Engine) ReloadAgentLoop() error {
 	// Sincroniza o workspace ativo com a configuração global do agente
 	if e.adaCfg.ActiveWorkspacePath != "" {
 		e.cfg.Agents.Defaults.Workspace = e.adaCfg.ActiveWorkspacePath
-		
+
 		// Sincroniza as pastas, personalidade e conhecimento do workspace ativo
 		if e.adaCfg.ActiveWorkspaceIndex >= 0 && e.adaCfg.ActiveWorkspaceIndex < len(e.adaCfg.Workspaces) {
 			ws := e.adaCfg.Workspaces[e.adaCfg.ActiveWorkspaceIndex]

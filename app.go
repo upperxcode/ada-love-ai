@@ -49,6 +49,20 @@ func (a *App) SetAdaConfig(cfg backend.AdaConfig) {
 	a.engine.SetAdaConfig(cfg)
 }
 
+// Agents
+func (a *App) GetAgents() []backend.AgentConfig {
+	return a.engine.GetAgents()
+}
+func (a *App) SetAgents(agents []backend.AgentConfig) {
+	a.engine.SetAgents(agents)
+}
+func (a *App) GetAgentCategories() []string {
+	return a.engine.GetAgentCategories()
+}
+func (a *App) SetAgentCategories(categories []string) {
+	a.engine.SetAgentCategories(categories)
+}
+
 // Workspaces
 func (a *App) GetWorkspaces() []backend.WorkspaceConfig {
 	return a.engine.ListWorkspaces()
@@ -125,6 +139,11 @@ func (a *App) SaveProvidersConfig() {
 	a.engine.SaveProvidersConfig()
 }
 func (a *App) GetProviders() []string {
+	return a.engine.GetProviders()
+}
+
+// ListChatProviders expõe os providers de chat configurados para a UI de Agents.
+func (a *App) ListChatProviders() []string {
 	return a.engine.GetProviders()
 }
 

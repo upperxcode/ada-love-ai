@@ -395,7 +395,8 @@ export async function getToolProfiles(): Promise<backend.ToolProfile[]> {
   const app = getApp();
   if (!app) return [];
   try {
-    return await app.GetToolProfiles();
+    const result = await app.GetToolProfiles();
+    return result ?? [];
   } catch {
     return [];
   }
@@ -443,7 +444,8 @@ export async function getAvailableTools(): Promise<backend.ToolUIInfo[]> {
   const app = getApp();
   if (!app) return [];
   try {
-    return await app.GetAvailableTools();
+    const result = await app.GetAvailableTools();
+    return result ?? [];
   } catch {
     return [];
   }

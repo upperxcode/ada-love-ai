@@ -1,0 +1,537 @@
+import { useState, useEffect } from 'react';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Switch } from '../ui/switch';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../ui/dialog';
+import { Separator } from '../ui/separator';
+import { BaseCard } from '../BaseCard';
+import { EditDialog } from '../EditDialog';
+import { ExpandableEditor } from '../ExpandableEditor';
+import { IconPicker } from '../IconPicker';
+import { Icon } from '../Icon';
+import * as api from '../../api';
+
+function WorkspacesSection() {
+  const [workspaces, setWorkspaces] = useState<api.backend.WorkspaceConfig[]>(
+    [],
+  );
+  const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editing, setEditing] = useState<api.backend.WorkspaceConfig | null>(
+    null,
+  );
+  const [showAddTool, setShowAddTool] = useState(false);
+  const [selectedFilterProfileId, setSelectedFilterProfileId] = useState<
+    number | null
+  >(null);
+  const [availableTools, setAvailableTools] = useState<
+    api.backend.ToolUIInfo[]
+  >([]);
+  const [availableProfiles, setAvailableProfiles] = useState<
+    api.backend.ToolProfile[]
+  >([]);
+
+  useEffect(() => {
+    api.getAvailableTools().then(setAvailableTools);
+    api.getToolProfiles().then(setAvailableProfiles);
+  }, []);
+  const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
+  const [knownSkills, setKnownSkills] = useState<string[]>([]);
+  const [E, setE] = useState({
+    title: '',
+    description: '',
+    color: '#3b82f6',
+    icon: '📂',
+    personality: '',
+    folders: [] as string[],
+    knowledge: [] as string[],
+    workspace_agents: [] as string[],
+    skills: [] as string[],
+    tools: [] as string[],
+    enabled: true,
+    maxPromptSend: 0,
+    commitChanges: true,
+    maxContextLength: 0,
+  });
+  const [A, setA] = useState({ title: '', personality: '' });
+  const [selectedField, setSelectedField] = useState('folders');
+  const fieldMap: Record<
+    string,
+    { state: string[]; set: (v: string[]) => void }
+  > = {
+    folders: {
+      state: E.folders,
+      set: (v) => setE((prev) => ({ ...prev, folders: v })),
+    },
+    knowledge: {
+      state: E.knowledge,
+      set: (v) => setE((prev) => ({ ...prev, knowledge: v })),
+    },
+    workspace_agents: {
+      state: E.workspace_agents,
+      set: (v) => setE((prev) => ({ ...prev, workspace_agents: v })),
+    },
+    skills: {
+      state: E.skills,
+      set: (v) => setE((prev) => ({ ...prev, skills: v })),
+    },
+    tools: {
+      state: E.tools,
+      set: (v) => setE((prev) => ({ ...prev, tools: v })),
+    },
+  };
+
+  const computeTokens = (ws: api.backend.WorkspaceConfig) => {
+    let t = 2000;
+    for (const f of ws.folders || []) t += f.length * 10;
+    for (const a of ws.workspace_agents || []) t += 500;
+    for (const s of ws.skills || []) t += 300;
+    return t.toLocaleString();
+  };
+
+  const load = () => {
+    api.getWorkspaces().then(setWorkspaces);
+    api.getAvailableTools().then(setKnownTools);
+  };
+  useEffect(() => {
+    load();
+    api.getAgentCategories().then(setKnownSkills);
+  }, []);
+
+  const handleAdd = async () => {
+    if (!A.title.trim()) return;
+    await api.addWorkspace(A.title.trim(), '', A.personality.trim());
+    setShowAdd(false);
+    setA({ title: '', personality: '' });
+    load();
+  };
+
+  const handleDelete = (title: string) => api.deleteWorkspace(title).then(load);
+  const handleToggle = (title: string) => api.toggleWorkspace(title).then(load);
+
+  const toggleArrayItem = (arr: string[], item: string) =>
+    arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+
+  const openEdit = (ws: api.backend.WorkspaceConfig) => {
+    setEditing(ws);
+    setE({
+      title: ws.title,
+      description: ws.description,
+      color: ws.color || '#3b82f6',
+      icon: ws.icon || '📂',
+      personality: ws.personality,
+      folders: ws.folders || [],
+      knowledge: ws.knowledge || [],
+      workspace_agents: ws.workspace_agents || [],
+      skills: ws.skills || [],
+      tools: ws.tools || [],
+      enabled: ws.enabled,
+      maxPromptSend: ws.max_prompt_send || 0,
+      commitChanges: ws.commit_changes !== false,
+      maxContextLength: ws.max_context_length || 0,
+    });
+    setShowEdit(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    await api.updateWorkspace(editing.title, {
+      ...editing,
+      title: E.title,
+      description: E.description,
+      color: E.color,
+      icon: E.icon,
+      personality: E.personality,
+      folders: E.folders,
+      knowledge: E.knowledge,
+      workspace_agents: E.workspace_agents,
+      skills: E.skills,
+      tools: E.tools,
+      enabled: E.enabled,
+      max_prompt_send: E.maxPromptSend,
+      commit_changes: E.commitChanges,
+      max_context_length: E.maxContextLength,
+    });
+    setShowEdit(false);
+    setEditing(null);
+    load();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Workspaces</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage your workspaces.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1">
+          <Icon name="Plus" size={16} /> New Workspace
+        </Button>
+      </div>
+
+      <div className="agents-grid">
+        {workspaces.map((ws) => (
+          <BaseCard
+            key={ws.title}
+            color={ws.enabled ? ws.color || '#3b82f6' : '#6b7280'}
+            inactive={!ws.enabled}
+            headerLeft={
+              ws.enabled ? (
+                <span className="text-xs text-green-400">✔ Active</span>
+              ) : null
+            }
+            headerRight={
+              <>
+                <button
+                  className="base-card-btn"
+                  onClick={() => openEdit(ws)}
+                  title="Edit"
+                >
+                  <Icon name="Edit" className="w-3 h-3" />
+                </button>
+                <button
+                  className="base-card-btn"
+                  onClick={() => handleToggle(ws.title)}
+                  title="Toggle"
+                >
+                  <Icon name={ws.enabled ? 'Check' : 'X'} className="w-3 h-3" />
+                </button>
+                <button
+                  className="base-card-btn"
+                  onClick={() => handleDelete(ws.title)}
+                  title="Delete"
+                >
+                  <Icon name="Trash2" className="w-3 h-3" />
+                </button>
+              </>
+            }
+            icon={ws.icon || '📂'}
+            title={ws.title}
+          >
+            <div className="base-card-desc">
+              {ws.description || 'No description'}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {ws.folders?.length || 0} folders ·{' '}
+              {ws.workspace_agents?.length || 0} agents ·{' '}
+              {ws.skills?.length || 0} skills
+            </div>
+          </BaseCard>
+        ))}
+        {workspaces.length === 0 && (
+          <div className="col-span-full text-center py-12 text-muted-foreground text-sm">
+            No workspaces yet.
+          </div>
+        )}
+      </div>
+
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Workspace</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                value={A.title}
+                onChange={(e) => setA({ ...A, title: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Personality</label>
+              <Input
+                value={A.personality}
+                onChange={(e) => setA({ ...A, personality: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAdd}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <EditDialog
+        open={showEdit}
+        onOpenChange={setShowEdit}
+        title="Edit Workspace"
+        description={editing ? `${computeTokens(editing)} tokens` : undefined}
+        onSave={handleSaveEdit}
+      >
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Title</label>
+            <Input
+              value={E.title}
+              onChange={(e) => setE({ ...E, title: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Description</label>
+            <Input
+              value={E.description}
+              onChange={(e) => setE({ ...E, description: e.target.value })}
+            />
+          </div>
+
+          <div className="col-span-2 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1">
+              <div
+                className="w-7 h-7 rounded border cursor-pointer"
+                style={{ backgroundColor: E.color }}
+                onClick={() => document.getElementById('pick-color')?.click()}
+              />
+              <input
+                id="pick-color"
+                type="color"
+                value={E.color}
+                onChange={(e) => setE({ ...E, color: e.target.value })}
+                className="w-0 h-0 opacity-0"
+              />
+            </div>
+            <IconPicker
+              value={E.icon}
+              onChange={(v) => setE({ ...E, icon: v })}
+            />
+            <Separator orientation="vertical" className="h-6" />
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">
+                Max Prompt
+              </label>
+              <Input
+                type="number"
+                value={E.maxPromptSend}
+                onChange={(e) =>
+                  setE({ ...E, maxPromptSend: parseInt(e.target.value) || 0 })
+                }
+                className="h-7 w-16"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">
+                Max Context
+              </label>
+              <Input
+                type="number"
+                value={E.maxContextLength}
+                onChange={(e) =>
+                  setE({
+                    ...E,
+                    maxContextLength: parseInt(e.target.value) || 0,
+                  })
+                }
+                className="h-7 w-16"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Switch
+                checked={E.commitChanges}
+                onCheckedChange={(c) => setE({ ...E, commitChanges: c })}
+              />
+              <label className="text-xs text-muted-foreground cursor-pointer">
+                Commit
+              </label>
+            </div>
+          </div>
+
+          <div className="col-span-2">
+            <ExpandableEditor
+              label="Personality"
+              value={E.personality}
+              onChange={(v) => setE({ ...E, personality: v })}
+            />
+          </div>
+
+          <div className="col-span-2 flex gap-0 min-h-[180px]">
+            <div className="w-28 shrink-0 flex flex-col gap-0 pt-0">
+              {[
+                'folders',
+                'knowledge',
+                'workspace_agents',
+                'skills',
+                'tools',
+              ].map((key) => (
+                <div
+                  key={key}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
+                    selectedField === key
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                  onClick={() => setSelectedField(key)}
+                >
+                  <span className="grow text-left">
+                    {
+                      {
+                        folders: 'Folders',
+                        knowledge: 'Knowledge',
+                        workspace_agents: 'Agents',
+                        skills: 'Skills',
+                        tools: 'Tools',
+                      }[key]
+                    }
+                  </span>
+                  {selectedField === key && (
+                    <button
+                      className="shrink-0 flex items-center justify-center w-4 h-4 rounded hover:bg-muted-foreground/20"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        console.log('Plus button clicked for:', key);
+                        if (key === 'folders') {
+                          const dir = await api.openDirectoryDialog();
+                          if (dir) {
+                            const f = fieldMap[key];
+                            if (!f.state.includes(dir))
+                              f.set([...f.state, dir]);
+                          }
+                        } else if (key === 'tools') {
+                          setShowAddTool(true);
+                        }
+                      }}
+                      title={
+                        key === 'folders'
+                          ? 'Add folder'
+                          : key === 'knowledge'
+                            ? 'Add file'
+                            : 'Add'
+                      }
+                    >
+                      <Icon name="Plus" className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 min-h-[28px] max-h-[160px] overflow-y-auto p-1.5 rounded border border-border">
+              <div className="flex flex-wrap gap-1">
+                {fieldMap[selectedField]?.state.map((item: string) => (
+                  <span
+                    key={item}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted text-muted-foreground whitespace-nowrap"
+                  >
+                    {item}
+                    <button
+                      onClick={() =>
+                        fieldMap[selectedField].set(
+                          fieldMap[selectedField].state.filter(
+                            (x: string) => x !== item,
+                          ),
+                        )
+                      }
+                      className="text-destructive hover:text-destructive/80"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </EditDialog>
+
+      <Dialog
+        open={showAddTool}
+        onOpenChange={(open) => {
+          setShowAddTool(open);
+          if (!open) setSelectedFilterProfileId(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Tools</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <h4 className="text-sm font-medium mb-2">Profiles (Filter)</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {availableProfiles.map((p) => (
+                  <button
+                    key={p.id}
+                    className={`text-xs p-2 rounded border text-left ${
+                      selectedFilterProfileId === p.id
+                        ? 'bg-primary/10 border-primary'
+                        : 'hover:bg-muted'
+                    }`}
+                    onClick={() => {
+                      setSelectedFilterProfileId(
+                        selectedFilterProfileId === p.id ? null : p.id,
+                      );
+                    }}
+                  >
+                    {p.name} ({p.tools.length} tools)
+                  </button>
+                ))}
+              </div>
+            </div>
+            {selectedFilterProfileId && (
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  const profile = availableProfiles.find(
+                    (p) => p.id === selectedFilterProfileId,
+                  );
+                  if (profile) {
+                    const newTools = [
+                      ...new Set([...E.tools, ...profile.tools]),
+                    ];
+                    setE({ ...E, tools: newTools });
+                  }
+                }}
+              >
+                Add All Tools from Profile
+              </Button>
+            )}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Tools</h4>
+              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+                {(() => {
+                  const selectedProfile = availableProfiles.find(
+                    (p) => p.id === selectedFilterProfileId,
+                  );
+                  const filteredTools = selectedProfile
+                    ? availableTools.filter((t) =>
+                        selectedProfile.tools.includes(t.name),
+                      )
+                    : availableTools;
+                  return filteredTools.map((t) => (
+                    <button
+                      key={t.name}
+                      className={`text-xs p-2 rounded border text-left ${
+                        E.tools.includes(t.name)
+                          ? 'bg-primary/10 border-primary'
+                          : 'hover:bg-muted'
+                      }`}
+                      onClick={() => {
+                        if (!E.tools.includes(t.name)) {
+                          setE({ ...E, tools: [...E.tools, t.name] });
+                        }
+                      }}
+                    >
+                      {t.name}
+                    </button>
+                  ));
+                })()}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+export default WorkspacesSection;

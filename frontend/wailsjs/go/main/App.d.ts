@@ -22,6 +22,10 @@ export function FetchProviderModels(arg1:string,arg2:string,arg3:string,arg4:str
 
 export function GetAdaConfig():Promise<backend.AdaConfig>;
 
+export function GetAgentCategories():Promise<Array<string>>;
+
+export function GetAgents():Promise<Array<backend.AgentConfig>>;
+
 export function GetAvailableTools():Promise<Array<backend.ToolUIInfo>>;
 
 export function GetProviders():Promise<Array<string>>;
@@ -35,6 +39,8 @@ export function GetToolProfile(arg1:number):Promise<backend.ToolProfile>;
 export function GetToolProfiles():Promise<Array<backend.ToolProfile>>;
 
 export function GetWorkspaces():Promise<Array<backend.WorkspaceConfig>>;
+
+export function ListChatProviders():Promise<Array<string>>;
 
 export function OpenDirectoryDialog():Promise<string>;
 
@@ -55,6 +61,10 @@ export function SendMessage(arg1:string,arg2:string):Promise<string>;
 export function SetActiveWorkspace(arg1:string):Promise<void>;
 
 export function SetAdaConfig(arg1:backend.AdaConfig):Promise<void>;
+
+export function SetAgentCategories(arg1:Array<string>):Promise<void>;
+
+export function SetAgents(arg1:Array<backend.AgentConfig>):Promise<void>;
 
 export function SetWorkspaceTools(arg1:string,arg2:Array<string>):Promise<void>;
 

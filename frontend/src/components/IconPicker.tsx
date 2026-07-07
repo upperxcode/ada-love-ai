@@ -54,7 +54,7 @@ export function IconPicker({ value, onChange }: IconPickerProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="h-8 w-10 p-0 text-lg">
+        <Button variant="outline" className="h-10 w-12 p-0 text-xl">
           {value}
         </Button>
       </PopoverTrigger>

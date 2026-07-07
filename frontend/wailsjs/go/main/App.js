@@ -42,6 +42,14 @@ export function GetAdaConfig() {
   return window['go']['main']['App']['GetAdaConfig']();
 }
 
+export function GetAgentCategories() {
+  return window['go']['main']['App']['GetAgentCategories']();
+}
+
+export function GetAgents() {
+  return window['go']['main']['App']['GetAgents']();
+}
+
 export function GetAvailableTools() {
   return window['go']['main']['App']['GetAvailableTools']();
 }
@@ -68,6 +76,10 @@ export function GetToolProfiles() {
 
 export function GetWorkspaces() {
   return window['go']['main']['App']['GetWorkspaces']();
+}
+
+export function ListChatProviders() {
+  return window['go']['main']['App']['ListChatProviders']();
 }
 
 export function OpenDirectoryDialog() {
@@ -108,6 +120,14 @@ export function SetActiveWorkspace(arg1) {
 
 export function SetAdaConfig(arg1) {
   return window['go']['main']['App']['SetAdaConfig'](arg1);
+}
+
+export function SetAgentCategories(arg1) {
+  return window['go']['main']['App']['SetAgentCategories'](arg1);
+}
+
+export function SetAgents(arg1) {
+  return window['go']['main']['App']['SetAgents'](arg1);
 }
 
 export function SetWorkspaceTools(arg1, arg2) {

@@ -36,9 +36,19 @@ function AgentsSection() {
   const [newCategory, setNewCategory] = useState('');
 
   const load = async () => {
-    setAgents(await api.getAgents());
-    setCategories(await api.getAgentCategories());
-    setAvailableProviders(await api.listChatProviders());
+    try {
+      const a = await api.getAgents();
+      setAgents(a || []);
+      const c = await api.getAgentCategories();
+      setCategories(c || []);
+      const p = await api.listChatProviders();
+      setAvailableProviders(p || []);
+    } catch (e) {
+      console.error('[AgentsSection] load error:', e);
+      setAgents([]);
+      setCategories([]);
+      setAvailableProviders([]);
+    }
   };
 
   useEffect(() => {

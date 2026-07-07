@@ -24,11 +24,13 @@ export function GetAdaConfig():Promise<backend.AdaConfig>;
 
 export function GetAgentCategories():Promise<Array<string>>;
 
-export function GetAgents():Promise<Array<backend.AgentConfig>>;
+export function GetAgents():Promise<Array<backend.WorkerConfig>>;
 
 export function GetAvailableTools():Promise<Array<backend.ToolUIInfo>>;
 
 export function GetInstalledSkills():Promise<Array<string>>;
+
+export function GetPredefinedConnections():Promise<Array<backend.ConnectionDefinition>>;
 
 export function GetProviders():Promise<Array<string>>;
 
@@ -43,6 +45,10 @@ export function GetSkillFullInfo(arg1:string):Promise<backend.SkillFullInfo>;
 export function GetToolProfile(arg1:number):Promise<backend.ToolProfile>;
 
 export function GetToolProfiles():Promise<Array<backend.ToolProfile>>;
+
+export function GetWorkerCategories():Promise<Array<string>>;
+
+export function GetWorkers():Promise<Array<backend.WorkerConfig>>;
 
 export function GetWorkspaces():Promise<Array<backend.WorkspaceConfig>>;
 
@@ -76,9 +82,15 @@ export function SetAdaConfig(arg1:backend.AdaConfig):Promise<void>;
 
 export function SetAgentCategories(arg1:Array<string>):Promise<void>;
 
-export function SetAgents(arg1:Array<backend.AgentConfig>):Promise<void>;
+export function SetAgents(arg1:Array<backend.WorkerConfig>):Promise<void>;
+
+export function SetWorkerCategories(arg1:Array<string>):Promise<void>;
+
+export function SetWorkers(arg1:Array<backend.WorkerConfig>):Promise<void>;
 
 export function SetWorkspaceTools(arg1:string,arg2:Array<string>):Promise<void>;
+
+export function TestConnection(arg1:string,arg2:string,arg3:string):Promise<backend.ConnectionTestResult>;
 
 export function TestProviderConnection(arg1:string,arg2:string,arg3:string,arg4:string):Promise<backend.ProviderTestResult>;
 

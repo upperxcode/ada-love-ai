@@ -3,6 +3,7 @@ import { Icon } from './Icon';
 import GeneralSection from './settings/GeneralSection';
 import WorkspacesSection from './settings/WorkspacesSection';
 import AgentsSection from './settings/AgentsSection';
+import WorkersSection from './settings/WorkersSection';
 import SkillsSection from './settings/SkillsSection';
 import ToolsSection from './settings/ToolsSection';
 import ModelsSection from './settings/ModelsSection';
@@ -10,6 +11,7 @@ import ModelsSection from './settings/ModelsSection';
 const settingsSections = [
   { id: 'general', icon: 'Settings', label: 'General' },
   { id: 'workspace', icon: 'Folder', label: 'Workspace' },
+  { id: 'workers', icon: 'Bot', label: 'Workers' },
   { id: 'agents', icon: 'User', label: 'Agents' },
   { id: 'skills', icon: 'Brain', label: 'Skills' },
   { id: 'tools', icon: 'Wrench', label: 'Tools' },
@@ -46,6 +48,7 @@ function SettingsPage() {
         <div className="settings-content">
           {activeSection === 'general' && <GeneralSection />}
           {activeSection === 'workspace' && <WorkspacesSection />}
+          {activeSection === 'workers' && <WorkersSection />}
           {activeSection === 'agents' && <AgentsSection />}
           {activeSection === 'skills' && <SkillsSection />}
           {activeSection === 'tools' && <ToolsSection />}

@@ -45,6 +45,7 @@ const setConfig: Record<string, { pkg: any; names: Record<string, string> }> = {
       Sparkles: 'LuSparkles',
       Eye: 'LuEye',
       Network: 'LuNetwork',
+      Bot: 'LuBot',
     },
   },
   classic: {

@@ -52,6 +52,13 @@ declare global {
           ): Promise<void>;
           SetActiveWorkspace(path: string): Promise<void>;
           ToggleWorkspace(path: string): Promise<void>;
+          GetWorkers(): Promise<backend.WorkerConfig[]>;
+          SetWorkers(workers: backend.WorkerConfig[]): Promise<void>;
+          GetWorkerCategories(): Promise<string[]>;
+          SetWorkerCategories(categories: string[]): Promise<void>;
+          GetPredefinedConnections(): Promise<backend.ConnectionDefinition[]>;
+          TestConnection(connectionType: string, connectionName: string, connectionConfig: string): Promise<backend.ConnectionTestResult>;
+          // Legacy agent bindings (mapped to workers on backend)
           GetAgents(): Promise<backend.AgentConfig[]>;
           SetAgents(agents: backend.AgentConfig[]): Promise<void>;
           GetAgentCategories(): Promise<string[]>;
@@ -60,12 +67,21 @@ declare global {
           ToggleTool(toolName: string, enabled: boolean): Promise<void>;
           RemoveModel(name: string, provider: string): Promise<void>;
           SearchSkills(query: string): Promise<backend.SearchResult[]>;
-          InstallSkill(registryName: string, slug: string, version: string): Promise<void>;
+          InstallSkill(
+            registryName: string,
+            slug: string,
+            version: string,
+          ): Promise<void>;
           GetInstalledSkills(): Promise<string[]>;
           UninstallSkill(name: string): Promise<void>;
           GetSkillDetails(name: string): Promise<string>;
           GetSkillFullInfo(name: string): Promise<backend.SkillFullInfo | null>;
-          SaveCustomSkill(name: string, description: string, tagsCSV: string, content: string): Promise<void>;
+          SaveCustomSkill(
+            name: string,
+            description: string,
+            tagsCSV: string,
+            content: string,
+          ): Promise<void>;
         };
       };
     };
@@ -264,9 +280,70 @@ export namespace backend {
     }
   }
 
-  export class AgentConfig {
+  export class WorkerConfig {
     name: string = '';
     persona: string = '';
+    language: string = '';       // idioma de resposta ao usuário
+    // Conexão (binding)
+    connection_type: string = 'ada';   // "ada", "cli", "rest", "mcp"
+    connection_name: string = 'Ada';   // nome do preset
+    connection_config: string = '';    // JSON com config específica
+    // Inheritência do workspace (toggles)
+    inherit_folders: boolean = true;
+    inherit_knowledge: boolean = true;
+    inherit_skills: boolean = true;
+    inherit_tools: boolean = true;
+    inherit_persona: boolean = true;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.persona = source['persona'] ?? '';
+      this.language = source['language'] ?? '';
+      this.connection_type = source['connection_type'] ?? 'ada';
+      this.connection_name = source['connection_name'] ?? 'Ada';
+      this.connection_config = source['connection_config'] ?? '';
+      this.inherit_folders = source['inherit_folders'] ?? true;
+      this.inherit_knowledge = source['inherit_knowledge'] ?? true;
+      this.inherit_skills = source['inherit_skills'] ?? true;
+      this.inherit_tools = source['inherit_tools'] ?? true;
+      this.inherit_persona = source['inherit_persona'] ?? true;
+    }
+  }
+
+  export class ConnectionDefinition {
+    name: string = '';
+    type: string = '';        // "ada", "cli", "rest", "mcp"
+    command: string = '';     // CLI command
+    description: string = '';
+    icon: string = '';
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.type = source['type'] ?? '';
+      this.command = source['command'] ?? '';
+      this.description = source['description'] ?? '';
+      this.icon = source['icon'] ?? '';
+    }
+  }
+
+  export class ConnectionTestResult {
+    success: boolean = false;
+    message: string = '';
+    latency_ms: number = 0;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.success = source['success'] ?? false;
+      this.message = source['message'] ?? '';
+      this.latency_ms = source['latency_ms'] ?? 0;
+    }
+  }
+
+  // Legacy alias — AgentsSection uses this name
+  export class AgentConfig extends WorkerConfig {
+    // Legacy fields used by AgentsSection
     provider: string = '';
     model: string = '';
     category: string = '';
@@ -274,9 +351,7 @@ export namespace backend {
     color: string = '';
 
     constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source);
-      this.name = source['name'] ?? '';
-      this.persona = source['persona'] ?? '';
+      super(source);
       this.provider = source['provider'] ?? '';
       this.model = source['model'] ?? '';
       this.category = source['category'] ?? '';
@@ -293,7 +368,7 @@ export namespace backend {
     folders: string[] = [];
     personality: string = '';
     knowledge: string[] = [];
-    workspace_agents: string[] = [];
+    workers: WorkerConfig[] = [];
     skills: string[] = [];
     tools: string[] = [];
     enabled: boolean = true;
@@ -312,7 +387,11 @@ export namespace backend {
       this.folders = source['folders'] ?? [];
       this.personality = source['personality'] ?? '';
       this.knowledge = source['knowledge'] ?? [];
-      this.workspace_agents = source['workspace_agents'] ?? [];
+      this.workers = (
+        source['workspace_agents'] ??
+        source['workers'] ??
+        []
+      ).map((w: any) => new WorkerConfig(w));
       this.skills = source['skills'] ?? [];
       this.tools = source['tools'] ?? [];
       this.enabled = source['enabled'] ?? true;
@@ -329,7 +408,10 @@ export namespace backend {
     active_workspace_index: number = 0;
     workspaces: WorkspaceConfig[] = [];
     tiny_brain: any = {};
-    agents: AgentConfig[] = [];
+    workers: WorkerConfig[] = [];
+    worker_categories: string[] = [];
+    // Legacy aliases for backward compatibility
+    agents: WorkerConfig[] = [];
     agent_categories: string[] = [];
     provider_keys: Record<string, string> = {};
     provider_bases: Record<string, string> = {};
@@ -349,10 +431,11 @@ export namespace backend {
         (w: any) => new WorkspaceConfig(w),
       );
       this.tiny_brain = source['tiny_brain'] ?? {};
-      this.agents = (source['agents'] ?? []).map(
-        (a: any) => new AgentConfig(a),
+      this.workers = (source['agents'] ?? source['workers'] ?? []).map(
+        (w: any) => new WorkerConfig(w),
       );
-      this.agent_categories = source['agent_categories'] ?? [];
+      this.worker_categories =
+        source['agent_categories'] ?? source['worker_categories'] ?? [];
       this.provider_keys = source['provider_keys'] ?? {};
       this.provider_bases = source['provider_bases'] ?? {};
       this.model_settings = source['model_settings'] ?? {};
@@ -407,13 +490,17 @@ export async function getAdaConfig(): Promise<backend.AdaConfig | null> {
         processedProviders[key] = new backend.ProviderConfig(val);
       }
     }
-    const processedWorkspaces = (rawConfig.workspaces || []).map((w: any) => new backend.WorkspaceConfig(w));
-    const processedAgents = (rawConfig.agents || []).map((a: any) => new backend.AgentConfig(a));
+    const processedWorkspaces = (rawConfig.workspaces || []).map(
+      (w: any) => new backend.WorkspaceConfig(w),
+    );
+    const processedWorkers = (rawConfig.workers || rawConfig.agents || []).map(
+      (w: any) => new backend.WorkerConfig(w),
+    );
     return new backend.AdaConfig({
       ...rawConfig,
       providers: processedProviders,
       workspaces: processedWorkspaces,
-      agents: processedAgents,
+      workers: processedWorkers,
     });
   } catch {
     return null;
@@ -539,29 +626,97 @@ export async function setWorkspaces(
   } catch {}
 }
 
-export async function getAgents(): Promise<backend.AgentConfig[]> {
+export async function getWorkers(): Promise<backend.WorkerConfig[]> {
   const app = getApp();
   if (!app) return [];
   try {
-    return await app.GetAgents();
+    const raw = await app.GetWorkers();
+    return (raw ?? []).map((w: any) => new backend.WorkerConfig(w));
   } catch {
     return [];
   }
 }
 
+export async function setWorkers(
+  workers: backend.WorkerConfig[],
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetWorkers(workers);
+  } catch {}
+}
+
+export async function getPredefinedConnections(): Promise<backend.ConnectionDefinition[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const raw = await app.GetPredefinedConnections();
+    return (raw ?? []).map((c: any) => new backend.ConnectionDefinition(c));
+  } catch {
+    return [];
+  }
+}
+
+export async function testConnection(
+  connectionType: string,
+  connectionName: string,
+  connectionConfig: string,
+): Promise<backend.ConnectionTestResult> {
+  const app = getApp();
+  if (!app) return new backend.ConnectionTestResult({ success: false, message: 'App not available' });
+  try {
+    const raw = await app.TestConnection(connectionType, connectionName, connectionConfig);
+    return new backend.ConnectionTestResult(raw);
+  } catch {
+    return new backend.ConnectionTestResult({ success: false, message: 'Test failed' });
+  }
+}
+
+// Legacy aliases — AgentsSection uses these
+export async function getAgents(): Promise<backend.AgentConfig[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const raw = await app.GetAgents();
+    return (raw ?? []).map((w: any) => new backend.AgentConfig(w));
+  } catch {
+    return [];
+  }
+}
 export async function setAgents(agents: backend.AgentConfig[]): Promise<void> {
   const app = getApp();
   if (!app) return;
   try {
     await app.SetAgents(agents);
-  } catch {}
+  } catch {
+    // handle error
+  }
 }
-
 export async function getAgentCategories(): Promise<string[]> {
   const app = getApp();
   if (!app) return [];
   try {
     return await app.GetAgentCategories();
+  } catch {
+    return [];
+  }
+}
+export async function setAgentCategories(categories: string[]): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetAgentCategories(categories);
+  } catch {
+    // handle error
+  }
+}
+
+export async function getWorkerCategories(): Promise<string[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetWorkerCategories();
   } catch {
     return [];
   }
@@ -658,7 +813,12 @@ export async function testProviderConnection(
       message: 'App not available',
     });
   try {
-    const raw = await app.TestProviderConnection(name, apiKey, apiBase, connectionType);
+    const raw = await app.TestProviderConnection(
+      name,
+      apiKey,
+      apiBase,
+      connectionType,
+    );
     return new backend.ProviderTestResult(raw);
   } catch {
     return new backend.ProviderTestResult({
@@ -677,20 +837,23 @@ export async function fetchProviderModels(
   const app = getApp();
   if (!app) return [];
   try {
-    const raw = await app.FetchProviderModels(name, apiKey, apiBase, connectionType);
+    const raw = await app.FetchProviderModels(
+      name,
+      apiKey,
+      apiBase,
+      connectionType,
+    );
     return raw.map((m: any) => new backend.ProviderModel(m));
   } catch {
     return [];
   }
 }
 
-export async function setAgentCategories(
-  categories: string[],
-): Promise<void> {
+export async function setWorkerCategories(categories: string[]): Promise<void> {
   const app = getApp();
   if (!app) return;
   try {
-    await app.SetAgentCategories(categories);
+    await app.SetWorkerCategories(categories);
   } catch {}
 }
 
@@ -699,15 +862,15 @@ export async function setAgentCategories(
 export async function searchSkills(
   query: string,
 ): Promise<backend.SearchResult[]> {
-    const app = getApp();
-    if (!app) return [];
-    try {
-      const result = await app.SearchSkills(query);
-      return result ?? [];
-    } catch {
-      return [];
-    }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const result = await app.SearchSkills(query);
+    return result ?? [];
+  } catch {
+    return [];
   }
+}
 
 export async function installSkill(
   registryName: string,

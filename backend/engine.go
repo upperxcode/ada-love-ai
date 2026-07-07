@@ -232,32 +232,32 @@ func (e *Engine) SetAdaConfig(cfg AdaConfig) {
 	e.SaveAdaConfig()
 }
 
-// GetAgents retorna os agentes configurados.
-func (e *Engine) GetAgents() []AgentConfig {
+// GetWorkers retorna os workers configurados.
+func (e *Engine) GetWorkers() []WorkerConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.adaCfg.Agents
+	return e.adaCfg.Workers
 }
 
-// SetAgents substitui a lista de agentes e persiste.
-func (e *Engine) SetAgents(agents []AgentConfig) {
+// SetWorkers substitui a lista de workers e persiste.
+func (e *Engine) SetWorkers(workers []WorkerConfig) {
 	e.mu.Lock()
-	e.adaCfg.Agents = agents
+	e.adaCfg.Workers = workers
 	e.mu.Unlock()
 	e.SaveAdaConfig()
 }
 
-// GetAgentCategories retorna as categorias de agentes.
-func (e *Engine) GetAgentCategories() []string {
+// GetWorkerCategories retorna as categorias de workers.
+func (e *Engine) GetWorkerCategories() []string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.adaCfg.AgentCategories
+	return e.adaCfg.WorkerCategories
 }
 
-// SetAgentCategories substitui as categorias e persiste.
-func (e *Engine) SetAgentCategories(categories []string) {
+// SetWorkerCategories substitui as categorias e persiste.
+func (e *Engine) SetWorkerCategories(categories []string) {
 	e.mu.Lock()
-	e.adaCfg.AgentCategories = categories
+	e.adaCfg.WorkerCategories = categories
 	e.mu.Unlock()
 	e.SaveAdaConfig()
 }

@@ -51,7 +51,7 @@ function WorkspacesSection() {
     personality: '',
     folders: [] as string[],
     knowledge: [] as string[],
-    workspace_agents: [] as string[],
+    workers: [] as string[],
     skills: [] as string[],
     tools: [] as string[],
     enabled: true,
@@ -73,9 +73,9 @@ function WorkspacesSection() {
       state: E.knowledge,
       set: (v) => setE((prev) => ({ ...prev, knowledge: v })),
     },
-    workspace_agents: {
-      state: E.workspace_agents,
-      set: (v) => setE((prev) => ({ ...prev, workspace_agents: v })),
+    workers: {
+      state: E.workers,
+      set: (v) => setE((prev) => ({ ...prev, workers: v })),
     },
     skills: {
       state: E.skills,
@@ -90,18 +90,18 @@ function WorkspacesSection() {
   const computeTokens = (ws: api.backend.WorkspaceConfig) => {
     let t = 2000;
     for (const f of ws.folders || []) t += f.length * 10;
-    for (const a of ws.workspace_agents || []) t += 500;
+    for (const a of ws.workers || []) t += 500;
     for (const s of ws.skills || []) t += 300;
     return t.toLocaleString();
   };
 
   const load = () => {
-    api.getWorkspaces().then(setWorkspaces);
-    api.getAvailableTools().then(setKnownTools);
+    api.getWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]));
+    api.getAvailableTools().then(setKnownTools).catch(() => setKnownTools([]));
   };
   useEffect(() => {
     load();
-    api.getAgentCategories().then(setKnownSkills);
+    api.getWorkerCategories().then(setKnownSkills).catch(() => {});
   }, []);
 
   const handleAdd = async () => {
@@ -128,7 +128,7 @@ function WorkspacesSection() {
       personality: ws.personality,
       folders: ws.folders || [],
       knowledge: ws.knowledge || [],
-      workspace_agents: ws.workspace_agents || [],
+      workers: (ws.workers || []).map((w) => typeof w === 'string' ? w : (w as any).name || ''),
       skills: ws.skills || [],
       tools: ws.tools || [],
       enabled: ws.enabled,
@@ -150,7 +150,7 @@ function WorkspacesSection() {
       personality: E.personality,
       folders: E.folders,
       knowledge: E.knowledge,
-      workspace_agents: E.workspace_agents,
+      workers: E.workers.map((name) => ({ name } as api.backend.WorkerConfig)),
       skills: E.skills,
       tools: E.tools,
       enabled: E.enabled,
@@ -221,7 +221,7 @@ function WorkspacesSection() {
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               {ws.folders?.length || 0} folders ·{' '}
-              {ws.workspace_agents?.length || 0} agents ·{' '}
+              {ws.workers?.length || 0} workers ·{' '}
               {ws.skills?.length || 0} skills
             </div>
           </BaseCard>
@@ -359,7 +359,7 @@ function WorkspacesSection() {
               {[
                 'folders',
                 'knowledge',
-                'workspace_agents',
+                'workers',
                 'skills',
                 'tools',
               ].map((key) => (
@@ -377,7 +377,7 @@ function WorkspacesSection() {
                       {
                         folders: 'Folders',
                         knowledge: 'Knowledge',
-                        workspace_agents: 'Agents',
+                        workers: 'Workers',
                         skills: 'Skills',
                         tools: 'Tools',
                       }[key]

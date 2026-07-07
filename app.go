@@ -49,18 +49,38 @@ func (a *App) SetAdaConfig(cfg backend.AdaConfig) {
 	a.engine.SetAdaConfig(cfg)
 }
 
-// Agents
-func (a *App) GetAgents() []backend.AgentConfig {
-	return a.engine.GetAgents()
+// Workers
+func (a *App) GetWorkers() []backend.WorkerConfig {
+	return a.engine.GetWorkers()
 }
-func (a *App) SetAgents(agents []backend.AgentConfig) {
-	a.engine.SetAgents(agents)
+func (a *App) SetWorkers(workers []backend.WorkerConfig) {
+	a.engine.SetWorkers(workers)
+}
+func (a *App) GetWorkerCategories() []string {
+	return a.engine.GetWorkerCategories()
+}
+func (a *App) SetWorkerCategories(categories []string) {
+	a.engine.SetWorkerCategories(categories)
+}
+func (a *App) GetPredefinedConnections() []backend.ConnectionDefinition {
+	return backend.PredefinedConnections()
+}
+func (a *App) TestConnection(connectionType, connectionName, connectionConfig string) backend.ConnectionTestResult {
+	return a.engine.TestConnection(connectionType, connectionName, connectionConfig)
+}
+
+// Legacy agent aliases (mapped to workers)
+func (a *App) GetAgents() []backend.WorkerConfig {
+	return a.engine.GetWorkers()
+}
+func (a *App) SetAgents(agents []backend.WorkerConfig) {
+	a.engine.SetWorkers(agents)
 }
 func (a *App) GetAgentCategories() []string {
-	return a.engine.GetAgentCategories()
+	return a.engine.GetWorkerCategories()
 }
 func (a *App) SetAgentCategories(categories []string) {
-	a.engine.SetAgentCategories(categories)
+	a.engine.SetWorkerCategories(categories)
 }
 
 // Workspaces

@@ -58,12 +58,12 @@ function ToolsSection() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    api.getAvailableTools().then(setTools);
+    api.getAvailableTools().then(setTools).catch(() => setTools([]));
     api.getToolProfiles().then((profiles) => {
-      setProfiles(profiles);
-      const defaultProfile = profiles.find((p) => p.name === 'Default');
+      setProfiles(profiles ?? []);
+      const defaultProfile = (profiles ?? []).find((p) => p.name === 'Default');
       if (defaultProfile) setSelectedProfileID(defaultProfile.id);
-    });
+    }).catch(() => {});
   }, []);
 
   const handleToggle = async (toolName: string, enabled: boolean) => {

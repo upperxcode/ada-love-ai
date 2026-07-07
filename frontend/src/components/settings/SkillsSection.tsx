@@ -78,11 +78,15 @@ function SkillsSection() {
 
   const loadInstalledSkills = async () => {
     setLoading(true);
-    const names = await api.getInstalledSkills();
-    const infos = await Promise.all(names.map((n) => api.getSkillFullInfo(n)));
-    setInstalledSkills(
-      infos.filter((s): s is api.backend.SkillFullInfo => s !== null),
-    );
+    try {
+      const names = await api.getInstalledSkills();
+      const infos = await Promise.all((names ?? []).map((n) => api.getSkillFullInfo(n)));
+      setInstalledSkills(
+        infos.filter((s): s is api.backend.SkillFullInfo => s !== null),
+      );
+    } catch {
+      setInstalledSkills([]);
+    }
     setLoading(false);
   };
 

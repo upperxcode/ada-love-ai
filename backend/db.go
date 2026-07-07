@@ -62,7 +62,7 @@ func (s *Store) init() error {
 			personality TEXT,
 			folders TEXT, -- JSON
 			knowledge TEXT, -- JSON
-			agents TEXT, -- JSON
+			workers TEXT, -- JSON
 			skills TEXT, -- JSON
 			tools TEXT -- JSON
 		)`,
@@ -106,6 +106,7 @@ func (s *Store) init() error {
 	s.db.Exec("ALTER TABLE memories ADD COLUMN embedding BLOB") // Ignora erro se já existir
 	s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")   // Ignora erro se já existir
 	s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT") // Migração para novo campo manual
+	s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers") // Migração agents → workers
 
 	return nil
 }
@@ -143,21 +144,21 @@ func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
 func (s *Store) SaveWorkspace(ws WorkspaceConfig) error {
 	folders, _ := json.Marshal(ws.Folders)
 	knowledge, _ := json.Marshal(ws.Knowledge)
-	agents, _ := json.Marshal(ws.WorkspaceAgents)
+	workers, _ := json.Marshal(ws.WorkspaceAgents)
 	skills, _ := json.Marshal(ws.Skills)
 	tools, _ := json.Marshal(ws.Tools)
 
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO workspaces (title, description, path, personality, folders, knowledge, agents, skills, tools)
+		INSERT OR REPLACE INTO workspaces (title, description, path, personality, folders, knowledge, workers, skills, tools)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ws.Title, ws.Description, ws.Path, ws.Personality,
-		string(folders), string(knowledge), string(agents), string(skills), string(tools),
+		string(folders), string(knowledge), string(workers), string(skills), string(tools),
 	)
 	return err
 }
 
 func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
-	rows, err := s.db.Query(`SELECT title, description, path, personality, folders, knowledge, agents, skills, tools FROM workspaces`)
+	rows, err := s.db.Query(`SELECT title, description, path, personality, folders, knowledge, workers, skills, tools FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -166,14 +167,14 @@ func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
 	var workspaces []WorkspaceConfig
 	for rows.Next() {
 		var ws WorkspaceConfig
-		var folders, knowledge, agents, skills, tools string
-		err := rows.Scan(&ws.Title, &ws.Description, &ws.Path, &ws.Personality, &folders, &knowledge, &agents, &skills, &tools)
+		var folders, knowledge, workers, skills, tools string
+		err := rows.Scan(&ws.Title, &ws.Description, &ws.Path, &ws.Personality, &folders, &knowledge, &workers, &skills, &tools)
 		if err != nil {
 			return nil, err
 		}
 		json.Unmarshal([]byte(folders), &ws.Folders)
 		json.Unmarshal([]byte(knowledge), &ws.Knowledge)
-		json.Unmarshal([]byte(agents), &ws.WorkspaceAgents)
+		json.Unmarshal([]byte(workers), &ws.WorkspaceAgents)
 		json.Unmarshal([]byte(skills), &ws.Skills)
 		json.Unmarshal([]byte(tools), &ws.Tools)
 		workspaces = append(workspaces, ws)

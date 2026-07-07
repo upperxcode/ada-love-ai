@@ -21,6 +21,7 @@ export const categoryColors: Record<string, string> = {
 export const settingsSections = [
   { id: 'general', icon: 'Settings', label: 'General' },
   { id: 'workspace', icon: 'Folder', label: 'Workspace' },
+  { id: 'workers', icon: 'Bot', label: 'Workers' },
   { id: 'agents', icon: 'User', label: 'Agents' },
   { id: 'skills', icon: 'Brain', label: 'Skills' },
   { id: 'tools', icon: 'Wrench', label: 'Tools' },

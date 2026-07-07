@@ -58,6 +58,10 @@ export function GetInstalledSkills() {
   return window['go']['main']['App']['GetInstalledSkills']();
 }
 
+export function GetPredefinedConnections() {
+  return window['go']['main']['App']['GetPredefinedConnections']();
+}
+
 export function GetProviders() {
   return window['go']['main']['App']['GetProviders']();
 }
@@ -84,6 +88,14 @@ export function GetToolProfile(arg1) {
 
 export function GetToolProfiles() {
   return window['go']['main']['App']['GetToolProfiles']();
+}
+
+export function GetWorkerCategories() {
+  return window['go']['main']['App']['GetWorkerCategories']();
+}
+
+export function GetWorkers() {
+  return window['go']['main']['App']['GetWorkers']();
 }
 
 export function GetWorkspaces() {
@@ -154,8 +166,20 @@ export function SetAgents(arg1) {
   return window['go']['main']['App']['SetAgents'](arg1);
 }
 
+export function SetWorkerCategories(arg1) {
+  return window['go']['main']['App']['SetWorkerCategories'](arg1);
+}
+
+export function SetWorkers(arg1) {
+  return window['go']['main']['App']['SetWorkers'](arg1);
+}
+
 export function SetWorkspaceTools(arg1, arg2) {
   return window['go']['main']['App']['SetWorkspaceTools'](arg1, arg2);
+}
+
+export function TestConnection(arg1, arg2, arg3) {
+  return window['go']['main']['App']['TestConnection'](arg1, arg2, arg3);
 }
 
 export function TestProviderConnection(arg1, arg2, arg3, arg4) {

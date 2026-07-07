@@ -5,14 +5,20 @@ import (
 	"time"
 )
 
-type AgentConfig struct {
-	Name     string `json:"name"`
-	Persona  string `json:"persona"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Category string `json:"category"`
-	Icon     string `json:"icon"`
-	Color    string `json:"color"`
+type WorkerConfig struct {
+	Name             string `json:"name"`
+	Persona          string `json:"persona"`
+	Language         string `json:"language"`         // idioma de resposta ao usuário (ex: "pt-BR", "en", "es")
+	// Conexão (binding) — como o worker se comunica
+	ConnectionType   string `json:"connection_type"`   // "ada", "cli", "rest", "mcp"
+	ConnectionName   string `json:"connection_name"`   // nome do preset (ex: "Crush", "OpenCode")
+	ConnectionConfig string `json:"connection_config"` // JSON com config específica da conexão
+	// Inheritência do workspace (toggles)
+	InheritFolders   bool   `json:"inherit_folders"`
+	InheritKnowledge bool   `json:"inherit_knowledge"`
+	InheritSkills    bool   `json:"inherit_skills"`
+	InheritTools     bool   `json:"inherit_tools"`
+	InheritPersona   bool   `json:"inherit_persona"`
 }
 
 type SkillFullInfo struct {
@@ -46,7 +52,7 @@ type WorkspaceConfig struct {
 	Folders          []string `json:"folders"`
 	Personality      string   `json:"personality"`
 	Knowledge        []string `json:"knowledge"`
-	WorkspaceAgents  []string `json:"workspace_agents"`
+	WorkspaceAgents  []WorkerConfig `json:"workspace_agents"`
 	Skills           []string `json:"skills"`
 	Tools            []string `json:"tools"`
 	Enabled          bool     `json:"enabled"`
@@ -93,8 +99,8 @@ type AdaConfig struct {
 	EmbeddingProvider string `json:"embedding_provider"`
 	ImageModel        string `json:"image_model"`
 	ImageProvider     string `json:"image_provider"`
-	Agents              []AgentConfig     `json:"agents"`
-	AgentCategories     []string          `json:"agent_categories"`
+	Workers              []WorkerConfig     `json:"workers"`
+	WorkerCategories     []string          `json:"worker_categories"`
 	ProviderKeys        map[string]string `json:"provider_keys"`
 	ProviderBases       map[string]string `json:"provider_bases"`
 	ModelSettings       map[string]ExtraModelConfig `json:"model_settings"`

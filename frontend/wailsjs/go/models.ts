@@ -104,28 +104,36 @@ export namespace backend {
 	        this.top_p = source["top_p"];
 	    }
 	}
-	export class AgentConfig {
+	export class WorkerConfig {
 	    name: string;
 	    persona: string;
-	    provider: string;
-	    model: string;
-	    category: string;
-	    icon: string;
-	    color: string;
+	    language: string;
+	    connection_type: string;
+	    connection_name: string;
+	    connection_config: string;
+	    inherit_folders: boolean;
+	    inherit_knowledge: boolean;
+	    inherit_skills: boolean;
+	    inherit_tools: boolean;
+	    inherit_persona: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new AgentConfig(source);
+	        return new WorkerConfig(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.persona = source["persona"];
-	        this.provider = source["provider"];
-	        this.model = source["model"];
-	        this.category = source["category"];
-	        this.icon = source["icon"];
-	        this.color = source["color"];
+	        this.language = source["language"];
+	        this.connection_type = source["connection_type"];
+	        this.connection_name = source["connection_name"];
+	        this.connection_config = source["connection_config"];
+	        this.inherit_folders = source["inherit_folders"];
+	        this.inherit_knowledge = source["inherit_knowledge"];
+	        this.inherit_skills = source["inherit_skills"];
+	        this.inherit_tools = source["inherit_tools"];
+	        this.inherit_persona = source["inherit_persona"];
 	    }
 	}
 	export class WorkspaceConfig {
@@ -135,7 +143,7 @@ export namespace backend {
 	    folders: string[];
 	    personality: string;
 	    knowledge: string[];
-	    workspace_agents: string[];
+	    workspace_agents: WorkerConfig[];
 	    skills: string[];
 	    tools: string[];
 	    enabled: boolean;
@@ -157,7 +165,7 @@ export namespace backend {
 	        this.folders = source["folders"];
 	        this.personality = source["personality"];
 	        this.knowledge = source["knowledge"];
-	        this.workspace_agents = source["workspace_agents"];
+	        this.workspace_agents = this.convertValues(source["workspace_agents"], WorkerConfig);
 	        this.skills = source["skills"];
 	        this.tools = source["tools"];
 	        this.enabled = source["enabled"];
@@ -167,6 +175,24 @@ export namespace backend {
 	        this.commit_changes = source["commit_changes"];
 	        this.max_context_length = source["max_context_length"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class AdaConfig {
 	    active_workspace_path: string;
@@ -178,8 +204,8 @@ export namespace backend {
 	    embedding_provider: string;
 	    image_model: string;
 	    image_provider: string;
-	    agents: AgentConfig[];
-	    agent_categories: string[];
+	    workers: WorkerConfig[];
+	    worker_categories: string[];
 	    provider_keys: Record<string, string>;
 	    provider_bases: Record<string, string>;
 	    model_settings: Record<string, ExtraModelConfig>;
@@ -201,8 +227,8 @@ export namespace backend {
 	        this.embedding_provider = source["embedding_provider"];
 	        this.image_model = source["image_model"];
 	        this.image_provider = source["image_provider"];
-	        this.agents = this.convertValues(source["agents"], AgentConfig);
-	        this.agent_categories = source["agent_categories"];
+	        this.workers = this.convertValues(source["workers"], WorkerConfig);
+	        this.worker_categories = source["worker_categories"];
 	        this.provider_keys = source["provider_keys"];
 	        this.provider_bases = source["provider_bases"];
 	        this.model_settings = this.convertValues(source["model_settings"], ExtraModelConfig, true);
@@ -229,7 +255,6 @@ export namespace backend {
 		    return a;
 		}
 	}
-	
 	export class ToolCall {
 	    id: string;
 	    type: string;
@@ -350,6 +375,42 @@ export namespace backend {
 		    return a;
 		}
 	}
+	export class ConnectionDefinition {
+	    name: string;
+	    type: string;
+	    command: string;
+	    description: string;
+	    icon: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionDefinition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.command = source["command"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	    }
+	}
+	export class ConnectionTestResult {
+	    success: boolean;
+	    message: string;
+	    latency_ms: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.latency_ms = source["latency_ms"];
+	    }
+	}
 	
 	
 	
@@ -469,6 +530,7 @@ export namespace backend {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	
 
 }
 

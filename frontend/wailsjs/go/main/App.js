@@ -54,6 +54,10 @@ export function GetAvailableTools() {
   return window['go']['main']['App']['GetAvailableTools']();
 }
 
+export function GetInstalledSkills() {
+  return window['go']['main']['App']['GetInstalledSkills']();
+}
+
 export function GetProviders() {
   return window['go']['main']['App']['GetProviders']();
 }
@@ -66,6 +70,14 @@ export function GetSessions(arg1) {
   return window['go']['main']['App']['GetSessions'](arg1);
 }
 
+export function GetSkillDetails(arg1) {
+  return window['go']['main']['App']['GetSkillDetails'](arg1);
+}
+
+export function GetSkillFullInfo(arg1) {
+  return window['go']['main']['App']['GetSkillFullInfo'](arg1);
+}
+
 export function GetToolProfile(arg1) {
   return window['go']['main']['App']['GetToolProfile'](arg1);
 }
@@ -76,6 +88,10 @@ export function GetToolProfiles() {
 
 export function GetWorkspaces() {
   return window['go']['main']['App']['GetWorkspaces']();
+}
+
+export function InstallSkill(arg1, arg2, arg3) {
+  return window['go']['main']['App']['InstallSkill'](arg1, arg2, arg3);
 }
 
 export function ListChatProviders() {
@@ -106,8 +122,16 @@ export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }
 
+export function SaveCustomSkill(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveCustomSkill'](arg1, arg2, arg3, arg4);
+}
+
 export function SaveProvidersConfig() {
   return window['go']['main']['App']['SaveProvidersConfig']();
+}
+
+export function SearchSkills(arg1) {
+  return window['go']['main']['App']['SearchSkills'](arg1);
 }
 
 export function SendMessage(arg1, arg2) {
@@ -152,6 +176,10 @@ export function ToggleTool(arg1, arg2) {
 
 export function ToggleWorkspace(arg1) {
   return window['go']['main']['App']['ToggleWorkspace'](arg1);
+}
+
+export function UninstallSkill(arg1) {
+  return window['go']['main']['App']['UninstallSkill'](arg1);
 }
 
 export function UpdateWorkspace(arg1, arg2) {

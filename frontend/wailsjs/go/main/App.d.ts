@@ -28,17 +28,25 @@ export function GetAgents():Promise<Array<backend.AgentConfig>>;
 
 export function GetAvailableTools():Promise<Array<backend.ToolUIInfo>>;
 
+export function GetInstalledSkills():Promise<Array<string>>;
+
 export function GetProviders():Promise<Array<string>>;
 
 export function GetProvidersConfig():Promise<Record<string, backend.ProviderConfig>>;
 
 export function GetSessions(arg1:string):Promise<Array<backend.ChatSession>>;
 
+export function GetSkillDetails(arg1:string):Promise<string>;
+
+export function GetSkillFullInfo(arg1:string):Promise<backend.SkillFullInfo>;
+
 export function GetToolProfile(arg1:number):Promise<backend.ToolProfile>;
 
 export function GetToolProfiles():Promise<Array<backend.ToolProfile>>;
 
 export function GetWorkspaces():Promise<Array<backend.WorkspaceConfig>>;
+
+export function InstallSkill(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ListChatProviders():Promise<Array<string>>;
 
@@ -54,7 +62,11 @@ export function RemoveToolsFromProfile(arg1:number,arg2:Array<string>):Promise<b
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
 
+export function SaveCustomSkill(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
 export function SaveProvidersConfig():Promise<void>;
+
+export function SearchSkills(arg1:string):Promise<Array<backend.SearchResult>>;
 
 export function SendMessage(arg1:string,arg2:string):Promise<string>;
 
@@ -77,5 +89,7 @@ export function ToggleProfileTool(arg1:number,arg2:string,arg3:boolean):Promise<
 export function ToggleTool(arg1:string,arg2:boolean):Promise<void>;
 
 export function ToggleWorkspace(arg1:string):Promise<void>;
+
+export function UninstallSkill(arg1:string):Promise<void>;
 
 export function UpdateWorkspace(arg1:string,arg2:backend.WorkspaceConfig):Promise<void>;

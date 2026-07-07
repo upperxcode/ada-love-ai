@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-func (e *Engine) SearchSkills(ctx context.Context, query string) ([]SearchResult, error) {
+func (e *Engine) SearchSkills(query string) ([]SearchResult, error) {
 	if e.skillReg == nil {
-		return nil, fmt.Errorf("skill registry não inicializado")
+		return nil, fmt.Errorf("skill registry n\u00e3o inicializado")
 	}
-	results, err := e.skillReg.SearchAll(ctx, query, 20)
+	results, err := e.skillReg.SearchAll(context.Background(), query, 20)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func (e *Engine) SearchSkills(ctx context.Context, query string) ([]SearchResult
 	return final, nil
 }
 
-func (e *Engine) InstallSkill(ctx context.Context, registryName, slug, version string) error {
+func (e *Engine) InstallSkill(registryName, slug, version string) error {
 	reg := e.skillReg.GetRegistry(registryName)
 	if reg == nil {
 		return fmt.Errorf("registry %s not found", registryName)
@@ -50,7 +50,7 @@ func (e *Engine) InstallSkill(ctx context.Context, registryName, slug, version s
 	}
 	fullTargetDir := strings.Join([]string{targetDir, dirName}, "/")
 
-	_, err = reg.DownloadAndInstall(ctx, slug, version, fullTargetDir)
+	_, err = reg.DownloadAndInstall(context.Background(), slug, version, fullTargetDir)
 	return err
 }
 
@@ -102,16 +102,28 @@ func (e *Engine) GetSkillFullInfo(name string) (*SkillFullInfo, error) {
 		Version:  "0.0.1",
 	}
 
-	// 1. Tentar ler SKILL.md
+	// 1. Read SKILL.md
 	mdPath := skillDir + "/SKILL.md"
 	if data, err := os.ReadFile(mdPath); err == nil {
 		info.Markdown = string(data)
 		info.Raw = info.Markdown
 		info.CharCount = len(data)
 		info.LineCount = strings.Count(info.Raw, "\n") + 1
+
+			// Extract frontmatter fields (name, description, tags)
+			fmName, fmDesc, fmTags := extractFrontmatter(data)
+			if fmName != "" {
+				info.Name = fmName
+			}
+			if fmDesc != "" {
+				info.Description = fmDesc
+			}
+			if len(fmTags) > 0 {
+				info.Tags = fmTags
+			}
 	}
 
-	// 2. Tentar ler SKILL.json (manifesto oficial do Picoclaw)
+	// 2. Read SKILL.json (Picoclaw manifest) — overrides frontmatter
 	jsonPath := skillDir + "/SKILL.json"
 	if data, err := os.ReadFile(jsonPath); err == nil {
 		var manifest struct {
@@ -119,8 +131,12 @@ func (e *Engine) GetSkillFullInfo(name string) (*SkillFullInfo, error) {
 			Description string `json:"description"`
 			Version     string `json:"version"`
 			Repository  string `json:"repository"`
+			Tags        string `json:"tags"`
 		}
 		if err := json.Unmarshal(data, &manifest); err == nil {
+			if manifest.Name != "" {
+				info.Name = manifest.Name
+			}
 			if manifest.Description != "" {
 				info.Description = manifest.Description
 			}
@@ -130,23 +146,87 @@ func (e *Engine) GetSkillFullInfo(name string) (*SkillFullInfo, error) {
 			if manifest.Repository != "" {
 				info.URL = manifest.Repository
 			}
+			if manifest.Tags != "" {
+				info.Tags = splitTags(manifest.Tags)
+			}
 		}
 	}
 
-	// 3. Como fallback para a descrição, tentar extrair do MD se ainda estiver vazia
+	// 3. Fallback: extract description from first non-heading line
 	if info.Description == "" && info.Markdown != "" {
 		lines := strings.Split(info.Markdown, "\n")
 		for _, l := range lines {
 			l = strings.TrimSpace(l)
-			if l != "" && !strings.HasPrefix(l, "#") {
+			if l != "" && !strings.HasPrefix(l, "#") && !strings.HasPrefix(l, "---") {
 				info.Description = l
 				break
 			}
 		}
 	}
 
-	// 3. Simulação de metadados técnicos (em uma implementação real, leríamos o manifest da skill)
-		info.URL = "https://github.com/adahas/ada-love-ai/tree/main/skills/" + name
-
 	return info, nil
+}
+
+// extractFrontmatter parses YAML-style frontmatter from SKILL.md content.
+// Returns name, description, and tags. Returns empty strings/nil if not found.
+func extractFrontmatter(data []byte) (name, description string, tags []string) {
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+		return "", "", nil
+	}
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "---" {
+			break
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		val = strings.Trim(val, `"`)
+		switch key {
+		case "name":
+			name = val
+		case "description":
+			description = val
+		case "tags":
+			tags = splitTags(val)
+		}
+	}
+	return name, description, tags
+}
+
+// splitTags splits a comma-separated tags string into a cleaned slice.
+func splitTags(s string) []string {
+	var result []string
+	for _, t := range strings.Split(s, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// SaveCustomSkill creates or updates a skill's SKILL.md with frontmatter.
+func (e *Engine) SaveCustomSkill(name, description, tagsCSV, content string) error {
+	workspace := e.cfg.Agents.Defaults.Workspace
+	skillDir := strings.Join([]string{workspace, "skills", name}, "/")
+
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create skill directory: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("name: %s\n", name))
+	sb.WriteString(fmt.Sprintf("description: %s\n", description))
+	sb.WriteString(fmt.Sprintf("tags: %s\n", tagsCSV))
+	sb.WriteString("---\n\n")
+	sb.WriteString(content)
+	sb.WriteString("\n")
+
+	return os.WriteFile(skillDir+"/SKILL.md", []byte(sb.String()), 0o644)
 }

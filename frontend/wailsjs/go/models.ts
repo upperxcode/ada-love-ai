@@ -174,6 +174,10 @@ export namespace backend {
 	    workspaces: WorkspaceConfig[];
 	    // Go type: struct { ModelName string "json:\"model_name\""; Provider string "json:\"provider\""; EmbeddingModel string "json:\"embedding_model\""; EmbeddingProvider string "json:\"embedding_provider\"" }
 	    tiny_brain: any;
+	    embedding_model: string;
+	    embedding_provider: string;
+	    image_model: string;
+	    image_provider: string;
 	    agents: AgentConfig[];
 	    agent_categories: string[];
 	    provider_keys: Record<string, string>;
@@ -193,6 +197,10 @@ export namespace backend {
 	        this.active_workspace_index = source["active_workspace_index"];
 	        this.workspaces = this.convertValues(source["workspaces"], WorkspaceConfig);
 	        this.tiny_brain = this.convertValues(source["tiny_brain"], Object);
+	        this.embedding_model = source["embedding_model"];
+	        this.embedding_provider = source["embedding_provider"];
+	        this.image_model = source["image_model"];
+	        this.image_provider = source["image_provider"];
 	        this.agents = this.convertValues(source["agents"], AgentConfig);
 	        this.agent_categories = source["agent_categories"];
 	        this.provider_keys = source["provider_keys"];
@@ -383,6 +391,62 @@ export namespace backend {
 	        this.ok = source["ok"];
 	        this.success = source["success"];
 	        this.message = source["message"];
+	    }
+	}
+	export class SearchResult {
+	    name: string;
+	    display_name: string;
+	    registry_name: string;
+	    summary: string;
+	    description: string;
+	    slug: string;
+	    version: string;
+	    score: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.registry_name = source["registry_name"];
+	        this.summary = source["summary"];
+	        this.description = source["description"];
+	        this.slug = source["slug"];
+	        this.version = source["version"];
+	        this.score = source["score"];
+	    }
+	}
+	export class SkillFullInfo {
+	    name: string;
+	    description?: string;
+	    version?: string;
+	    registry?: string;
+	    url?: string;
+	    markdown?: string;
+	    raw?: string;
+	    line_count?: number;
+	    char_count?: number;
+	    tags?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillFullInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.version = source["version"];
+	        this.registry = source["registry"];
+	        this.url = source["url"];
+	        this.markdown = source["markdown"];
+	        this.raw = source["raw"];
+	        this.line_count = source["line_count"];
+	        this.char_count = source["char_count"];
+	        this.tags = source["tags"];
 	    }
 	}
 	

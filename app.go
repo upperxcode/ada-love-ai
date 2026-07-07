@@ -179,3 +179,26 @@ func (a *App) SendMessage(sessionID, text string) (string, error) {
 func (a *App) TogglePin(sessionID string) {
 	a.engine.TogglePin(sessionID)
 }
+
+// Skills
+func (a *App) SearchSkills(query string) ([]backend.SearchResult, error) {
+	return a.engine.SearchSkills(query)
+}
+func (a *App) InstallSkill(registryName, slug, version string) error {
+	return a.engine.InstallSkill(registryName, slug, version)
+}
+func (a *App) GetInstalledSkills() ([]string, error) {
+	return a.engine.GetInstalledSkills()
+}
+func (a *App) UninstallSkill(name string) error {
+	return a.engine.UninstallSkill(name)
+}
+func (a *App) GetSkillDetails(name string) (string, error) {
+	return a.engine.GetSkillDetails(name)
+}
+func (a *App) GetSkillFullInfo(name string) (*backend.SkillFullInfo, error) {
+	return a.engine.GetSkillFullInfo(name)
+}
+func (a *App) SaveCustomSkill(name, description, tagsCSV, content string) error {
+	return a.engine.SaveCustomSkill(name, description, tagsCSV, content)
+}

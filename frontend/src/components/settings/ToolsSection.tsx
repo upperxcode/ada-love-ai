@@ -68,27 +68,21 @@ function ToolsSection() {
 
   const handleToggle = async (toolName: string, enabled: boolean) => {
     const profile = profiles.find((p) => p.id === selectedProfileID);
-    if (profile && profile.name !== 'Default') {
-      await api.toggleProfileTool(profile.id, toolName, enabled);
-      setProfiles((prev) =>
-        prev.map((p) => {
-          if (p.id === profile.id) {
-            return {
-              ...p,
-              tools: enabled
-                ? [...p.tools, toolName]
-                : p.tools.filter((t) => t !== toolName),
-            };
-          }
-          return p;
-        }),
-      );
-    } else {
-      await api.toggleTool(toolName, enabled);
-      setTools((prev) =>
-        prev.map((t) => (t.name === toolName ? { ...t, enabled } : t)),
-      );
-    }
+    if (!profile) return;
+    await api.toggleProfileTool(profile.id, toolName, enabled);
+    setProfiles((prev) =>
+      prev.map((p) => {
+        if (p.id === profile.id) {
+          return {
+            ...p,
+            tools: enabled
+              ? [...p.tools, toolName]
+              : p.tools.filter((t) => t !== toolName),
+          };
+        }
+        return p;
+      }),
+    );
   };
 
   const handleCreateProfile = async () => {
@@ -119,7 +113,6 @@ function ToolsSection() {
   };
 
   const selectedProfile = profiles.find((p) => p.id === selectedProfileID);
-  const isProfileActive = selectedProfile && selectedProfile.name !== 'Default';
 
   // Apply all filters
   const filteredTools = tools.filter((tool) => {
@@ -131,10 +124,8 @@ function ToolsSection() {
       }
     }
 
-    // Status filter
-    const isEnabled = isProfileActive
-      ? (selectedProfile?.tools.includes(tool.name) ?? false)
-      : tool.enabled;
+    // Status filter — always check against the selected profile's tools list
+    const isEnabled = selectedProfile?.tools.includes(tool.name) ?? false;
 
     if (filterType === 'active' && !isEnabled) return false;
     if (filterType === 'inactive' && isEnabled) return false;
@@ -247,9 +238,7 @@ function ToolsSection() {
             </h4>
             <div className="tools-grid">
               {categoryTools.map((tool) => {
-                const isEnabled = isProfileActive
-                  ? (selectedProfile?.tools.includes(tool.name) ?? false)
-                  : tool.enabled;
+                const isEnabled = selectedProfile?.tools.includes(tool.name) ?? false;
                 return (
                   <BaseCard
                     key={tool.name}

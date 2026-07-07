@@ -16,15 +16,16 @@ type AgentConfig struct {
 }
 
 type SkillFullInfo struct {
-	Name        string
-	Description string
-	Version     string
-	Registry    string
-	URL         string
-	Markdown    string
-	Raw         string
-	LineCount   int
-	CharCount   int
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	Registry    string   `json:"registry,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Markdown    string   `json:"markdown,omitempty"`
+	Raw         string   `json:"raw,omitempty"`
+	LineCount   int      `json:"line_count,omitempty"`
+	CharCount   int      `json:"char_count,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 type SearchResult struct {
@@ -88,6 +89,10 @@ type AdaConfig struct {
 		EmbeddingModel    string `json:"embedding_model"`
 		EmbeddingProvider string `json:"embedding_provider"`
 	} `json:"tiny_brain"`
+	EmbeddingModel    string `json:"embedding_model"`
+	EmbeddingProvider string `json:"embedding_provider"`
+	ImageModel        string `json:"image_model"`
+	ImageProvider     string `json:"image_provider"`
 	Agents              []AgentConfig     `json:"agents"`
 	AgentCategories     []string          `json:"agent_categories"`
 	ProviderKeys        map[string]string `json:"provider_keys"`

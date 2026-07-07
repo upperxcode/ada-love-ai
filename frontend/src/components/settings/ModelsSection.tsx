@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Combobox } from '../ui/combobox';
 import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
 import { Icon } from '../Icon';
@@ -73,6 +72,11 @@ function ModelsSection() {
     api.backend.ProviderModel[]
   >([]);
   const [selectedModelsToAdd, setSelectedModelsToAdd] = useState<string[]>([]);
+  // Custom embedding/image model dialog
+  const [showCustomEmbedding, setShowCustomEmbedding] = useState(false);
+  const [customEmbeddingValue, setCustomEmbeddingValue] = useState('');
+  const [showCustomImage, setShowCustomImage] = useState(false);
+  const [customImageValue, setCustomImageValue] = useState('');
   // Multi-select filter: set of active type/capability filters. Model is shown if
   // it matches ALL active filters (pure AND). Each filter restricts the list;
   // toggling a filter off relaxes that restriction. Empty set = show all.
@@ -128,9 +132,10 @@ function ModelsSection() {
     setAdaConfig(cfg || new api.backend.AdaConfig());
   };
 
-  const saveConfig = async () => {
-    if (adaConfig) {
-      await api.setAdaConfig(adaConfig);
+  const saveConfig = async (cfg?: api.backend.AdaConfig | null) => {
+    const toSave = cfg ?? adaConfig;
+    if (toSave) {
+      await api.setAdaConfig(toSave);
     }
   };
 
@@ -340,20 +345,21 @@ function ModelsSection() {
             <label className="text-sm font-medium">Embedding Provider</label>
             <Select
               value={adaConfig?.embedding_provider || ''}
-              onValueChange={(v) => {
-                if (adaConfig) {
-                  const newCfg = new api.backend.AdaConfig({
-                    ...adaConfig,
-                    embedding_provider: v,
-                  });
-                  setAdaConfig(newCfg);
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent onCloseAutoFocus={() => saveConfig()}>
+                  onValueChange={(v) => {
+                    if (adaConfig) {
+                      const newCfg = new api.backend.AdaConfig({
+                        ...adaConfig,
+                        embedding_provider: v,
+                      });
+                      setAdaConfig(newCfg);
+                      saveConfig(newCfg);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
                 {adaConfig &&
                   Object.keys(adaConfig.providers || {}).map((name) => (
                     <SelectItem key={name} value={name}>
@@ -366,22 +372,45 @@ function ModelsSection() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Embedding Model</label>
-            <Combobox
-              value={adaConfig?.embedding_model || ''}
-              onValueChange={(v) => {
-                if (adaConfig) {
-                  const newCfg = new api.backend.AdaConfig({
-                    ...adaConfig,
-                    embedding_model: v,
-                  });
-                  setAdaConfig(newCfg);
-                  saveConfig();
-                }
-              }}
-              options={embeddingModels}
-              placeholder="e.g., text-embedding-3-small"
-              emptyText="Nenhum modelo de embedding neste provider — digite um valor custom"
-            />
+            <div className="flex gap-2">
+              <Select
+                value={adaConfig?.embedding_model || ''}
+                onValueChange={(v) => {
+                  if (adaConfig) {
+                    const newCfg = new api.backend.AdaConfig({
+                      ...adaConfig,
+                      embedding_model: v,
+                    });
+                    setAdaConfig(newCfg);
+                    saveConfig(newCfg);
+                  }
+                }}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {embeddingModels.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() => {
+                  setCustomEmbeddingValue(adaConfig?.embedding_model || '');
+                  setShowCustomEmbedding(true);
+                }}
+                title="Custom model"
+              >
+                <Icon name="Plus" size={14} />
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -390,20 +419,21 @@ function ModelsSection() {
             <label className="text-sm font-medium">Image Provider</label>
             <Select
               value={adaConfig?.image_provider || ''}
-              onValueChange={(v) => {
-                if (adaConfig) {
-                  const newCfg = new api.backend.AdaConfig({
-                    ...adaConfig,
-                    image_provider: v,
-                  });
-                  setAdaConfig(newCfg);
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent onCloseAutoFocus={() => saveConfig()}>
+                  onValueChange={(v) => {
+                    if (adaConfig) {
+                      const newCfg = new api.backend.AdaConfig({
+                        ...adaConfig,
+                        image_provider: v,
+                      });
+                      setAdaConfig(newCfg);
+                      saveConfig(newCfg);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
                 {adaConfig &&
                   Object.keys(adaConfig.providers || {}).map((name) => (
                     <SelectItem key={name} value={name}>
@@ -416,22 +446,45 @@ function ModelsSection() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Image Model</label>
-            <Combobox
-              value={adaConfig?.image_model || ''}
-              onValueChange={(v) => {
-                if (adaConfig) {
-                  const newCfg = new api.backend.AdaConfig({
-                    ...adaConfig,
-                    image_model: v,
-                  });
-                  setAdaConfig(newCfg);
-                  saveConfig();
-                }
-              }}
-              options={imageModels}
-              placeholder="e.g., dall-e-3"
-              emptyText="Nenhum modelo com visão neste provider — digite um valor custom"
-            />
+            <div className="flex gap-2">
+              <Select
+                value={adaConfig?.image_model || ''}
+                onValueChange={(v) => {
+                  if (adaConfig) {
+                    const newCfg = new api.backend.AdaConfig({
+                      ...adaConfig,
+                      image_model: v,
+                    });
+                    setAdaConfig(newCfg);
+                    saveConfig(newCfg);
+                  }
+                }}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {imageModels.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() => {
+                  setCustomImageValue(adaConfig?.image_model || '');
+                  setShowCustomImage(true);
+                }}
+                title="Custom model"
+              >
+                <Icon name="Plus" size={14} />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -1085,6 +1138,112 @@ function ModelsSection() {
                 Add Selected ({selectedModelsToAdd.length})
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Embedding Model Dialog */}
+      <Dialog open={showCustomEmbedding} onOpenChange={setShowCustomEmbedding}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Custom Embedding Model</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Model name</label>
+              <Input
+                value={customEmbeddingValue}
+                onChange={(e) => setCustomEmbeddingValue(e.target.value)}
+                placeholder="e.g., text-embedding-3-small"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (customEmbeddingValue.trim() && adaConfig) {
+                      const newCfg = new api.backend.AdaConfig({
+                        ...adaConfig,
+                        embedding_model: customEmbeddingValue.trim(),
+                      });
+                      setAdaConfig(newCfg);
+                      saveConfig(newCfg);
+                      setShowCustomEmbedding(false);
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCustomEmbedding(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!customEmbeddingValue.trim() || !adaConfig}
+              onClick={() => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    embedding_model: customEmbeddingValue.trim(),
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                  setShowCustomEmbedding(false);
+                }
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Image Model Dialog */}
+      <Dialog open={showCustomImage} onOpenChange={setShowCustomImage}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Custom Image Model</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Model name</label>
+              <Input
+                value={customImageValue}
+                onChange={(e) => setCustomImageValue(e.target.value)}
+                placeholder="e.g., dall-e-3"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (customImageValue.trim() && adaConfig) {
+                      const newCfg = new api.backend.AdaConfig({
+                        ...adaConfig,
+                        image_model: customImageValue.trim(),
+                      });
+                      setAdaConfig(newCfg);
+                      saveConfig(newCfg);
+                      setShowCustomImage(false);
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCustomImage(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!customImageValue.trim() || !adaConfig}
+              onClick={() => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    image_model: customImageValue.trim(),
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                  setShowCustomImage(false);
+                }
+              }}
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

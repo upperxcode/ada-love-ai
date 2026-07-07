@@ -59,6 +59,13 @@ declare global {
           GetAvailableTools(): Promise<backend.ToolUIInfo[]>;
           ToggleTool(toolName: string, enabled: boolean): Promise<void>;
           RemoveModel(name: string, provider: string): Promise<void>;
+          SearchSkills(query: string): Promise<backend.SearchResult[]>;
+          InstallSkill(registryName: string, slug: string, version: string): Promise<void>;
+          GetInstalledSkills(): Promise<string[]>;
+          UninstallSkill(name: string): Promise<void>;
+          GetSkillDetails(name: string): Promise<string>;
+          GetSkillFullInfo(name: string): Promise<backend.SkillFullInfo | null>;
+          SaveCustomSkill(name: string, description: string, tagsCSV: string, content: string): Promise<void>;
         };
       };
     };
@@ -145,6 +152,56 @@ export namespace backend {
       this.ok = source['ok'] ?? source['success'] ?? false;
       this.success = source['success'] ?? source['ok'] ?? false;
       this.message = source['message'] ?? '';
+    }
+  }
+
+  export class SkillFullInfo {
+    name: string = '';
+    description: string = '';
+    version: string = '';
+    registry: string = '';
+    url: string = '';
+    markdown: string = '';
+    raw: string = '';
+    line_count: number = 0;
+    char_count: number = 0;
+    tags: string[] = [];
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.description = source['description'] ?? '';
+      this.version = source['version'] ?? '';
+      this.registry = source['registry'] ?? '';
+      this.url = source['url'] ?? '';
+      this.markdown = source['markdown'] ?? '';
+      this.raw = source['raw'] ?? '';
+      this.line_count = source['line_count'] ?? 0;
+      this.char_count = source['char_count'] ?? 0;
+      this.tags = source['tags'] ?? [];
+    }
+  }
+
+  export class SearchResult {
+    name: string = '';
+    display_name: string = '';
+    registry_name: string = '';
+    summary: string = '';
+    description: string = '';
+    slug: string = '';
+    version: string = '';
+    score: number = 0;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.display_name = source['display_name'] ?? '';
+      this.registry_name = source['registry_name'] ?? '';
+      this.summary = source['summary'] ?? '';
+      this.description = source['description'] ?? '';
+      this.slug = source['slug'] ?? '';
+      this.version = source['version'] ?? '';
+      this.score = source['score'] ?? 0;
     }
   }
 
@@ -634,5 +691,87 @@ export async function setAgentCategories(
   if (!app) return;
   try {
     await app.SetAgentCategories(categories);
+  } catch {}
+}
+
+// Skills API
+
+export async function searchSkills(
+  query: string,
+): Promise<backend.SearchResult[]> {
+    const app = getApp();
+    if (!app) return [];
+    try {
+      const result = await app.SearchSkills(query);
+      return result ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+export async function installSkill(
+  registryName: string,
+  slug: string,
+  version: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.InstallSkill(registryName, slug, version);
+  } catch {}
+}
+
+export async function getInstalledSkills(): Promise<string[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const result = await app.GetInstalledSkills();
+    return result ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function uninstallSkill(name: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.UninstallSkill(name);
+  } catch {}
+}
+
+export async function getSkillDetails(name: string): Promise<string> {
+  const app = getApp();
+  if (!app) return '';
+  try {
+    return (await app.GetSkillDetails(name)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export async function getSkillFullInfo(
+  name: string,
+): Promise<backend.SkillFullInfo | null> {
+  const app = getApp();
+  if (!app) return null;
+  try {
+    const raw = await app.GetSkillFullInfo(name);
+    return raw ? new backend.SkillFullInfo(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCustomSkill(
+  name: string,
+  description: string,
+  tagsCSV: string,
+  content: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SaveCustomSkill(name, description, tagsCSV, content);
   } catch {}
 }

@@ -1,27 +1,27 @@
 package backend
 
 import (
+	"ada-love-ai/pkg/agent"
 	"context"
 	"fmt"
-	"ada-love-ai/pkg/agent"
 )
 
-// PicoclawTaskRunner é uma implementação de TaskRunner que utiliza o AgentLoop do Picoclaw.
-type PicoclawTaskRunner struct {
+// AdaLoveTaskRunner é uma implementação de TaskRunner que utiliza o AgentLoop do Ada-Love.
+type AdaLoveTaskRunner struct {
 	loop *agent.AgentLoop
 }
 
-func NewPicoclawTaskRunner(loop *agent.AgentLoop) *PicoclawTaskRunner {
-	return &PicoclawTaskRunner{
+func NewAdaLoveTaskRunner(loop *agent.AgentLoop) *AdaLoveTaskRunner {
+	return &AdaLoveTaskRunner{
 		loop: loop,
 	}
 }
 
-func (p *PicoclawTaskRunner) Name() string {
+func (p *AdaLoveTaskRunner) Name() string {
 	return "ada-love"
 }
 
-func (p *PicoclawTaskRunner) Execute(ctx context.Context, prompt string, sessionID string) (string, error) {
+func (p *AdaLoveTaskRunner) Execute(ctx context.Context, prompt string, sessionID string) (string, error) {
 	if p.loop == nil {
 		return "", fmt.Errorf("Ada Love agent loop não inicializado")
 	}
@@ -30,12 +30,12 @@ func (p *PicoclawTaskRunner) Execute(ctx context.Context, prompt string, session
 	return p.loop.ProcessDirect(ctx, prompt, sessionKey)
 }
 
-func (p *PicoclawTaskRunner) ExecuteStream(ctx context.Context, prompt string, sessionID string, onDelta func(string)) (string, error) {
+func (p *AdaLoveTaskRunner) ExecuteStream(ctx context.Context, prompt string, sessionID string, onDelta func(string)) (string, error) {
 	if p.loop == nil {
 		return "", fmt.Errorf("Ada Love agent loop não inicializado")
 	}
 
-	// Atualmente o ProcessDirect do Picoclaw não retorna stream diretamente, 
+	// Atualmente o ProcessDirect do Ada-Love não retorna stream diretamente,
 	// mas ele emite eventos no EventBus. O StreamingWrapper cuida disso se estiver ativo.
 	// Para o TaskRunner, vamos apenas chamar o ProcessDirect.
 	sessionKey := "ada:" + sessionID

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"ada-love-ai/pkg/logger"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ func (e *Engine) ListWorkspaces() []WorkspaceConfig {
 
 func (e *Engine) AddWorkspace(w WorkspaceConfig) error {
 	e.mu.Lock()
-	
+
 	// Garantir título único
 	w.Title = UniquifyName(w.Title, func(t string) bool {
 		for _, ws := range e.adaCfg.Workspaces {
@@ -33,7 +34,7 @@ func (e *Engine) AddWorkspace(w WorkspaceConfig) error {
 func (e *Engine) SetActiveWorkspace(title string) {
 	e.mu.Lock()
 	e.adaCfg.ActiveWorkspacePath = title
-	
+
 	for i, w := range e.adaCfg.Workspaces {
 		if w.Path == title || w.Title == title {
 			e.adaCfg.ActiveWorkspaceIndex = i
@@ -72,7 +73,7 @@ func (e *Engine) DeleteWorkspace(title string) {
 	}
 	e.mu.Unlock()
 	e.SaveAdaConfig()
-	
+
 	e.eventBus.Emit(Event{
 		Kind:    EventKindWorkspaceChanged,
 		Payload: e.adaCfg.ActiveWorkspacePath,
@@ -247,6 +248,74 @@ func (e *Engine) UpdateWorkspace(originalTitle string, ws WorkspaceConfig) {
 	e.SaveAdaConfig()
 }
 
+// AddToolToWorkspace adds a tool to the active workspace.
+// Returns true if the tool was added.
+func (e *Engine) AddToolToWorkspace(workspaceTitle, toolName string) bool {
+	logger.DebugCF("workspace", "AddToolToWorkspace called",
+		map[string]any{"workspace": workspaceTitle, "tool": toolName})
+	e.mu.Lock()
+	for i, w := range e.adaCfg.Workspaces {
+		if w.Title == workspaceTitle {
+			for _, t := range w.Tools {
+				if t == toolName {
+					logger.DebugCF("workspace", "Tool already exists in workspace",
+						map[string]any{"workspace": workspaceTitle, "tool": toolName})
+					e.mu.Unlock()
+					return false
+				}
+				}
+			e.adaCfg.Workspaces[i].Tools = append(w.Tools, toolName)
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			logger.DebugCF("workspace", "Tool added to workspace",
+				map[string]any{"workspace": workspaceTitle, "tool": toolName})
+			return true
+		}
+	}
+	logger.DebugCF("workspace", "Workspace not found",
+		map[string]any{"workspace": workspaceTitle})
+	e.mu.Unlock()
+	return false
+}
+
+// RemoveToolFromWorkspace removes a tool from the active workspace.
+// Returns true if the tool was removed.
+func (e *Engine) RemoveToolFromWorkspace(workspaceTitle, toolName string) bool {
+	e.mu.Lock()
+	for i, w := range e.adaCfg.Workspaces {
+		if w.Title == workspaceTitle {
+			newTools := make([]string, 0, len(w.Tools))
+			removed := false
+			for _, t := range w.Tools {
+				if t != toolName {
+					newTools = append(newTools, t)
+				} else {
+					removed = true
+				}
+			}
+			e.adaCfg.Workspaces[i].Tools = newTools
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			return removed
+		}
+	}
+	e.mu.Unlock()
+	return false
+}
+
+// SetWorkspaceTools replaces all tools for a workspace.
+func (e *Engine) SetWorkspaceTools(workspaceTitle string, toolNames []string) {
+	e.mu.Lock()
+	for i, w := range e.adaCfg.Workspaces {
+		if w.Title == workspaceTitle {
+			e.adaCfg.Workspaces[i].Tools = toolNames
+			break
+		}
+	}
+	e.mu.Unlock()
+	e.SaveAdaConfig()
+}
+
 func (e *Engine) GetToolProfiles() []ToolProfile {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -321,3 +390,69 @@ func (e *Engine) ToggleProfileTool(profileID int64, toolName string, enabled boo
 	return false
 }
 
+// GetToolProfile returns a tool profile by ID, or nil if not found.
+func (e *Engine) GetToolProfile(id int64) *ToolProfile {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for i := range e.adaCfg.ToolProfiles {
+		if e.adaCfg.ToolProfiles[i].ID == id {
+			return &e.adaCfg.ToolProfiles[i]
+		}
+	}
+	return nil
+}
+
+// AddToolsToProfile adds multiple tools to a profile at once.
+// Tools that are already in the profile are skipped.
+// Returns true if the profile was found and updated.
+func (e *Engine) AddToolsToProfile(profileID int64, toolNames []string) bool {
+	e.mu.Lock()
+	for i, p := range e.adaCfg.ToolProfiles {
+		if p.ID == profileID {
+			existing := make(map[string]bool)
+			for _, t := range p.Tools {
+				existing[t] = true
+			}
+			added := 0
+			for _, toolName := range toolNames {
+				if !existing[toolName] {
+					e.adaCfg.ToolProfiles[i].Tools = append(e.adaCfg.ToolProfiles[i].Tools, toolName)
+					added++
+				}
+			}
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			return added > 0
+		}
+	}
+	e.mu.Unlock()
+	return false
+}
+
+// RemoveToolsFromProfile removes multiple tools from a profile at once.
+// Returns true if the profile was found and updated.
+func (e *Engine) RemoveToolsFromProfile(profileID int64, toolNames []string) bool {
+	e.mu.Lock()
+	for i, p := range e.adaCfg.ToolProfiles {
+		if p.ID == profileID {
+			removed := 0
+			for _, toolName := range toolNames {
+				newTools := make([]string, 0, len(p.Tools))
+				for _, t := range p.Tools {
+					if t != toolName {
+						newTools = append(newTools, t)
+					}
+				}
+				if len(newTools) != len(p.Tools) {
+					removed++
+				}
+				e.adaCfg.ToolProfiles[i].Tools = newTools
+			}
+			e.mu.Unlock()
+			e.SaveAdaConfig()
+			return removed > 0
+		}
+	}
+	e.mu.Unlock()
+	return false
+}

@@ -36,7 +36,7 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string)
 	// Injeta o sessionID no contexto para que o StreamingWrapper possa usá-lo
 	ctx = context.WithValue(ctx, "session_id", sessionID)
 
-	// Picoclaw utiliza chaves de sessão para manter o histórico.
+	// Ada-Love utiliza chaves de sessão para manter o histórico.
 	sessionKey := "ada:default"
 	if sessionID != "" {
 		sessionKey = "ada:" + sessionID
@@ -88,7 +88,7 @@ func (e *Engine) CheckAndSummarize(sessionID string) {
 	}
 
 	prompt := fmt.Sprintf("Por favor, resuma a conversa abaixo de forma concisa, mantendo os pontos principais e decisões tomadas:\n\n%s", sb.String())
-	
+
 	summary, err := e.SendTinyBrainMessage(context.Background(), prompt)
 	if err != nil {
 		fmt.Printf("[Engine] Erro ao sumarizar: %v\n", err)
@@ -97,7 +97,7 @@ func (e *Engine) CheckAndSummarize(sessionID string) {
 
 	e.SessionMgr.SetSummary(sessionID, summary)
 	e.SessionMgr.ClearMessages(sessionID, SummaryKeepLast)
-	
+
 	if e.db != nil {
 		e.db.SaveSession(*sess)
 	}

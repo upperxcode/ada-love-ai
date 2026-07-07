@@ -112,6 +112,33 @@ type ModelSettings struct {
 	Temperature float64 `json:"temperature,omitempty"`
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 	TopP        float64 `json:"top_p,omitempty"`
+	Type        string  `json:"type,omitempty"`
+	Vision      bool    `json:"vision,omitempty"`
+	Embedding   bool    `json:"embedding,omitempty"`
+	Tools       bool    `json:"tools,omitempty"`
+	Free        bool    `json:"free,omitempty"`
+	Thinking    bool    `json:"thinking,omitempty"`
+}
+
+// ProviderModel represents a model returned by a provider's /models endpoint,
+// enriched with detected capabilities so the UI can filter by them.
+type ProviderModel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Vision    bool   `json:"vision,omitempty"`   // accepts image input
+	Embedding bool   `json:"embedding,omitempty"` // produces embeddings
+	Tools     bool   `json:"tools,omitempty"`     // supports tool/function calling
+	Free      bool   `json:"free,omitempty"`      // free / open-weight / no per-token cost
+	Thinking  bool   `json:"thinking,omitempty"` // reasoning / chain-of-thought
+}
+
+// ProviderTestResult is the outcome of a connection test against a provider's
+// /models endpoint. Both Ok and Success are populated (mirroring the frontend's
+// ProviderTestResult class) for backwards compatibility.
+type ProviderTestResult struct {
+	Ok      bool   `json:"ok"`
+	Success bool   `json:"success"`
+	Message string `json:"message"`
 }
 
 type ToolProfile struct {

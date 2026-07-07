@@ -12,7 +12,7 @@ tmp/
 
 # Configurações locais (Ada-Love)
 ada_config.json
-# config.json # Descomente se quiser ignorar a configuração principal do Picoclaw
+# config.json # Descomente se quiser ignorar a configuração principal do Ada-Love
 
 # Skills e Ferramentas instaladas dinamicamente
 skills/

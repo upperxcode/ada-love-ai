@@ -6,214 +6,305 @@ declare global {
     go: {
       main: {
         App: {
-          OpenDirectoryDialog(): Promise<string>
-          OpenFileDialog(): Promise<string>
-          GetAdaConfig(): Promise<backend.AdaConfig | null>
-          SetAdaConfig(cfg: backend.AdaConfig): Promise<void>
-          GetEnvProviderKeys(): Promise<string[]>
-          TestProviderConnection(name: string, apiKey: string, apiBase: string, connectionType: string): Promise<backend.ProviderTestResult>
-          FetchProviderModels(name: string, apiKey: string, apiBase: string, connectionType: string): Promise<backend.ProviderModel[]>
-          ListChatProviders(): Promise<string[]>
-          GetToolProfiles(): Promise<backend.ToolProfile[]>
-          CreateToolProfile(name: string, color: string, icon: string): Promise<backend.ToolProfile>
-          DeleteToolProfile(id: number): Promise<boolean>
-          ToggleProfileTool(profileID: number, toolName: string, enabled: boolean): Promise<boolean>
-          GetProvidersConfig(): Promise<Record<string, backend.ProviderConfig>>
-          SaveProvidersConfig(): Promise<void>
-          GetWorkspaces(): Promise<backend.WorkspaceConfig[]>
-          SetWorkspaces(workspaces: backend.WorkspaceConfig[]): Promise<void>
-          AddWorkspace(title: string, path: string, personality: string): Promise<void>
-          DeleteWorkspace(path: string): Promise<void>
-          UpdateWorkspace(originalPath: string, ws: backend.WorkspaceConfig): Promise<void>
-          SetActiveWorkspace(path: string): Promise<void>
-          ToggleWorkspace(path: string): Promise<void>
-          GetAgents(): Promise<backend.AgentConfig[]>
-          SetAgents(agents: backend.AgentConfig[]): Promise<void>
-          GetAgentCategories(): Promise<string[]>
-          SetAgentCategories(categories: string[]): Promise<void>
-          GetAvailableTools(): Promise<backend.ToolUIInfo[]>
-          ToggleTool(toolName: string, enabled: boolean): Promise<void>
-          RemoveModel(name: string, provider: string): Promise<void>
+          OpenDirectoryDialog(): Promise<string>;
+          OpenFileDialog(): Promise<string>;
+          GetAdaConfig(): Promise<backend.AdaConfig | null>;
+          SetAdaConfig(cfg: backend.AdaConfig): Promise<void>;
+          GetEnvProviderKeys(): Promise<string[]>;
+          TestProviderConnection(
+            name: string,
+            apiKey: string,
+            apiBase: string,
+            connectionType: string,
+          ): Promise<backend.ProviderTestResult>;
+          FetchProviderModels(
+            name: string,
+            apiKey: string,
+            apiBase: string,
+            connectionType: string,
+          ): Promise<backend.ProviderModel[]>;
+          ListChatProviders(): Promise<string[]>;
+          GetToolProfiles(): Promise<backend.ToolProfile[]>;
+          CreateToolProfile(
+            name: string,
+            color: string,
+            icon: string,
+          ): Promise<backend.ToolProfile>;
+          DeleteToolProfile(id: number): Promise<boolean>;
+          ToggleProfileTool(
+            profileID: number,
+            toolName: string,
+            enabled: boolean,
+          ): Promise<boolean>;
+          GetProvidersConfig(): Promise<Record<string, backend.ProviderConfig>>;
+          SaveProvidersConfig(): Promise<void>;
+          GetWorkspaces(): Promise<backend.WorkspaceConfig[]>;
+          SetWorkspaces(workspaces: backend.WorkspaceConfig[]): Promise<void>;
+          AddWorkspace(
+            title: string,
+            path: string,
+            personality: string,
+          ): Promise<void>;
+          DeleteWorkspace(path: string): Promise<void>;
+          UpdateWorkspace(
+            originalPath: string,
+            ws: backend.WorkspaceConfig,
+          ): Promise<void>;
+          SetActiveWorkspace(path: string): Promise<void>;
+          ToggleWorkspace(path: string): Promise<void>;
+          GetAgents(): Promise<backend.AgentConfig[]>;
+          SetAgents(agents: backend.AgentConfig[]): Promise<void>;
+          GetAgentCategories(): Promise<string[]>;
+          SetAgentCategories(categories: string[]): Promise<void>;
+          GetAvailableTools(): Promise<backend.ToolUIInfo[]>;
+          ToggleTool(toolName: string, enabled: boolean): Promise<void>;
+          RemoveModel(name: string, provider: string): Promise<void>;
+        };
+      };
+    };
+  }
+}
+
+export {};
+
+// Backend types mirroring Go structs
+export namespace backend {
+  export interface ProviderApiKey {
+    key: string;
+    user_key: string;
+  }
+
+  export class ProviderConfig {
+    api_url: string = '';
+    api_keys: ProviderApiKey[] = [];
+    type_connection: string = '';
+    models: Record<string, ModelSettings> = {};
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.api_url = source['api_url'] ?? '';
+      // Handle both old string[] api_keys and new { key, user_key }[]
+      if (source['api_keys']) {
+        this.api_keys = source['api_keys'].map((k: any) => {
+          if (typeof k === 'string') {
+            return { key: k, user_key: '' };
+          } else {
+            return { key: k.key ?? '', user_key: k.user_key ?? '' };
+          }
+        });
+      } else if (source['api_key']) {
+        // Backward compatibility with old single api_key
+        this.api_keys = [{ key: source['api_key'], user_key: '' }];
+      } else {
+        this.api_keys = [];
+      }
+      this.type_connection = source['type_connection'] ?? '';
+      // Normalize each model entry into a proper ModelSettings instance so
+      // callers can safely access properties (e.g. settings.type) without
+      // crashing on raw/plain objects coming back from the backend.
+      const rawModels = source['models'] ?? {};
+      this.models = {};
+      if (rawModels && typeof rawModels === 'object') {
+        for (const [modelKey, modelVal] of Object.entries(rawModels)) {
+          this.models[modelKey] = new ModelSettings(modelVal);
         }
       }
     }
   }
-}
 
-export {}
+  export type ModelType = 'free' | 'thinking' | 'tools';
 
-// Backend types mirroring Go structs
-export namespace backend {
-  export class ProviderConfig {
-    api_url: string = ''
-    api_key: string = ''
-    type_connection: string = ''
-    models: Record<string, ModelSettings> = {}
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.api_url = source['api_url'] ?? ''
-      this.api_key = source['api_key'] ?? ''
-      this.type_connection = source['type_connection'] ?? ''
-      this.models = source['models'] ?? {}
-    }
-  }
-
-  export class ModelSettings {
-    context_size?: number
-    temperature?: number
-    max_tokens?: number
-    top_p?: number
+  export class ProviderModel {
+    id: string = '';
+    name: string = '';
+    vision?: boolean;
+    embedding?: boolean;
+    tools?: boolean;
+    free?: boolean;
+    thinking?: boolean;
 
     constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.context_size = source['context_size']
-      this.temperature = source['temperature']
-      this.max_tokens = source['max_tokens']
-      this.top_p = source['top_p']
-    }
-  }
-
-  export class ToolProfile {
-    id: number = 0
-    name: string = ''
-    color: string = ''
-    icon: string = ''
-    tools: string[] = []
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.id = source['id'] ?? 0
-      this.name = source['name'] ?? ''
-      this.color = source['color'] ?? ''
-      this.icon = source['icon'] ?? ''
-      this.tools = source['tools'] ?? []
-    }
-  }
-
-  export class ToolUIInfo {
-    name: string = ''
-    description: string = ''
-    category: string = ''
-    enabled: boolean = false
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.name = source['name'] ?? ''
-      this.description = source['description'] ?? ''
-      this.category = source['category'] ?? ''
-      this.enabled = source['enabled'] ?? false
-    }
-  }
-
-  export class AgentConfig {
-    name: string = ''
-    persona: string = ''
-    provider: string = ''
-    model: string = ''
-    category: string = ''
-    icon: string = ''
-    color: string = ''
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.name = source['name'] ?? ''
-      this.persona = source['persona'] ?? ''
-      this.provider = source['provider'] ?? ''
-      this.model = source['model'] ?? ''
-      this.category = source['category'] ?? ''
-      this.icon = source['icon'] ?? ''
-      this.color = source['color'] ?? ''
-    }
-  }
-
-  export class WorkspaceConfig {
-    id: number = 0
-    title: string = ''
-    description: string = ''
-    path: string = ''
-    folders: string[] = []
-    personality: string = ''
-    knowledge: string[] = []
-    workspace_agents: string[] = []
-    skills: string[] = []
-    tools: string[] = []
-    enabled: boolean = true
-    color: string = ''
-    icon: string = ''
-    max_prompt_send: number = 0
-    commit_changes: boolean = true
-    max_context_length: number = 0
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.id = source['id'] ?? 0
-      this.title = source['title'] ?? ''
-      this.description = source['description'] ?? ''
-      this.path = source['path'] ?? ''
-      this.folders = source['folders'] ?? []
-      this.personality = source['personality'] ?? ''
-      this.knowledge = source['knowledge'] ?? []
-      this.workspace_agents = source['workspace_agents'] ?? []
-      this.skills = source['skills'] ?? []
-      this.tools = source['tools'] ?? []
-      this.enabled = source['enabled'] ?? true
-      this.color = source['color'] ?? ''
-      this.icon = source['icon'] ?? ''
-      this.max_prompt_send = source['max_prompt_send'] ?? 0
-      this.commit_changes = source['commit_changes'] ?? true
-      this.max_context_length = source['max_context_length'] ?? 0
-    }
-  }
-
-  export class AdaConfig {
-    active_workspace_path: string = ''
-    active_workspace_index: number = 0
-    workspaces: WorkspaceConfig[] = []
-    tiny_brain: any = {}
-    agents: AgentConfig[] = []
-    agent_categories: string[] = []
-    provider_keys: Record<string, string> = {}
-    provider_bases: Record<string, string> = {}
-    model_settings: Record<string, any> = {}
-    model_list: any[] = []
-    providers: Record<string, ProviderConfig> = {}
-
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.active_workspace_path = source['active_workspace_path'] ?? ''
-      this.active_workspace_index = source['active_workspace_index'] ?? 0
-      this.workspaces = (source['workspaces'] ?? []).map((w: any) => new WorkspaceConfig(w))
-      this.tiny_brain = source['tiny_brain'] ?? {}
-      this.agents = (source['agents'] ?? []).map((a: any) => new AgentConfig(a))
-      this.agent_categories = source['agent_categories'] ?? []
-      this.provider_keys = source['provider_keys'] ?? {}
-      this.provider_bases = source['provider_bases'] ?? {}
-      this.model_settings = source['model_settings'] ?? {}
-      this.model_list = source['model_list'] ?? []
-      this.providers = source['providers'] ?? {}
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.id = source['id'] ?? '';
+      this.name = source['name'] ?? '';
+      this.vision = source['vision'] ?? undefined;
+      this.embedding = source['embedding'] ?? undefined;
+      this.tools = source['tools'] ?? undefined;
+      this.free = source['free'] ?? undefined;
+      this.thinking = source['thinking'] ?? undefined;
     }
   }
 
   export class ProviderTestResult {
-    ok: boolean = false
-    message: string = ''
+    ok: boolean = false;
+    success: boolean = false;
+    message: string = '';
 
     constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.ok = source['ok'] ?? false
-      this.message = source['message'] ?? ''
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.ok = source['ok'] ?? source['success'] ?? false;
+      this.success = source['success'] ?? source['ok'] ?? false;
+      this.message = source['message'] ?? '';
     }
   }
 
-  export class ProviderModel {
-    id: string = ''
-    name: string = ''
+  export class ModelSettings {
+    context_size?: number;
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    type?: ModelType;
+    vision?: boolean;
+    embedding?: boolean;
+    tools?: boolean;
+    free?: boolean;
+    thinking?: boolean;
 
     constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source)
-      this.id = source['id'] ?? ''
-      this.name = source['name'] ?? ''
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.context_size = source['context_size'];
+      this.temperature = source['temperature'];
+      this.max_tokens = source['max_tokens'];
+      this.top_p = source['top_p'];
+      this.type = source['type'] ?? undefined;
+      this.vision = source['vision'] ?? undefined;
+      this.embedding = source['embedding'] ?? undefined;
+      this.tools = source['tools'] ?? undefined;
+      this.free = source['free'] ?? undefined;
+      this.thinking = source['thinking'] ?? undefined;
+    }
+  }
+
+  export class ToolProfile {
+    id: number = 0;
+    name: string = '';
+    color: string = '';
+    icon: string = '';
+    tools: string[] = [];
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.id = source['id'] ?? 0;
+      this.name = source['name'] ?? '';
+      this.color = source['color'] ?? '';
+      this.icon = source['icon'] ?? '';
+      this.tools = source['tools'] ?? [];
+    }
+  }
+
+  export class ToolUIInfo {
+    name: string = '';
+    description: string = '';
+    category: string = '';
+    enabled: boolean = false;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.description = source['description'] ?? '';
+      this.category = source['category'] ?? '';
+      this.enabled = source['enabled'] ?? false;
+    }
+  }
+
+  export class AgentConfig {
+    name: string = '';
+    persona: string = '';
+    provider: string = '';
+    model: string = '';
+    category: string = '';
+    icon: string = '';
+    color: string = '';
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.persona = source['persona'] ?? '';
+      this.provider = source['provider'] ?? '';
+      this.model = source['model'] ?? '';
+      this.category = source['category'] ?? '';
+      this.icon = source['icon'] ?? '';
+      this.color = source['color'] ?? '';
+    }
+  }
+
+  export class WorkspaceConfig {
+    id: number = 0;
+    title: string = '';
+    description: string = '';
+    path: string = '';
+    folders: string[] = [];
+    personality: string = '';
+    knowledge: string[] = [];
+    workspace_agents: string[] = [];
+    skills: string[] = [];
+    tools: string[] = [];
+    enabled: boolean = true;
+    color: string = '';
+    icon: string = '';
+    max_prompt_send: number = 0;
+    commit_changes: boolean = true;
+    max_context_length: number = 0;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.id = source['id'] ?? 0;
+      this.title = source['title'] ?? '';
+      this.description = source['description'] ?? '';
+      this.path = source['path'] ?? '';
+      this.folders = source['folders'] ?? [];
+      this.personality = source['personality'] ?? '';
+      this.knowledge = source['knowledge'] ?? [];
+      this.workspace_agents = source['workspace_agents'] ?? [];
+      this.skills = source['skills'] ?? [];
+      this.tools = source['tools'] ?? [];
+      this.enabled = source['enabled'] ?? true;
+      this.color = source['color'] ?? '';
+      this.icon = source['icon'] ?? '';
+      this.max_prompt_send = source['max_prompt_send'] ?? 0;
+      this.commit_changes = source['commit_changes'] ?? true;
+      this.max_context_length = source['max_context_length'] ?? 0;
+    }
+  }
+
+  export class AdaConfig {
+    active_workspace_path: string = '';
+    active_workspace_index: number = 0;
+    workspaces: WorkspaceConfig[] = [];
+    tiny_brain: any = {};
+    agents: AgentConfig[] = [];
+    agent_categories: string[] = [];
+    provider_keys: Record<string, string> = {};
+    provider_bases: Record<string, string> = {};
+    model_settings: Record<string, any> = {};
+    model_list: any[] = [];
+    providers: Record<string, ProviderConfig> = {};
+    embedding_model: string = '';
+    embedding_provider: string = '';
+    image_model: string = '';
+    image_provider: string = '';
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.active_workspace_path = source['active_workspace_path'] ?? '';
+      this.active_workspace_index = source['active_workspace_index'] ?? 0;
+      this.workspaces = (source['workspaces'] ?? []).map(
+        (w: any) => new WorkspaceConfig(w),
+      );
+      this.tiny_brain = source['tiny_brain'] ?? {};
+      this.agents = (source['agents'] ?? []).map(
+        (a: any) => new AgentConfig(a),
+      );
+      this.agent_categories = source['agent_categories'] ?? [];
+      this.provider_keys = source['provider_keys'] ?? {};
+      this.provider_bases = source['provider_bases'] ?? {};
+      this.model_settings = source['model_settings'] ?? {};
+      this.model_list = source['model_list'] ?? [];
+      this.providers = source['providers'] ?? {};
+      this.embedding_model = source['embedding_model'] ?? '';
+      this.embedding_provider = source['embedding_provider'] ?? '';
+      this.image_model = source['image_model'] ?? '';
+      this.image_provider = source['image_provider'] ?? '';
     }
   }
 }
@@ -221,157 +312,325 @@ export namespace backend {
 // API functions
 function getApp() {
   if (typeof window !== 'undefined' && window.go?.main?.App) {
-    return window.go.main.App
+    return window.go.main.App;
   }
-  return null
+  return null;
 }
 
 export async function openDirectoryDialog(): Promise<string> {
-  const app = getApp()
-  if (!app) return ''
-  try { return await app.OpenDirectoryDialog() } catch { return '' }
+  const app = getApp();
+  if (!app) return '';
+  try {
+    return await app.OpenDirectoryDialog();
+  } catch {
+    return '';
+  }
 }
 
 export async function openFileDialog(): Promise<string> {
-  const app = getApp()
-  if (!app) return ''
-  try { return await app.OpenFileDialog() } catch { return '' }
+  const app = getApp();
+  if (!app) return '';
+  try {
+    return await app.OpenFileDialog();
+  } catch {
+    return '';
+  }
 }
 
 export async function getAdaConfig(): Promise<backend.AdaConfig | null> {
-  const app = getApp()
-  if (!app) return null
-  try { return await app.GetAdaConfig() } catch { return null }
+  const app = getApp();
+  if (!app) return null;
+  try {
+    const rawConfig = await app.GetAdaConfig();
+    if (!rawConfig) return null;
+    // Properly construct AdaConfig with nested class instances
+    const processedProviders: Record<string, backend.ProviderConfig> = {};
+    if (rawConfig.providers) {
+      for (const [key, val] of Object.entries(rawConfig.providers)) {
+        processedProviders[key] = new backend.ProviderConfig(val);
+      }
+    }
+    const processedWorkspaces = (rawConfig.workspaces || []).map((w: any) => new backend.WorkspaceConfig(w));
+    const processedAgents = (rawConfig.agents || []).map((a: any) => new backend.AgentConfig(a));
+    return new backend.AdaConfig({
+      ...rawConfig,
+      providers: processedProviders,
+      workspaces: processedWorkspaces,
+      agents: processedAgents,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function setAdaConfig(cfg: backend.AdaConfig): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.SetAdaConfig(cfg) } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetAdaConfig(cfg);
+  } catch {}
 }
 
-export async function getProvidersConfig(): Promise<Record<string, backend.ProviderConfig>> {
-  const app = getApp()
-  if (!app) return {}
-  try { return await app.GetProvidersConfig() } catch { return {} }
+export async function getProvidersConfig(): Promise<
+  Record<string, backend.ProviderConfig>
+> {
+  const app = getApp();
+  if (!app) return {};
+  try {
+    return await app.GetProvidersConfig();
+  } catch {
+    return {};
+  }
 }
 
 export async function saveProvidersConfig(): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.SaveProvidersConfig() } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SaveProvidersConfig();
+  } catch {}
 }
 
 export async function getToolProfiles(): Promise<backend.ToolProfile[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetToolProfiles() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetToolProfiles();
+  } catch {
+    return [];
+  }
 }
 
-export async function createToolProfile(name: string, color: string, icon: string): Promise<backend.ToolProfile | null> {
-  const app = getApp()
-  if (!app) return null
-  try { return await app.CreateToolProfile(name, color, icon) } catch { return null }
+export async function createToolProfile(
+  name: string,
+  color: string,
+  icon: string,
+): Promise<backend.ToolProfile | null> {
+  const app = getApp();
+  if (!app) return null;
+  try {
+    return await app.CreateToolProfile(name, color, icon);
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteToolProfile(id: number): Promise<boolean> {
-  const app = getApp()
-  if (!app) return false
-  try { return await app.DeleteToolProfile(id) } catch { return false }
+  const app = getApp();
+  if (!app) return false;
+  try {
+    return await app.DeleteToolProfile(id);
+  } catch {
+    return false;
+  }
 }
 
-export async function toggleProfileTool(profileID: number, toolName: string, enabled: boolean): Promise<boolean> {
-  const app = getApp()
-  if (!app) return false
-  try { return await app.ToggleProfileTool(profileID, toolName, enabled) } catch { return false }
+export async function toggleProfileTool(
+  profileID: number,
+  toolName: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const app = getApp();
+  if (!app) return false;
+  try {
+    return await app.ToggleProfileTool(profileID, toolName, enabled);
+  } catch {
+    return false;
+  }
 }
 
 export async function getAvailableTools(): Promise<backend.ToolUIInfo[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetAvailableTools() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetAvailableTools();
+  } catch {
+    return [];
+  }
 }
 
-export async function toggleTool(toolName: string, enabled: boolean): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.ToggleTool(toolName, enabled) } catch {}
+export async function toggleTool(
+  toolName: string,
+  enabled: boolean,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.ToggleTool(toolName, enabled);
+  } catch {}
 }
 
 export async function getWorkspaces(): Promise<backend.WorkspaceConfig[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetWorkspaces() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetWorkspaces();
+  } catch {
+    return [];
+  }
 }
 
-export async function setWorkspaces(workspaces: backend.WorkspaceConfig[]): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.SetWorkspaces(workspaces) } catch {}
+export async function setWorkspaces(
+  workspaces: backend.WorkspaceConfig[],
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetWorkspaces(workspaces);
+  } catch {}
 }
 
 export async function getAgents(): Promise<backend.AgentConfig[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetAgents() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetAgents();
+  } catch {
+    return [];
+  }
 }
 
 export async function setAgents(agents: backend.AgentConfig[]): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.SetAgents(agents) } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetAgents(agents);
+  } catch {}
 }
 
 export async function getAgentCategories(): Promise<string[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetAgentCategories() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetAgentCategories();
+  } catch {
+    return [];
+  }
 }
 
-export async function addWorkspace(title: string, path: string, personality: string): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.AddWorkspace(title, path, personality) } catch {}
+export async function addWorkspace(
+  title: string,
+  path: string,
+  personality: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.AddWorkspace(title, path, personality);
+  } catch {}
 }
 
 export async function deleteWorkspace(path: string): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.DeleteWorkspace(path) } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.DeleteWorkspace(path);
+  } catch {}
 }
 
-export async function updateWorkspace(originalPath: string, ws: backend.WorkspaceConfig): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.UpdateWorkspace(originalPath, ws) } catch {}
+export async function updateWorkspace(
+  originalPath: string,
+  ws: backend.WorkspaceConfig,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.UpdateWorkspace(originalPath, ws);
+  } catch {}
 }
 
 export async function setActiveWorkspace(path: string): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.SetActiveWorkspace(path) } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetActiveWorkspace(path);
+  } catch {}
 }
 
 export async function toggleWorkspace(path: string): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.ToggleWorkspace(path) } catch {}
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.ToggleWorkspace(path);
+  } catch {}
 }
 
 export async function listChatProviders(): Promise<string[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.ListChatProviders() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.ListChatProviders();
+  } catch {
+    return [];
+  }
 }
 
 export async function getEnvProviderKeys(): Promise<string[]> {
-  const app = getApp()
-  if (!app) return []
-  try { return await app.GetEnvProviderKeys() } catch { return [] }
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetEnvProviderKeys();
+  } catch {
+    return [];
+  }
 }
 
-export async function removeModel(name: string, provider: string): Promise<void> {
-  const app = getApp()
-  if (!app) return
-  try { await app.RemoveModel(name, provider) } catch {}
+export async function removeModel(
+  name: string,
+  provider: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.RemoveModel(name, provider);
+  } catch {}
+}
+
+export async function testProviderConnection(
+  name: string,
+  apiKey: string,
+  apiBase: string,
+  connectionType: string,
+): Promise<backend.ProviderTestResult> {
+  const app = getApp();
+  if (!app)
+    return new backend.ProviderTestResult({
+      success: false,
+      message: 'App not available',
+    });
+  try {
+    const raw = await app.TestProviderConnection(name, apiKey, apiBase, connectionType);
+    return new backend.ProviderTestResult(raw);
+  } catch {
+    return new backend.ProviderTestResult({
+      success: false,
+      message: 'Connection test failed',
+    });
+  }
+}
+
+export async function fetchProviderModels(
+  name: string,
+  apiKey: string,
+  apiBase: string,
+  connectionType: string,
+): Promise<backend.ProviderModel[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const raw = await app.FetchProviderModels(name, apiKey, apiBase, connectionType);
+    return raw.map((m: any) => new backend.ProviderModel(m));
+  } catch {
+    return [];
+  }
+}
+
+export async function setAgentCategories(
+  categories: string[],
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SetAgentCategories(categories);
+  } catch {}
 }

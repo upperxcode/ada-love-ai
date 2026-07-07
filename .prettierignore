@@ -1,0 +1,6 @@
+node_modules
+dist
+wailsjs
+*.js
+!.eslintrc.js
+!eslint.config.mjs

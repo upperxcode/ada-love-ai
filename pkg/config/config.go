@@ -834,6 +834,9 @@ type ToolsConfig struct {
 	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
 	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
 	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
+	PrettierFormat  ToolConfig         `json:"prettier_format"  yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_PRETTIER_FORMAT_"`
+	ESLintCheck     ToolConfig         `json:"eslint_check"     yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_ESLINT_CHECK_"`
+	ESLintFix       ToolConfig         `json:"eslint_fix"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_ESLINT_FIX_"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1568,8 +1571,14 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 	case "write_file":
 		return t.WriteFile.Enabled
 	case "mcp":
-		return t.MCP.Enabled
-	default:
-		return true
-	}
+			return t.MCP.Enabled
+		case "prettier_format":
+			return t.PrettierFormat.Enabled
+		case "eslint_check":
+			return t.ESLintCheck.Enabled
+		case "eslint_fix":
+			return t.ESLintFix.Enabled
+		default:
+			return true
+		}
 }

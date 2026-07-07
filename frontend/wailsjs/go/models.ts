@@ -25,6 +25,12 @@ export namespace backend {
 	    temperature?: number;
 	    max_tokens?: number;
 	    top_p?: number;
+	    type?: string;
+	    vision?: boolean;
+	    embedding?: boolean;
+	    tools?: boolean;
+	    free?: boolean;
+	    thinking?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelSettings(source);
@@ -36,6 +42,12 @@ export namespace backend {
 	        this.temperature = source["temperature"];
 	        this.max_tokens = source["max_tokens"];
 	        this.top_p = source["top_p"];
+	        this.type = source["type"];
+	        this.vision = source["vision"];
+	        this.embedding = source["embedding"];
+	        this.tools = source["tools"];
+	        this.free = source["free"];
+	        this.thinking = source["thinking"];
 	    }
 	}
 	export class ProviderConfig {
@@ -333,6 +345,46 @@ export namespace backend {
 	
 	
 	
+	export class ProviderModel {
+	    id: string;
+	    name: string;
+	    vision?: boolean;
+	    embedding?: boolean;
+	    tools?: boolean;
+	    free?: boolean;
+	    thinking?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderModel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.vision = source["vision"];
+	        this.embedding = source["embedding"];
+	        this.tools = source["tools"];
+	        this.free = source["free"];
+	        this.thinking = source["thinking"];
+	    }
+	}
+	export class ProviderTestResult {
+	    ok: boolean;
+	    success: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.success = source["success"];
+	        this.message = source["message"];
+	    }
+	}
 	
 	
 	export class ToolUIInfo {

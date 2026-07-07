@@ -1,10 +1,10 @@
-import SettingsPage from './components/SettingsPage'
-import { Button } from './components/ui/button'
-import { Icon } from './components/Icon'
-import { ThemeProvider, useTheme } from './lib/theme'
+import SettingsPage from './components/SettingsPage';
+import { Button } from './components/ui/button';
+import { Icon } from './components/Icon';
+import { ThemeProvider, useTheme } from './lib/theme';
 
 function ThemeToggle() {
-  const { dark, setDark } = useTheme()
+  const { dark, setDark } = useTheme();
   return (
     <Button
       variant="ghost"
@@ -12,9 +12,13 @@ function ThemeToggle() {
       className="fixed top-3 right-3 z-[100] h-8 w-8 p-0"
       onClick={() => setDark(!dark)}
     >
-      {dark ? <Icon name="Sun" className="w-full h-full" /> : <Icon name="Moon" className="w-full h-full" />}
+      {dark ? (
+        <Icon name="Sun" className="w-full h-full" />
+      ) : (
+        <Icon name="Moon" className="w-full h-full" />
+      )}
     </Button>
-  )
+  );
 }
 
 function App() {
@@ -25,7 +29,7 @@ function App() {
         <SettingsPage />
       </div>
     </ThemeProvider>
-  )
+  );
 }
 
-export default App
+export default App;

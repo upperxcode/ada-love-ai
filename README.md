@@ -1,2 +1,2 @@
 # ada-love-ai
-Orquestrador de ia baseado no picoclaw
+Orquestrador de IA baseado em agentes autônomos

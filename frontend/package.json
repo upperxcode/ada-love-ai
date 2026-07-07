@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "wails": "VITE_WAILS=true vite build",
     "theme:add": "node scripts/install-theme.cjs",
-    "icon-theme:add": "node scripts/install-icon-theme.cjs"
+    "icon-theme:add": "node scripts/install-icon-theme.cjs",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.tsx\"",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",

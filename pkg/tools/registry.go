@@ -428,6 +428,47 @@ func (r *ToolRegistry) Count() int {
 	return len(r.tools)
 }
 
+// RegisterTools registers multiple tools at once, ensuring no duplicates.
+// If a profile is provided, all tools from that profile are added.
+// Tools already registered are skipped with a debug log.
+func (r *ToolRegistry) RegisterTools(tools []Tool, profile string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if profile != "" {
+		logger.DebugCF("tools", "Registering tools from profile",
+			map[string]any{"profile": profile, "count": len(tools)})
+	}
+
+	for _, tool := range tools {
+		name := tool.Name()
+		if _, exists := r.tools[name]; exists {
+			logger.DebugCF("tools", "Tool already registered, skipping",
+				map[string]any{"name": name, "profile": profile})
+			continue
+		}
+		r.tools[name] = &ToolEntry{
+			Tool:   tool,
+			IsCore: true,
+			TTL:    0,
+		}
+		if aware, ok := tool.(mediaStoreAware); ok && r.mediaStore != nil {
+			aware.SetMediaStore(r.mediaStore)
+		}
+		r.version.Add(1)
+		logger.DebugCF("tools", "Registered tool",
+			map[string]any{"name": name, "profile": profile})
+	}
+}
+
+// HasTool returns true if a tool with the given name is already registered.
+func (r *ToolRegistry) HasTool(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.tools[name]
+	return exists
+}
+
 // GetSummaries returns human-readable summaries of all registered tools.
 // Returns a slice of "name - description" strings.
 func (r *ToolRegistry) GetSummaries() []string {

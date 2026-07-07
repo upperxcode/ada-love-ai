@@ -8,7 +8,7 @@ import (
 	"ada-love-ai/pkg/logger"
 )
 
-// AdaHook implementa os ganchos do Picoclaw para o Ada-Love
+// AdaHook implementa os ganchos do Ada-Love para orquestração de agentes
 type AdaHook struct {
 	engine *Engine
 }

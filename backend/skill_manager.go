@@ -146,7 +146,7 @@ func (e *Engine) GetSkillFullInfo(name string) (*SkillFullInfo, error) {
 	}
 
 	// 3. Simulação de metadados técnicos (em uma implementação real, leríamos o manifest da skill)
-	info.URL = "https://github.com/sipeed/picoclaw/tree/main/skills/" + name
-	
+		info.URL = "https://github.com/adahas/ada-love-ai/tree/main/skills/" + name
+
 	return info, nil
 }

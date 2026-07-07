@@ -75,6 +75,15 @@ func (a *App) ToggleWorkspace(title string) {
 func (a *App) UpdateWorkspace(originalTitle string, ws backend.WorkspaceConfig) {
 	a.engine.UpdateWorkspace(originalTitle, ws)
 }
+func (a *App) AddToolToWorkspace(workspaceTitle, toolName string) bool {
+	return a.engine.AddToolToWorkspace(workspaceTitle, toolName)
+}
+func (a *App) RemoveToolFromWorkspace(workspaceTitle, toolName string) bool {
+	return a.engine.RemoveToolFromWorkspace(workspaceTitle, toolName)
+}
+func (a *App) SetWorkspaceTools(workspaceTitle string, toolNames []string) {
+	a.engine.SetWorkspaceTools(workspaceTitle, toolNames)
+}
 
 // Tools & Profiles
 func (a *App) GetToolProfiles() []backend.ToolProfile {
@@ -88,6 +97,15 @@ func (a *App) DeleteToolProfile(id int64) bool {
 }
 func (a *App) ToggleProfileTool(profileID int64, toolName string, enabled bool) bool {
 	return a.engine.ToggleProfileTool(profileID, toolName, enabled)
+}
+func (a *App) GetToolProfile(id int64) *backend.ToolProfile {
+	return a.engine.GetToolProfile(id)
+}
+func (a *App) AddToolsToProfile(profileID int64, toolNames []string) bool {
+	return a.engine.AddToolsToProfile(profileID, toolNames)
+}
+func (a *App) RemoveToolsFromProfile(profileID int64, toolNames []string) bool {
+	return a.engine.RemoveToolsFromProfile(profileID, toolNames)
 }
 func (a *App) GetAvailableTools() []backend.ToolUIInfo {
 	return a.engine.GetAvailableTools()
@@ -110,6 +128,19 @@ func (a *App) GetProviders() []string {
 	return a.engine.GetProviders()
 }
 
+// FetchProviderModels queries a provider's /models endpoint and returns the
+// list enriched with detected capabilities (vision/embedding), keyed by
+// connectionType protocol ("openai" | "anthropic" | "gemini").
+func (a *App) FetchProviderModels(name, apiKey, apiBase, connectionType string) ([]backend.ProviderModel, error) {
+	return a.engine.FetchProviderModels(name, apiKey, apiBase, connectionType)
+}
+
+// TestProviderConnection validates an API key (literal or env-var reference)
+// against the provider's /models endpoint.
+func (a *App) TestProviderConnection(name, apiKey, apiBase, connectionType string) (backend.ProviderTestResult, error) {
+	return a.engine.TestProviderConnection(name, apiKey, apiBase, connectionType)
+}
+
 // Sessions / Chat
 func (a *App) CreateSession(workspaceID string) *backend.ChatSession {
 	return a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID)
@@ -129,4 +160,3 @@ func (a *App) SendMessage(sessionID, text string) (string, error) {
 func (a *App) TogglePin(sessionID string) {
 	a.engine.TogglePin(sessionID)
 }
-

@@ -171,6 +171,16 @@ func NewAgentInstance(
 	if cfg.Tools.IsToolEnabled("check_port_status") {
 		toolsRegistry.Register(runtimetools.NewCheckPortStatusTool(workspace))
 	}
+	// --- New tools: Formatters ---
+	if cfg.Tools.IsToolEnabled("prettier_format") {
+		toolsRegistry.Register(runtimetools.NewPrettierFormatTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("eslint_check") {
+		toolsRegistry.Register(runtimetools.NewESLintCheckTool(workspace))
+	}
+	if cfg.Tools.IsToolEnabled("eslint_fix") {
+		toolsRegistry.Register(runtimetools.NewESLintFixTool(workspace))
+	}
 
 	// --- New tools: HTTP ---
 	if cfg.Tools.IsToolEnabled("http_request") {

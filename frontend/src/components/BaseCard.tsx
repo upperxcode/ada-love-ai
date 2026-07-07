@@ -1,17 +1,17 @@
-import { ReactNode, MouseEventHandler } from 'react'
+import { ReactNode, MouseEventHandler } from 'react';
 
 interface BaseCardProps {
-  color?: string
-  inactive?: boolean
-  selected?: boolean
-  small?: boolean
-  headerLeft?: ReactNode
-  headerRight?: ReactNode
-  icon?: ReactNode
-  title?: ReactNode
-  children?: ReactNode
-  className?: string
-  onClick?: MouseEventHandler<HTMLDivElement>
+  color?: string;
+  inactive?: boolean;
+  selected?: boolean;
+  small?: boolean;
+  headerLeft?: ReactNode;
+  headerRight?: ReactNode;
+  icon?: ReactNode;
+  title?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  onClick?: MouseEventHandler<HTMLDivElement>;
 }
 
 export function BaseCard({
@@ -25,10 +25,10 @@ export function BaseCard({
   title,
   children,
   className = '',
-  onClick
+  onClick,
 }: BaseCardProps) {
   return (
-    <div 
+    <div
       className={`base-card ${small ? 'base-card-sm' : ''} ${inactive ? 'inactive' : ''} ${selected ? 'selected' : ''} ${className}`}
       onClick={onClick}
     >
@@ -37,10 +37,14 @@ export function BaseCard({
         <div className="base-card-header-right">{headerRight}</div>
       </div>
       <div className="base-card-body">
-        {icon && <div className="base-card-icon" style={{ color }}>{icon}</div>}
+        {icon && (
+          <div className="base-card-icon" style={{ color }}>
+            {icon}
+          </div>
+        )}
         {title && <div className="base-card-title">{title}</div>}
         {children}
       </div>
     </div>
-  )
+  );
 }

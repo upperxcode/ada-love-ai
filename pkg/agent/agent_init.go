@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Ada-Love - Ultra-lightweight personal AI agent
 
 package agent
 

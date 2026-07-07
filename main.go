@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"ada-love-ai/backend"
+	"ada-love-ai/pkg/envutil"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -17,6 +18,10 @@ import (
 var frontendAssets embed.FS
 
 func main() {
+	// Load project-local .env files so API keys stored as env-var references
+	// (e.g. OPENROUTER_API_KEY) resolve even without a real env entry.
+	envutil.LoadEnvFiles()
+
 	engine, err := backend.NewEngine()
 	if err != nil {
 		fmt.Printf("Erro ao inicializar o motor: %v\n", err)

@@ -70,17 +70,17 @@ func (a *App) TestConnection(connectionType, connectionName, connectionConfig st
 }
 
 // Legacy agent aliases (mapped to workers)
-func (a *App) GetAgents() []backend.WorkerConfig {
-	return a.engine.GetWorkers()
+func (a *App) GetAgents() []backend.AgentConfig {
+	return a.engine.GetAgents()
 }
-func (a *App) SetAgents(agents []backend.WorkerConfig) {
-	a.engine.SetWorkers(agents)
+func (a *App) SetAgents(agents []backend.AgentConfig) {
+	a.engine.SetAgents(agents)
 }
 func (a *App) GetAgentCategories() []string {
-	return a.engine.GetWorkerCategories()
+	return a.engine.GetAgentCategories()
 }
 func (a *App) SetAgentCategories(categories []string) {
-	a.engine.SetWorkerCategories(categories)
+	a.engine.SetAgentCategories(categories)
 }
 
 // Workspaces

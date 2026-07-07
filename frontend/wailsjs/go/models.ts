@@ -104,6 +104,38 @@ export namespace backend {
 	        this.top_p = source["top_p"];
 	    }
 	}
+	export class AgentConfig {
+	    name: string;
+	    description: string;
+	    provider: string;
+	    model: string;
+	    type: string;
+	    icon: string;
+	    color: string;
+	    max_iterations?: number;
+	    temperature?: number;
+	    delegates?: string[];
+	    system_prompt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	        this.type = source["type"];
+	        this.icon = source["icon"];
+	        this.color = source["color"];
+	        this.max_iterations = source["max_iterations"];
+	        this.temperature = source["temperature"];
+	        this.delegates = source["delegates"];
+	        this.system_prompt = source["system_prompt"];
+	    }
+	}
 	export class WorkerConfig {
 	    name: string;
 	    persona: string;
@@ -206,6 +238,8 @@ export namespace backend {
 	    image_provider: string;
 	    workers: WorkerConfig[];
 	    worker_categories: string[];
+	    agents: AgentConfig[];
+	    agent_categories: string[];
 	    provider_keys: Record<string, string>;
 	    provider_bases: Record<string, string>;
 	    model_settings: Record<string, ExtraModelConfig>;
@@ -229,6 +263,8 @@ export namespace backend {
 	        this.image_provider = source["image_provider"];
 	        this.workers = this.convertValues(source["workers"], WorkerConfig);
 	        this.worker_categories = source["worker_categories"];
+	        this.agents = this.convertValues(source["agents"], AgentConfig);
+	        this.agent_categories = source["agent_categories"];
 	        this.provider_keys = source["provider_keys"];
 	        this.provider_bases = source["provider_bases"];
 	        this.model_settings = this.convertValues(source["model_settings"], ExtraModelConfig, true);
@@ -255,6 +291,7 @@ export namespace backend {
 		    return a;
 		}
 	}
+	
 	export class ToolCall {
 	    id: string;
 	    type: string;

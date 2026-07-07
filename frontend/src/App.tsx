@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import SettingsPage from './components/SettingsPage';
+import { MainLayout } from './components/MainLayout';
 import { Button } from './components/ui/button';
 import { Icon } from './components/Icon';
 import { ThemeProvider, useTheme } from './lib/theme';
@@ -21,13 +23,25 @@ function ThemeToggle() {
   );
 }
 
+function AppContent() {
+  const [showSettings, setShowSettings] = useState(false);
+
+  return (
+    <div className="relative min-h-screen">
+      <ThemeToggle />
+      {showSettings ? (
+        <SettingsPage onClose={() => setShowSettings(false)} />
+      ) : (
+        <MainLayout onOpenSettings={() => setShowSettings(true)} />
+      )}
+    </div>
+  );
+}
+
 function App() {
   return (
     <ThemeProvider>
-      <div className="relative min-h-screen">
-        <ThemeToggle />
-        <SettingsPage />
-      </div>
+      <AppContent />
     </ThemeProvider>
   );
 }

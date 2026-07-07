@@ -58,7 +58,7 @@ declare global {
           SetWorkerCategories(categories: string[]): Promise<void>;
           GetPredefinedConnections(): Promise<backend.ConnectionDefinition[]>;
           TestConnection(connectionType: string, connectionName: string, connectionConfig: string): Promise<backend.ConnectionTestResult>;
-          // Legacy agent bindings (mapped to workers on backend)
+          // Agents — specialized task executors/delegators
           GetAgents(): Promise<backend.AgentConfig[]>;
           SetAgents(agents: backend.AgentConfig[]): Promise<void>;
           GetAgentCategories(): Promise<string[]>;
@@ -341,22 +341,39 @@ export namespace backend {
     }
   }
 
-  // Legacy alias — AgentsSection uses this name
-  export class AgentConfig extends WorkerConfig {
-    // Legacy fields used by AgentsSection
+  // AgentConfig defines a specialized model that executes and/or delegates tasks.
+  // Unlike Workers (chat interfaces), Agents are autonomous task executors.
+  export class AgentConfig {
+    name: string = '';
+    description: string = '';
+    // Modelo que o agente usa
     provider: string = '';
     model: string = '';
-    category: string = '';
+    // Comportamento
+    type: string = 'executor'; // "executor", "delegator", "reviewer", "researcher"
     icon: string = '';
     color: string = '';
+    // Configuração de execução
+    max_iterations: number = 0;
+    temperature: number = 0;
+    // Modelos que este agente pode delegar
+    delegates: string[] = [];
+    // Prompt customizado
+    system_prompt: string = '';
 
     constructor(source: any = {}) {
-      super(source);
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.description = source['description'] ?? '';
       this.provider = source['provider'] ?? '';
       this.model = source['model'] ?? '';
-      this.category = source['category'] ?? '';
+      this.type = source['type'] ?? 'executor';
       this.icon = source['icon'] ?? '';
       this.color = source['color'] ?? '';
+      this.max_iterations = source['max_iterations'] ?? 0;
+      this.temperature = source['temperature'] ?? 0;
+      this.delegates = source['delegates'] ?? [];
+      this.system_prompt = source['system_prompt'] ?? '';
     }
   }
 
@@ -410,9 +427,9 @@ export namespace backend {
     tiny_brain: any = {};
     workers: WorkerConfig[] = [];
     worker_categories: string[] = [];
-    // Legacy aliases for backward compatibility
-    agents: WorkerConfig[] = [];
+    agents: AgentConfig[] = [];
     agent_categories: string[] = [];
+    tools: any = {};  // MCP servers config (config.json tools section)
     provider_keys: Record<string, string> = {};
     provider_bases: Record<string, string> = {};
     model_settings: Record<string, any> = {};
@@ -431,11 +448,15 @@ export namespace backend {
         (w: any) => new WorkspaceConfig(w),
       );
       this.tiny_brain = source['tiny_brain'] ?? {};
-      this.workers = (source['agents'] ?? source['workers'] ?? []).map(
+      this.workers = (source['workers'] ?? []).map(
         (w: any) => new WorkerConfig(w),
       );
-      this.worker_categories =
-        source['agent_categories'] ?? source['worker_categories'] ?? [];
+      this.worker_categories = source['worker_categories'] ?? [];
+      this.agents = (source['agents'] ?? []).map(
+        (a: any) => new AgentConfig(a),
+      );
+      this.agent_categories = source['agent_categories'] ?? [];
+      this.tools = source['tools'] ?? {};
       this.provider_keys = source['provider_keys'] ?? {};
       this.provider_bases = source['provider_bases'] ?? {};
       this.model_settings = source['model_settings'] ?? {};
@@ -673,13 +694,13 @@ export async function testConnection(
   }
 }
 
-// Legacy aliases — AgentsSection uses these
+// Agents — specialized task executors/delegators
 export async function getAgents(): Promise<backend.AgentConfig[]> {
   const app = getApp();
   if (!app) return [];
   try {
     const raw = await app.GetAgents();
-    return (raw ?? []).map((w: any) => new backend.AgentConfig(w));
+    return (raw ?? []).map((a: any) => new backend.AgentConfig(a));
   } catch {
     return [];
   }
@@ -689,9 +710,7 @@ export async function setAgents(agents: backend.AgentConfig[]): Promise<void> {
   if (!app) return;
   try {
     await app.SetAgents(agents);
-  } catch {
-    // handle error
-  }
+  } catch {}
 }
 export async function getAgentCategories(): Promise<string[]> {
   const app = getApp();
@@ -707,9 +726,13 @@ export async function setAgentCategories(categories: string[]): Promise<void> {
   if (!app) return;
   try {
     await app.SetAgentCategories(categories);
-  } catch {
-    // handle error
-  }
+  } catch {}
+}
+
+// MCP — install from repo (stub, not yet implemented on backend)
+export async function installMCPFromRepo(repoUrl: string): Promise<void> {
+  // TODO: implement backend InstallMCPFromRepo
+  console.warn('[api] installMCPFromRepo not yet implemented:', repoUrl);
 }
 
 export async function getWorkerCategories(): Promise<string[]> {

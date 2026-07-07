@@ -114,8 +114,7 @@ function ToolsSection() {
 
   const selectedProfile = profiles.find((p) => p.id === selectedProfileID);
 
-  // Apply all filters
-  const filteredTools = tools.filter((tool) => {
+  const selectedTools = tools.filter((tool) => {
     // Search filter
     if (searchQuery.trim() !== '') {
       const query = searchQuery.toLowerCase();
@@ -133,7 +132,7 @@ function ToolsSection() {
     return true;
   });
 
-  const groupedTools = filteredTools.reduce(
+  const groupedTools = tools.filter(filteredTools => filteredTools).reduce(
     (acc, tool) => {
       const cat = tool.category || 'Other';
       if (!acc[cat]) acc[cat] = [];
@@ -149,29 +148,29 @@ function ToolsSection() {
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-foreground">Tools</h3>
-          </div>
-          <div className="flex items-center gap-3">
-            <Input
-              placeholder="Search tools by name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="max-w-sm"
-            />
-            <Select
-              value={filterType}
-              onValueChange={(value: 'all' | 'active' | 'inactive') =>
-                setFilterType(value)
-              }
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3">
+              <Input
+                placeholder="Search tools by name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="max-w-sm"
+              />
+              <Select
+                value={filterType}
+                onValueChange={(value: 'all' | 'active' | 'inactive') =>
+                  setFilterType(value)
+                }
+              >
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground">
             Configure agent tools for the active workspace.
@@ -207,7 +206,6 @@ function ToolsSection() {
               icon={profile.icon}
               title={profile.name}
               selected={selectedProfileID === profile.id}
-              onClick={() => setSelectedProfileID(profile.id)}
               className="cursor-pointer"
               small
             >
@@ -230,44 +228,42 @@ function ToolsSection() {
         </div>
       </div>
 
-      {Object.entries(groupedTools).map(([category, categoryTools]) => {
-        return (
-          <div key={category}>
-            <h4 className="text-sm font-medium text-foreground mb-2">
-              {category}
-            </h4>
-            <div className="tools-grid">
-              {categoryTools.map((tool) => {
-                const isEnabled = selectedProfile?.tools.includes(tool.name) ?? false;
-                return (
-                  <BaseCard
-                    key={tool.name}
-                    color={isEnabled ? categoryColors[category] : '#6b7280'}
-                    headerLeft={
-                      <span className="text-xs text-white opacity-90">
-                        {category}
-                      </span>
-                    }
-                    headerRight={
-                      <Switch
-                        checked={isEnabled}
-                        onCheckedChange={(checked) =>
-                          handleToggle(tool.name, checked)
-                        }
-                        className="data-[state=checked]:bg-white/30"
-                      />
-                    }
-                    icon="🔧"
-                    title={tool.name}
-                  >
-                    <div className="base-card-desc">{tool.description}</div>
-                  </BaseCard>
-                );
-              })}
-            </div>
+      {Object.entries(groupedTools).map(([category, categoryTools]) => (
+        <div key={category}>
+          <h4 className="text-sm font-medium text-foreground mb-2">
+            {category}
+          </h4>
+          <div className="tools-grid">
+            {categoryTools.map((tool) => {
+              const isEnabled = selectedProfile?.tools.includes(tool.name) ?? false;
+              return (
+                <BaseCard
+                  key={tool.name}
+                  color={isEnabled ? categoryColors[category] : '#6b7280'}
+                  headerLeft={
+                    <span className="text-xs text-white opacity-90">
+                      {category}
+                    </span>
+                  }
+                  headerRight={
+                    <Switch
+                      checked={isEnabled}
+                      onCheckedChange={(checked) =>
+                        handleToggle(tool.name, checked)
+                      }
+                      className="data-[state=checked]:bg-white/30"
+                    />
+                  }
+                  icon="🔧"
+                  title={tool.name}
+                >
+                  <div className="base-card-desc">{tool.description}</div>
+                </BaseCard>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
 
       {tools.length === 0 && (
         <Card>

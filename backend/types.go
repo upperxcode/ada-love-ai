@@ -21,6 +21,29 @@ type WorkerConfig struct {
 	InheritPersona   bool   `json:"inherit_persona"`
 }
 
+// AgentConfig defines a specialized model that executes and/or delegates tasks
+// to other models. Unlike Workers (which are chat interfaces), Agents are
+// autonomous task executors: they receive a task, work on it (possibly using
+// tools or sub-models), and deliver a result.
+type AgentConfig struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	// Modelo que o agente usa para executar tarefas
+	Provider    string   `json:"provider"`
+	Model       string   `json:"model"`
+	// Comportamento
+	Type        string   `json:"type"`        // "executor", "delegator", "reviewer", "researcher"
+	Icon        string   `json:"icon"`
+	Color       string   `json:"color"`
+	// Configuração de execução
+	MaxIterations int    `json:"max_iterations,omitempty"`
+	Temperature   float64 `json:"temperature,omitempty"`
+	// Modelos que este agente pode delegar (para type "delegator")
+	Delegates   []string `json:"delegates,omitempty"`
+	// Sistema de prompt customizado
+	SystemPrompt string  `json:"system_prompt,omitempty"`
+}
+
 type SkillFullInfo struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
@@ -101,6 +124,8 @@ type AdaConfig struct {
 	ImageProvider     string `json:"image_provider"`
 	Workers              []WorkerConfig     `json:"workers"`
 	WorkerCategories     []string          `json:"worker_categories"`
+	Agents               []AgentConfig     `json:"agents"`
+	AgentCategories      []string          `json:"agent_categories"`
 	ProviderKeys        map[string]string `json:"provider_keys"`
 	ProviderBases       map[string]string `json:"provider_bases"`
 	ModelSettings       map[string]ExtraModelConfig `json:"model_settings"`

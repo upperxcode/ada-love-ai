@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from './Icon';
+import { Button } from './ui/button';
 import GeneralSection from './settings/GeneralSection';
 import WorkspacesSection from './settings/WorkspacesSection';
 import AgentsSection from './settings/AgentsSection';
@@ -7,6 +8,11 @@ import WorkersSection from './settings/WorkersSection';
 import SkillsSection from './settings/SkillsSection';
 import ToolsSection from './settings/ToolsSection';
 import ModelsSection from './settings/ModelsSection';
+import MCPSection from './settings/MCPSection';
+
+interface SettingsPageProps {
+  onClose?: () => void;
+}
 
 const settingsSections = [
   { id: 'general', icon: 'Settings', label: 'General' },
@@ -15,10 +21,11 @@ const settingsSections = [
   { id: 'agents', icon: 'User', label: 'Agents' },
   { id: 'skills', icon: 'Brain', label: 'Skills' },
   { id: 'tools', icon: 'Wrench', label: 'Tools' },
+  { id: 'mcp', icon: 'Plug', label: 'MCP' },
   { id: 'models', icon: 'Cpu', label: 'Models' },
 ];
 
-function SettingsPage() {
+function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState('general');
 
   return (
@@ -28,6 +35,17 @@ function SettingsPage() {
           <span className="text-sm font-semibold text-foreground">
             Settings
           </span>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 p-0"
+              onClick={onClose}
+              title="Fechar configurações"
+            >
+              <Icon name="X" className="w-4 h-4" />
+            </Button>
+          )}
         </div>
         <div className="settings-sidebar-nav">
           {settingsSections.map((section) => (
@@ -52,6 +70,7 @@ function SettingsPage() {
           {activeSection === 'agents' && <AgentsSection />}
           {activeSection === 'skills' && <SkillsSection />}
           {activeSection === 'tools' && <ToolsSection />}
+          {activeSection === 'mcp' && <MCPSection />}
           {activeSection === 'models' && <ModelsSection />}
         </div>
       </div>

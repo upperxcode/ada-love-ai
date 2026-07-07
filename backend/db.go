@@ -69,6 +69,7 @@ func (s *Store) init() error {
 		`CREATE TABLE IF NOT EXISTS sessions (
 			id TEXT PRIMARY KEY,
 			workspace_path TEXT,
+			worker_name TEXT DEFAULT '',
 			title TEXT,
 			summary TEXT,
 			pinned INTEGER DEFAULT 0,
@@ -107,6 +108,7 @@ func (s *Store) init() error {
 	s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")   // Ignora erro se já existir
 	s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT") // Migração para novo campo manual
 	s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers") // Migração agents → workers
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN worker_name TEXT DEFAULT ''") // Migração worker vinculado ao chat
 
 	return nil
 }
@@ -191,9 +193,9 @@ func (s *Store) DeleteWorkspace(path string) error {
 
 func (s *Store) SaveSession(sess ChatSession) error {
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO sessions (id, workspace_path, title, summary, pinned, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		sess.ID, sess.WorkspaceID, sess.Title, sess.Summary, sess.Pinned, sess.CreatedAt, sess.UpdatedAt,
+		INSERT OR REPLACE INTO sessions (id, workspace_path, worker_name, title, summary, pinned, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.Title, sess.Summary, sess.Pinned, sess.CreatedAt, sess.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -225,7 +227,7 @@ func (s *Store) AddMessageToSession(sessionID string, role string, content strin
 
 func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 	rows, err := s.db.Query(`
-		SELECT id, workspace_path, title, summary, pinned, created_at, updated_at 
+		SELECT id, workspace_path, worker_name, title, summary, pinned, created_at, updated_at 
 		FROM sessions WHERE workspace_path = ?
 		ORDER BY pinned DESC, updated_at DESC`, workspacePath)
 	if err != nil {
@@ -236,7 +238,7 @@ func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 	var sessions []*ChatSession
 	for rows.Next() {
 		sess := &ChatSession{}
-		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.Title, &sess.Summary, &sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.Title, &sess.Summary, &sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

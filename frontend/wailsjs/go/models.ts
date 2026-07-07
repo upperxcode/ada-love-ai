@@ -369,6 +369,7 @@ export namespace backend {
 	export class ChatSession {
 	    id: string;
 	    workspace_id: string;
+	    worker_name: string;
 	    title: string;
 	    summary: string;
 	    messages: ChatMessage[];
@@ -386,6 +387,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.workspace_id = source["workspace_id"];
+	        this.worker_name = source["worker_name"];
 	        this.title = source["title"];
 	        this.summary = source["summary"];
 	        this.messages = this.convertValues(source["messages"], ChatMessage);

@@ -8,7 +8,9 @@ export function AddToolsToProfile(arg1:number,arg2:Array<string>):Promise<boolea
 
 export function AddWorkspace(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function CreateSession(arg1:string):Promise<backend.ChatSession>;
+export function CreateSession(arg1:string,arg2:string):Promise<backend.ChatSession>;
+
+export function CreateSummarizedSession(arg1:string,arg2:string,arg3:string):Promise<backend.ChatSession>;
 
 export function CreateToolProfile(arg1:string,arg2:string,arg3:string):Promise<backend.ToolProfile>;
 

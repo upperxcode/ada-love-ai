@@ -19,6 +19,42 @@ func NewApp(engine *backend.Engine) *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.startEventBridge()
+}
+
+func (a *App) startEventBridge() {
+	if a.engine == nil {
+		return
+	}
+	a.engine.SubscribeEvents(func(ev backend.Event) {
+		if a.ctx == nil {
+			return
+		}
+		switch ev.Kind {
+		case backend.EventKindLLMDelta:
+			if payload, ok := ev.Payload.(backend.StreamingDeltaPayload); ok {
+				runtime.EventsEmit(a.ctx, "chat:delta", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"content":    payload.Content,
+				})
+			}
+		case backend.EventKindTurnStart:
+			runtime.EventsEmit(a.ctx, "chat:turnStart", map[string]interface{}{
+				"session_id": ev.SessionID,
+			})
+		case backend.EventKindTurnEnd:
+			runtime.EventsEmit(a.ctx, "chat:turnEnd", map[string]interface{}{
+				"session_id": ev.SessionID,
+			})
+		case backend.EventKindError:
+			if payload, ok := ev.Payload.(backend.ErrorPayload); ok {
+				runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"message":    payload.Message,
+				})
+			}
+		}
+	})
 }
 
 func (a *App) OpenDirectoryDialog() string {
@@ -181,9 +217,17 @@ func (a *App) TestProviderConnection(name, apiKey, apiBase, connectionType strin
 }
 
 // Sessions / Chat
-func (a *App) CreateSession(workspaceID string) *backend.ChatSession {
-	return a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID)
+func (a *App) CreateSession(workspaceID, workerName string) *backend.ChatSession {
+	return a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName)
 }
+
+func (a *App) CreateSummarizedSession(workspaceID, workerName, sourceSessionID string) *backend.ChatSession {
+	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, workerName)
+	// Future: copy summary from sourceSessionID.
+	_ = sourceSessionID
+	return sess
+}
+
 func (a *App) GetSessions(workspaceID string) []*backend.ChatSession {
 	return a.engine.SessionMgr.ListSessions(workspaceID)
 }

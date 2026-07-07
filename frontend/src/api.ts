@@ -24,6 +24,14 @@ declare global {
             connectionType: string,
           ): Promise<backend.ProviderModel[]>;
           ListChatProviders(): Promise<string[]>;
+          // Sessions / Chat
+          CreateSession(workspaceID: string, workerName: string): Promise<backend.ChatSession>;
+          CreateSummarizedSession(workspaceID: string, workerName: string, sourceSessionID: string): Promise<backend.ChatSession>;
+          GetSessions(workspaceID: string): Promise<backend.ChatSession[]>;
+          DeleteSession(id: string): Promise<void>;
+          RenameSession(id: string, newTitle: string): Promise<void>;
+          SendMessage(sessionID: string, text: string): Promise<string>;
+          TogglePin(sessionID: string): Promise<void>;
           GetToolProfiles(): Promise<backend.ToolProfile[]>;
           CreateToolProfile(
             name: string,
@@ -195,6 +203,51 @@ export namespace backend {
       this.line_count = source['line_count'] ?? 0;
       this.char_count = source['char_count'] ?? 0;
       this.tags = source['tags'] ?? [];
+    }
+  }
+
+  export class ChatMessage {
+    role: string = '';
+    content: string = '';
+    tool_calls: any[] = [];
+    tool_call_id: string = '';
+    time: string = '';
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.role = source['role'] ?? '';
+      this.content = source['content'] ?? '';
+      this.tool_calls = source['tool_calls'] ?? [];
+      this.tool_call_id = source['tool_call_id'] ?? '';
+      const t = source['time'];
+      this.time = t ? new Date(t).toISOString() : '';
+    }
+  }
+
+  export class ChatSession {
+    id: string = '';
+    workspace_id: string = '';
+    worker_name: string = '';
+    title: string = '';
+    summary: string = '';
+    messages: ChatMessage[] = [];
+    created_at: string = '';
+    updated_at: string = '';
+    pinned: boolean = false;
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.id = source['id'] ?? '';
+      this.workspace_id = source['workspace_id'] ?? '';
+      this.worker_name = source['worker_name'] ?? '';
+      this.title = source['title'] ?? '';
+      this.summary = source['summary'] ?? '';
+      this.messages = (source['messages'] ?? []).map((m: any) => new ChatMessage(m));
+      const ca = source['created_at'];
+      this.created_at = ca ? new Date(ca).toISOString() : '';
+      const ua = source['updated_at'];
+      this.updated_at = ua ? new Date(ua).toISOString() : '';
+      this.pinned = source['pinned'] ?? false;
     }
   }
 
@@ -782,6 +835,106 @@ export async function setActiveWorkspace(path: string): Promise<void> {
   try {
     await app.SetActiveWorkspace(path);
   } catch {}
+}
+
+// --- Chat / Sessions ---
+
+export async function createSession(
+  workspaceID: string,
+  workerName: string,
+): Promise<backend.ChatSession | null> {
+  const app = getApp();
+  if (!app) return null;
+  try {
+    const raw = await app.CreateSession(workspaceID, workerName);
+    return new backend.ChatSession(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function createSummarizedSession(
+  workspaceID: string,
+  workerName: string,
+  sourceSessionID: string,
+): Promise<backend.ChatSession | null> {
+  const app = getApp();
+  if (!app) return null;
+  try {
+    const raw = await app.CreateSummarizedSession(workspaceID, workerName, sourceSessionID);
+    return new backend.ChatSession(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function getSessions(
+  workspaceID: string,
+): Promise<backend.ChatSession[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const raw = await app.GetSessions(workspaceID);
+    return (raw ?? []).map((s: any) => new backend.ChatSession(s));
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.DeleteSession(id);
+  } catch {}
+}
+
+export async function renameSession(id: string, newTitle: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.RenameSession(id, newTitle);
+  } catch {}
+}
+
+export async function togglePinSession(id: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.TogglePin(id);
+  } catch {}
+}
+
+export async function sendMessage(
+  sessionID: string,
+  text: string,
+): Promise<string> {
+  const app = getApp();
+  if (!app) return '';
+  try {
+    return await app.SendMessage(sessionID, text);
+  } catch {
+    return '';
+  }
+}
+
+// --- Wails runtime events ---
+
+export function onChatEvent(
+  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error',
+  callback: (payload: any) => void,
+): () => void {
+  const runtime = (window as any).runtime;
+  if (!runtime?.EventsOn) return () => {};
+  return runtime.EventsOn(event, callback);
+}
+
+export function offChatEvent(
+  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error',
+): void {
+  const runtime = (window as any).runtime;
+  if (!runtime?.EventsOff) return;
+  runtime.EventsOff(event);
 }
 
 export async function toggleWorkspace(path: string): Promise<void> {

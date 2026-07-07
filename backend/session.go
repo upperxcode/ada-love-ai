@@ -28,6 +28,7 @@ type ChatMessage struct {
 type ChatSession struct {
 	ID          string        `json:"id"`
 	WorkspaceID string        `json:"workspace_id"` // Vínculo com o Workspace
+	WorkerName  string        `json:"worker_name"`  // Worker vinculado ao chat
 	Title       string        `json:"title"`
 	Summary     string        `json:"summary"` // Memória de longo prazo (resumo)
 	Messages    []ChatMessage `json:"messages"`
@@ -62,7 +63,7 @@ func (s *SessionManager) LoadSessions(sessions []*ChatSession) {
 	}
 }
 
-func (s *SessionManager) CreateSession(title string, workspaceID string) *ChatSession {
+func (s *SessionManager) CreateSession(title string, workspaceID string, workerName string) *ChatSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -79,6 +80,7 @@ func (s *SessionManager) CreateSession(title string, workspaceID string) *ChatSe
 	session := &ChatSession{
 		ID:          id,
 		WorkspaceID: workspaceID,
+		WorkerName:  workerName,
 		Title:       uniqueTitle,
 		Messages:    []ChatMessage{},
 		CreatedAt:   time.Now(),

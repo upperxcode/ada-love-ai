@@ -3,11 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"ada-love-ai/backend"
+	"ada-love-ai/pkg/patterns"
+	"ada-love-ai/pkg/registry"
 	integration "ada-love-ai/pkg/tools/integration"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 type App struct {
@@ -50,20 +55,20 @@ func (a *App) startEventBridge() {
 				"session_id": ev.SessionID,
 			})
 		case backend.EventKindError:
-				if payload, ok := ev.Payload.(backend.ErrorPayload); ok {
-					runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{
-						"session_id": ev.SessionID,
-						"message":    payload.Message,
-					})
-				}
-			case backend.EventKindStatus:
-				if payload, ok := ev.Payload.(backend.StatusPayload); ok {
-					runtime.EventsEmit(a.ctx, "chat:status", map[string]interface{}{
-						"session_id": ev.SessionID,
-						"stage":      payload.Message,
-					})
-				}
+			if payload, ok := ev.Payload.(backend.ErrorPayload); ok {
+				runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"message":    payload.Message,
+				})
 			}
+		case backend.EventKindStatus:
+			if payload, ok := ev.Payload.(backend.StatusPayload); ok {
+				runtime.EventsEmit(a.ctx, "chat:status", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"stage":      payload.Message,
+				})
+			}
+		}
 	})
 }
 
@@ -327,4 +332,93 @@ func (a *App) GetSkillFullInfo(name string) (*backend.SkillFullInfo, error) {
 }
 func (a *App) SaveCustomSkill(name, description, tagsCSV, content string) error {
 	return a.engine.SaveCustomSkill(name, description, tagsCSV, content)
+}
+
+// --- Spec Wizard Plugins bindings ---
+
+// GetPatterns retorna os patterns do `pkg/patterns` filtrados pela linguagem.
+// lang deve ser uma das supportedLangs. Caso contrário, retorna [].
+func (a *App) GetPatterns(lang string) []map[string]any {
+	repo := patterns.NewRepository()
+	out := []map[string]any{}
+	for _, p := range repo.GetPatternsForLanguage(lang) {
+		out = append(out, patternToMap(p))
+	}
+	return out
+}
+
+// architecture representa uma entrada de config/architectures.yaml.
+type architecture struct {
+	ID          string   `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	BestFor     []string `yaml:"best_for" json:"best_for"`
+	Aliases     []string `yaml:"aliases" json:"aliases"`
+}
+
+// GetArchitectures lê config/architectures.yaml e retorna a lista.
+func (a *App) GetArchitectures() ([]architecture, error) {
+	paths := []string{"config/architectures.yaml"}
+	if exe, err := os.Executable(); err == nil {
+		wd := filepath.Dir(exe)
+		paths = append(paths,
+			filepath.Join(wd, "config", "architectures.yaml"),
+			filepath.Join(wd, "..", "config", "architectures.yaml"),
+		)
+	}
+	all := []architecture{}
+	for _, p := range paths {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var parsed struct {
+			Architectures []architecture `yaml:"architectures"`
+		}
+		if err := yaml.Unmarshal(data, &parsed); err != nil {
+			return nil, err
+		}
+		for _, item := range parsed.Architectures {
+			if !archExists(all, item.ID) {
+				all = append(all, item)
+			}
+		}
+	}
+	return all, nil
+}
+
+// GetExperts carrega config/experts.yaml via pkg/registry.
+func (a *App) GetExperts() ([]*registry.ExpertPlugin, error) {
+	candidates := []string{"config/experts.yaml"}
+	if exe, err := os.Executable(); err == nil {
+		wd := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(wd, "config", "experts.yaml"),
+			filepath.Join(wd, "..", "config", "experts.yaml"),
+		)
+	}
+	return registry.LoadExperts(candidates...)
+}
+
+func archExists(list []architecture, id string) bool {
+	for _, a := range list {
+		if a.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func patternToMap(p patterns.Pattern) map[string]any {
+	return map[string]any{
+		"id":          p.ID,
+		"name":        p.Name,
+		"category":    p.Category,
+		"group":       p.Group,
+		"scope":       p.Scope,
+		"description": p.Description,
+	}
 }

@@ -37,6 +37,12 @@ func (al *AgentLoop) ProcessDirect(
 	ctx context.Context,
 	content, sessionKey string,
 ) (string, error) {
+	// Log what overrides exist in the context
+	if overrideModel := bus.GetOverride(ctx, bus.OverrideModelKey); overrideModel != "" {
+		fmt.Printf("[Agent.ProcessDirect] Model override found in context: %q\n", overrideModel)
+	} else {
+		fmt.Printf("[Agent.ProcessDirect] NO model override in context\n")
+	}
 	return al.ProcessDirectWithChannel(ctx, content, sessionKey, "cli", "direct")
 }
 

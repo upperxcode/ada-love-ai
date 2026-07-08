@@ -30,7 +30,7 @@ declare global {
           GetSessions(workspaceID: string): Promise<backend.ChatSession[]>;
           DeleteSession(id: string): Promise<void>;
           RenameSession(id: string, newTitle: string): Promise<void>;
-          SendMessage(sessionID: string, text: string): Promise<string>;
+          SendMessage(sessionID: string, text: string, modelOverride: string, thinkingLevel: string): Promise<string>;
           TogglePin(sessionID: string): Promise<void>;
           GetToolProfiles(): Promise<backend.ToolProfile[]>;
           CreateToolProfile(
@@ -908,11 +908,14 @@ export async function togglePinSession(id: string): Promise<void> {
 export async function sendMessage(
   sessionID: string,
   text: string,
+  modelOverride: string = '',
+  thinkingLevel: string = '',
 ): Promise<string> {
   const app = getApp();
   if (!app) return '';
   try {
-    return await app.SendMessage(sessionID, text);
+    console.log('[api.sendMessage]', { sessionID, modelOverride, thinkingLevel, text: text.substring(0, 50) });
+    return await app.SendMessage(sessionID, text, modelOverride, thinkingLevel);
   } catch {
     return '';
   }
@@ -921,7 +924,7 @@ export async function sendMessage(
 // --- Wails runtime events ---
 
 export function onChatEvent(
-  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error',
+  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error' | 'chat:status',
   callback: (payload: any) => void,
 ): () => void {
   const runtime = (window as any).runtime;
@@ -930,7 +933,7 @@ export function onChatEvent(
 }
 
 export function offChatEvent(
-  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error',
+  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error' | 'chat:status',
 ): void {
   const runtime = (window as any).runtime;
   if (!runtime?.EventsOff) return;

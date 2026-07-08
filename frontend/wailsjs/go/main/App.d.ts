@@ -76,7 +76,7 @@ export function SaveProvidersConfig():Promise<void>;
 
 export function SearchSkills(arg1:string):Promise<Array<backend.SearchResult>>;
 
-export function SendMessage(arg1:string,arg2:string):Promise<string>;
+export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function SetActiveWorkspace(arg1:string):Promise<void>;
 

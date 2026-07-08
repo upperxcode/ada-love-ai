@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import 'highlight.js/styles/github.min.css';
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Lora:ital,wght@0,400..700;1,400..700&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap');
 
 @custom-variant dark (&:is(.dark *));
@@ -424,3 +426,180 @@ input[type="number"] {
   width: var(--icon-size, 16px);
   height: var(--icon-size, 16px);
 }
+
+/* Kinetic loader animation (loader--3 style) */
+.kinetic-loader {
+  --size: 14px;
+  --size-half: calc(var(--size) / 2);
+  --size-neg-half: calc(var(--size) / -2);
+  --color: oklch(0.5 0 0);
+  --color-dim: oklch(0.3 0 0);
+  --speed: 2.4s;
+
+  display: block;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background-color: var(--color-dim);
+  animation: kinetic-loader var(--speed) ease-in-out infinite;
+}
+
+.kinetic-loader::before,
+.kinetic-loader::after {
+  content: "";
+  position: absolute;
+  width: 25%;
+  height: 25%;
+  border-radius: 50%;
+  background-color: var(--color);
+}
+
+.kinetic-loader::before {
+  top: 0;
+  left: 50%;
+  translate: -50% -50%;
+  animation: kinetic-loader-dot-before var(--speed) ease-in-out infinite;
+}
+
+.kinetic-loader::after {
+  bottom: 0;
+  right: 0;
+  translate: 50% 50%;
+  animation: kinetic-loader-dot-after var(--speed) ease-in-out infinite;
+}
+
+@keyframes kinetic-loader {
+  0%, 100% {
+    transform: rotate(0deg);
+    background-color: var(--color-dim);
+  }
+  50% {
+    transform: rotate(180deg);
+    background-color: var(--color);
+  }
+}
+
+@keyframes kinetic-loader-dot-before {
+  0%, 100% {
+    transform: translate(-50%, -50%) rotate(0deg) translateY(var(--size-neg-half));
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(-180deg) translateY(var(--size-neg-half));
+  }
+}
+
+@keyframes kinetic-loader-dot-after {
+  0%, 100% {
+    transform: translate(50%, 50%) rotate(0deg) translateY(var(--size-half));
+  }
+  50% {
+    transform: translate(50%, 50%) rotate(-180deg) translateY(var(--size-half));
+  }
+}
+
+/* Markdown content styles */
+.prose pre {
+  background: var(--muted);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+
+.prose code {
+  font-size: 0.85em;
+  background: var(--muted);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Dark mode syntax highlighting overrides */
+.dark .hljs-keyword { color: #ff7b72; }
+.dark .hljs-built_in { color: #ffa657; }
+.dark .hljs-type { color: #ffa657; }
+.dark .hljs-literal { color: #79c0ff; }
+.dark .hljs-number { color: #79c0ff; }
+.dark .hljs-operator { color: #ff7b72; }
+.dark .hljs-punctuation { color: #c9d1d9; }
+.dark .hljs-property { color: #79c0ff; }
+.dark .hljs-regexp { color: #7ee787; }
+.dark .hljs-string { color: #a5d6ff; }
+.dark .hljs-char.escape { color: #a5d6ff; }
+.dark .hljs-subst { color: #c9d1d9; }
+.dark .hljs-symbol { color: #79c0ff; }
+.dark .hljs-variable { color: #ffa657; }
+.dark .hljs-variable.language_ { color: #ff7b72; }
+.dark .hljs-variable.constant { color: #79c0ff; }
+.dark .hljs-title { color: #d2a8ff; }
+.dark .hljs-title.class_ { color: #ffa657; }
+.dark .hljs-title.function_ { color: #d2a8ff; }
+.dark .hljs-params { color: #c9d1d9; }
+.dark .hljs-comment { color: #8b949e; font-style: italic; }
+.dark .hljs-doctag { color: #ff7b72; }
+.dark .hljs-meta { color: #8b949e; }
+.dark .hljs-section { color: #1f6feb; font-weight: bold; }
+.dark .hljs-tag { color: #7ee787; }
+.dark .hljs-name { color: #7ee787; }
+.dark .hljs-attr { color: #79c0ff; }
+.dark .hljs-attribute { color: #79c0ff; }
+.dark .hljs-selector-tag { color: #7ee787; }
+.dark .hljs-selector-id { color: #ffa657; }
+.dark .hljs-selector-class { color: #d2a8ff; }
+.dark .hljs-selector-attr { color: #79c0ff; }
+.dark .hljs-selector-pseudo { color: #7ee787; }
+.dark .hljs-addition { color: #aff5b4; background-color: rgba(46, 160, 67, 0.15); }
+.dark .hljs-deletion { color: #ffdcd7; background-color: rgba(248, 81, 73, 0.15); }
+.dark .hljs { background: transparent; color: var(--foreground); }
+
+.prose ul, .prose ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.prose li {
+  margin: 0.25rem 0;
+}
+
+.prose blockquote {
+  border-left: 3px solid oklch(0.5 0 0);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: oklch(0.7 0 0);
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+
+.prose th, .prose td {
+  border: 1px solid oklch(0.3 0 0);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  font-size: 12px;
+}
+
+.prose th {
+  background: oklch(0.2 0 0);
+  font-weight: 600;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose h1 { font-size: 1.25rem; }
+.prose h2 { font-size: 1.125rem; }
+.prose h3 { font-size: 1rem; }

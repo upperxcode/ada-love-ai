@@ -1,5 +1,7 @@
 package bus
 
+import "context"
+
 // SenderInfo provides structured sender identity information.
 type SenderInfo struct {
 	Platform    string `json:"platform,omitempty"`     // "telegram", "discord", "slack", ...
@@ -48,6 +50,46 @@ type InboundMessage struct {
 	SenderID  string `json:"sender_id"`
 	ChatID    string `json:"chat_id"`
 	MessageID string `json:"message_id,omitempty"` // platform message ID
+}
+
+// Context keys for per-message overrides (used with context.WithValue).
+type ctxKey string
+
+const (
+	OverrideModelKey     ctxKey = "override_model"
+	OverrideModelIDKey   ctxKey = "override_model_id"
+	OverrideThinkingKey  ctxKey = "override_thinking_level"
+	OverrideProviderKey  ctxKey = "override_provider"
+)
+
+// WithOverrides returns a new context with model/thinking/provider overrides attached.
+func WithOverrides(ctx context.Context, model, modelID, thinkingLevel string, provider any) context.Context {
+	if model != "" {
+		ctx = context.WithValue(ctx, OverrideModelKey, model)
+	}
+	if modelID != "" {
+		ctx = context.WithValue(ctx, OverrideModelIDKey, modelID)
+	}
+	if thinkingLevel != "" {
+		ctx = context.WithValue(ctx, OverrideThinkingKey, thinkingLevel)
+	}
+	if provider != nil {
+		ctx = context.WithValue(ctx, OverrideProviderKey, provider)
+	}
+	return ctx
+}
+
+// GetOverride extracts a single override from context.
+func GetOverride(ctx context.Context, key ctxKey) string {
+	if v, ok := ctx.Value(key).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// GetProviderOverride extracts the cached provider from context.
+func GetProviderOverride(ctx context.Context) any {
+	return ctx.Value(OverrideProviderKey)
 }
 
 // OutboundScope captures the structured session scope associated with an

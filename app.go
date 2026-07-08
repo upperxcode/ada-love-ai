@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"ada-love-ai/backend"
 
@@ -47,13 +48,20 @@ func (a *App) startEventBridge() {
 				"session_id": ev.SessionID,
 			})
 		case backend.EventKindError:
-			if payload, ok := ev.Payload.(backend.ErrorPayload); ok {
-				runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{
-					"session_id": ev.SessionID,
-					"message":    payload.Message,
-				})
+				if payload, ok := ev.Payload.(backend.ErrorPayload); ok {
+					runtime.EventsEmit(a.ctx, "chat:error", map[string]interface{}{
+						"session_id": ev.SessionID,
+						"message":    payload.Message,
+					})
+				}
+			case backend.EventKindStatus:
+				if payload, ok := ev.Payload.(backend.StatusPayload); ok {
+					runtime.EventsEmit(a.ctx, "chat:status", map[string]interface{}{
+						"session_id": ev.SessionID,
+						"stage":      payload.Message,
+					})
+				}
 			}
-		}
 	})
 }
 
@@ -218,11 +226,14 @@ func (a *App) TestProviderConnection(name, apiKey, apiBase, connectionType strin
 
 // Sessions / Chat
 func (a *App) CreateSession(workspaceID, workerName string) *backend.ChatSession {
-	return a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName)
+	sess := a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName)
+	a.engine.SaveSessionDB(sess.ID)
+	return sess
 }
 
 func (a *App) CreateSummarizedSession(workspaceID, workerName, sourceSessionID string) *backend.ChatSession {
 	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, workerName)
+	a.engine.SaveSessionDB(sess.ID)
 	// Future: copy summary from sourceSessionID.
 	_ = sourceSessionID
 	return sess
@@ -237,8 +248,10 @@ func (a *App) DeleteSession(id string) {
 func (a *App) RenameSession(id, newTitle string) {
 	a.engine.RenameSession(id, newTitle)
 }
-func (a *App) SendMessage(sessionID, text string) (string, error) {
-	return a.engine.SendMessage(a.ctx, text, sessionID)
+func (a *App) SendMessage(sessionID, text, modelOverride, thinkingLevel string) (string, error) {
+	fmt.Printf("[App.SendMessage] sessionID=%q modelOverride=%q thinkingLevel=%q text=%q\n",
+		sessionID, modelOverride, thinkingLevel, text[:min(len(text), 50)])
+	return a.engine.SendMessage(a.ctx, text, sessionID, modelOverride, thinkingLevel)
 }
 func (a *App) TogglePin(sessionID string) {
 	a.engine.TogglePin(sessionID)

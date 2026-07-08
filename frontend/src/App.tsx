@@ -4,6 +4,7 @@ import { MainLayout } from './components/MainLayout';
 import { Button } from './components/ui/button';
 import { Icon } from './components/Icon';
 import { ThemeProvider, useTheme } from './lib/theme';
+import { SnackbarProvider } from './components/Snackbar';
 
 function ThemeToggle() {
   const { dark, setDark } = useTheme();
@@ -41,7 +42,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <SnackbarProvider>
+        <AppContent />
+      </SnackbarProvider>
     </ThemeProvider>
   );
 }

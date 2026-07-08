@@ -36,6 +36,12 @@ type Engine struct {
 	eventBus   *EventBus
 	db         *Store
 	toolReg    *adatools.ToolRegistry
+	providerCache map[string]any
+	providerMu    sync.RWMutex
+	// overrideModelIDs maps frontend model key (e.g. "OpenRouter/nvidia/...") to the
+	// actual model field expected by the provider API (e.g. "nvidia/...").
+	overrideModelIDs map[string]string
+	overrideModelMu sync.RWMutex
 }
 
 func NewEngine() (*Engine, error) {
@@ -126,6 +132,8 @@ func NewEngine() (*Engine, error) {
 		SessionMgr:    NewSessionManager(),
 		skillReg:   skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
 		db:         db,
+		providerCache: make(map[string]any),
+		overrideModelIDs: make(map[string]string),
 	}
 
 	e.connectMessageBus()
@@ -176,6 +184,9 @@ func NewEngine() (*Engine, error) {
 	}
 	provider := e.wrapProvider(rawProvider)
 	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
+
+	// Bridge eventos do agente para o backend EventBus (para status no frontend)
+	go e.bridgeAgentEvents()
 
 	return e, nil
 }
@@ -382,6 +393,68 @@ func (e *Engine) UnsubscribeEvents(id int) {
 	e.eventBus.Unsubscribe(id)
 }
 
+// bridgeAgentEvents traduz eventos do agent loop para o backend EventBus
+// para que cheguem ao frontend via Wails runtime.
+func (e *Engine) bridgeAgentEvents() {
+	if e.agentLoop == nil || e.eventBus == nil {
+		return
+	}
+	sub := e.agentLoop.SubscribeEvents(64)
+	for evt := range sub.C {
+		var sessionID string
+		if sk := evt.Meta.SessionKey; strings.HasPrefix(sk, "ada:") {
+			sessionID = strings.TrimPrefix(sk, "ada:")
+		}
+		if sessionID == "" {
+			continue
+		}
+
+		switch evt.Kind {
+		case agent.EventKindLLMRequest:
+			e.eventBus.Emit(Event{
+				Kind:      EventKindStatus,
+				SessionID: sessionID,
+				Payload:   StatusPayload{Message: "thinking"},
+			})
+		case agent.EventKindToolExecStart:
+			if p, ok := evt.Payload.(agent.ToolExecStartPayload); ok {
+				e.eventBus.Emit(Event{
+					Kind:      EventKindStatus,
+					SessionID: sessionID,
+					Payload:   StatusPayload{Message: "tool:" + p.Tool},
+				})
+			}
+		case agent.EventKindToolExecEnd:
+			e.eventBus.Emit(Event{
+				Kind:      EventKindStatus,
+				SessionID: sessionID,
+				Payload:   StatusPayload{Message: "writing"},
+			})
+		case agent.EventKindSubTurnSpawn:
+			if p, ok := evt.Payload.(agent.SubTurnSpawnPayload); ok {
+				e.eventBus.Emit(Event{
+					Kind:      EventKindStatus,
+					SessionID: sessionID,
+					Payload:   StatusPayload{Message: "subagent:" + p.Label},
+				})
+			}
+		case agent.EventKindSubTurnEnd:
+			e.eventBus.Emit(Event{
+				Kind:      EventKindStatus,
+				SessionID: sessionID,
+				Payload:   StatusPayload{Message: "writing"},
+			})
+		}
+	}
+}
+
+// SaveSessionDB persiste a sessão atual no SQLite.
+func (e *Engine) SaveSessionDB(sessionID string) {
+	if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
+		e.db.SaveSession(*sess)
+	}
+}
+
 // Implementação de interfaces.MemoryStore para o agente
 
 func (e *Engine) SaveMemory(workspacePath string, content string, importance int) error {
@@ -413,6 +486,76 @@ func (e *Engine) Close() {
 	if e.db != nil {
 		e.db.Close()
 	}
+}
+
+// extractProtocol extracts the protocol and model ID from a ModelConfig.
+func (e *Engine) extractProtocol(mc *config.ModelConfig) (protocol, modelID string) {
+	if mc == nil {
+		return "", ""
+	}
+	// Use the same logic as providers.ExtractProtocol
+	model := strings.TrimSpace(mc.Model)
+	if model == "" {
+		return "", ""
+	}
+	parts := strings.SplitN(model, "/", 2)
+	if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" {
+		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	provider := strings.TrimSpace(mc.Provider)
+	if provider == "" {
+		provider = "openai"
+	}
+	return provider, model
+}
+
+// createProviderFromModelConfig creates an LLM provider from a ModelConfig,
+// enriching it with api_key and api_base from providers config or env vars.
+func (e *Engine) createProviderFromModelConfig(mc *config.ModelConfig) (any, string, error) {
+	if mc == nil {
+		return nil, "", fmt.Errorf("nil ModelConfig")
+	}
+	clone := *mc
+
+	providerName := strings.TrimSpace(clone.Provider)
+
+	// Try to enrich from ada_config providers (case-insensitive lookup).
+	if providerName != "" && e.adaCfg.Providers != nil {
+		lower := strings.ToLower(providerName)
+		for key, provCfg := range e.adaCfg.Providers {
+			if strings.ToLower(key) == lower {
+				if clone.APIBase == "" && provCfg.ApiUrl != "" {
+					clone.APIBase = provCfg.ApiUrl
+				}
+				if len(clone.APIKeys) == 0 && provCfg.ApiKey != "" {
+					clone.APIKeys = config.SimpleSecureStrings(provCfg.ApiKey)
+				}
+				break
+			}
+		}
+	}
+
+	// If still no API key, check environment variables.
+	if len(clone.APIKeys) == 0 && providerName != "" {
+		envKey := strings.ToUpper(strings.ReplaceAll(providerName, "-", "_")) + "_API_KEY"
+		if apiKey := os.Getenv(envKey); apiKey != "" {
+			clone.APIKeys = config.SimpleSecureStrings(apiKey)
+		}
+	}
+
+	// If still no API base, set sensible defaults for known providers.
+	if clone.APIBase == "" {
+		switch strings.ToLower(providerName) {
+		case "openrouter":
+			clone.APIBase = "https://openrouter.ai/api/v1"
+		case "openai":
+			clone.APIBase = "https://api.openai.com/v1"
+		case "anthropic":
+			clone.APIBase = "https://api.anthropic.com/v1"
+		}
+	}
+
+	return providers.CreateProviderFromConfig(&clone)
 }
 
 // getOSConfigDir returns the OS-specific config directory

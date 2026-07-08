@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/constants"
 	"ada-love-ai/pkg/logger"
 	"ada-love-ai/pkg/providers"
@@ -82,7 +83,24 @@ func (p *Pipeline) CallLLM(
 		}
 	}
 
-	exec.llmModel = exec.activeModel
+	// Apply per-message overrides from context (set by Engine.SendMessage via bus.WithOverrides).
+	if overrideModel := bus.GetOverride(turnCtx, bus.OverrideModelIDKey); overrideModel != "" {
+		exec.llmModel = overrideModel
+	} else if overrideModel := bus.GetOverride(turnCtx, bus.OverrideModelKey); overrideModel != "" {
+		exec.llmModel = overrideModel
+	} else {
+		exec.llmModel = exec.activeModel
+	}
+	if overrideThinking := bus.GetOverride(turnCtx, bus.OverrideThinkingKey); overrideThinking != "" {
+		exec.llmOpts["thinking_level"] = overrideThinking
+	}
+	// Swap provider if an override provider was cached in context.
+	if overrideProvider := bus.GetProviderOverride(turnCtx); overrideProvider != nil {
+		if p, ok := overrideProvider.(providers.LLMProvider); ok {
+			fmt.Printf("[Pipeline] Provider override applied\n")
+			exec.activeProvider = p
+		}
+	}
 
 	// BeforeLLM hook
 	if p.Hooks != nil {

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"ada-love-ai/pkg/bus"
 )
 
 func (e *Engine) TogglePin(sessionID string) {
@@ -29,12 +31,63 @@ func (e *Engine) RenameSession(sessionID, newTitle string) {
 	}
 }
 
-func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string) (string, error) {
+func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string, modelOverride string, thinkingLevel string) (string, error) {
 	e.eventBus.Emit(Event{Kind: EventKindTurnStart, SessionID: sessionID, Time: time.Now()})
 	defer e.eventBus.Emit(Event{Kind: EventKindTurnEnd, SessionID: sessionID, Time: time.Now()})
 
-	// Injeta o sessionID no contexto para que o StreamingWrapper possa usá-lo
+	// Injeta o sessionID no contexto
 	ctx = context.WithValue(ctx, "session_id", sessionID)
+
+	// Se há override de modelo, resolve o provider correto e cacheia
+	var resolvedModelID string
+	if modelOverride != "" {
+		e.providerMu.RLock()
+		cached, ok := e.providerCache[modelOverride]
+		e.providerMu.RUnlock()
+		if !ok {
+			adaCfg := e.GetAdaConfig()
+			fmt.Printf("[Engine] Model override=%q, searching %d models\n", modelOverride, len(adaCfg.ModelList))
+			for i, mc := range adaCfg.ModelList {
+				if mc == nil {
+					continue
+				}
+				provider := strings.TrimSpace(mc.Provider)
+				modelName := strings.TrimSpace(mc.ModelName)
+				modelField := strings.TrimSpace(mc.Model)
+				fullKey := provider + "/" + modelName
+				if modelName == modelOverride || modelField == modelOverride || fullKey == modelOverride {
+					fmt.Printf("[Engine] Match at index %d: provider=%q modelField=%q\n", i, provider, modelField)
+					p, _, err := e.createProviderFromModelConfig(mc)
+					if err == nil && p != nil {
+						cached = p
+						resolvedModelID = modelField
+						e.providerMu.Lock()
+						e.providerCache[modelOverride] = cached
+						e.providerMu.Unlock()
+						e.overrideModelMu.Lock()
+						e.overrideModelIDs[modelOverride] = modelField
+						e.overrideModelMu.Unlock()
+						fmt.Printf("[Engine] Provider OK, modelID=%q\n", modelField)
+						break
+					} else {
+						fmt.Printf("[Engine] Provider creation FAILED: %v\n", err)
+					}
+				}
+			}
+			if cached == nil {
+				fmt.Printf("[Engine] NO MATCH for override=%q\n", modelOverride)
+			}
+		} else {
+			// Re-read the correct model ID from cache.
+			e.overrideModelMu.RLock()
+			resolvedModelID = e.overrideModelIDs[modelOverride]
+			e.overrideModelMu.RUnlock()
+		}
+		// Pass both the frontend key and the resolved model ID.
+		ctx = bus.WithOverrides(ctx, modelOverride, resolvedModelID, thinkingLevel, cached)
+	} else if thinkingLevel != "" {
+		ctx = bus.WithOverrides(ctx, "", "", thinkingLevel, nil)
+	}
 
 	// Ada-Love utiliza chaves de sessão para manter o histórico.
 	sessionKey := "ada:default"
@@ -105,7 +158,7 @@ func (e *Engine) CheckAndSummarize(sessionID string) {
 
 func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (string, error) {
 	if e.adaCfg.TinyBrain.ModelName == "" {
-		return e.SendMessage(ctx, prompt, "")
+		return e.SendMessage(ctx, prompt, "", "", "")
 	}
 
 	// Tenta encontrar a URL base para o provider no model_list

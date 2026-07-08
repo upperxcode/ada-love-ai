@@ -8,6 +8,7 @@ import {
 } from 'react';
 import * as api from '../api';
 import { useModelHealth } from '@/lib/modelHealth';
+import { useSnackbar } from './Snackbar';
 
 export interface LocalMessage {
   id: string;
@@ -22,12 +23,13 @@ export interface ChatState {
   activeSessionId: string | null;
   messages: LocalMessage[];
   loading: boolean;
-  error: string | null;
+  stage: string;
 }
 
 interface ChatContextValue extends ChatState {
   activeSessionPath: string | null;
   activeSessionWorker: string | null;
+  activeWorkspacePath: string | null;
   loadSessions: (workspacePath: string) => Promise<void>;
   createSession: (
     workspace: api.backend.WorkspaceConfig,
@@ -35,7 +37,7 @@ interface ChatContextValue extends ChatState {
     summarized?: boolean,
   ) => Promise<api.backend.ChatSession | null>;
   selectSession: (sessionId: string | null) => void;
-  sendMessage: (text: string, modelKey?: string) => Promise<void>;
+  sendMessage: (text: string, modelKey?: string, thinkingLevel?: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionId: string, newTitle: string) => Promise<void>;
   togglePinSession: (sessionId: string) => Promise<void>;
@@ -60,14 +62,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   });
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState('');
   const { recordSuccess, recordFailure } = useModelHealth();
+  const { showSnackbar } = useSnackbar();
   const recordFailureRef = useRef(recordFailure);
   recordFailureRef.current = recordFailure;
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   const activeSessionRef = useRef(activeSession);
   activeSessionRef.current = activeSession;
+  const activeSessionPath = activeSession?.workspace_id ?? null;
+  const activeSessionWorker = activeSession?.worker_name ?? null;
 
   // Persist active chat
   useEffect(() => {
@@ -123,16 +128,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       api.onChatEvent('chat:error', (payload: any) => {
         setLoading(false);
         const msg = payload?.message || 'Erro desconhecido';
-        setError(msg);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: 'assistant',
-            content: msg,
-            error: true,
-          },
-        ]);
+        showSnackbar(msg, 'error');
       }),
     );
 
@@ -154,13 +150,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setActiveSessionId(sessionId);
   }, []);
 
-  const activeSessionPath = activeSession?.workspace_id ?? null;
-  const activeSessionWorker = activeSession?.worker_name ?? null;
-
   // Sync messages when active session changes
   useEffect(() => {
     setMessages(mapMessages(activeSession));
-    setError(null);
   }, [activeSessionId, activeSession?.id]);
 
   const createSession = useCallback(
@@ -169,7 +161,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       worker: api.backend.WorkerConfig,
       summarized = false,
     ): Promise<api.backend.ChatSession | null> => {
-      setError(null);
       let raw: api.backend.ChatSession | null = null;
       if (summarized && activeSessionId) {
         raw = await api.createSummarizedSession(
@@ -181,7 +172,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         raw = await api.createSession(workspace.path, worker.name);
       }
       if (!raw) {
-        setError('Não foi possível criar o chat.');
+        showSnackbar('Não foi possível criar o chat.', 'error');
         return null;
       }
       const session = new api.backend.ChatSession(raw);
@@ -193,10 +184,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    async (text: string, modelKey?: string) => {
+    async (text: string, modelKey?: string, thinkingLevel?: string) => {
       if (!activeSessionId || !text.trim()) return;
       setLoading(true);
-      setError(null);
 
       const localUserMsg: LocalMessage = {
         id: `user-${Date.now()}`,
@@ -206,22 +196,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setMessages((prev) => [...prev, localUserMsg]);
 
       try {
-        await api.sendMessage(activeSessionId, text.trim());
+        console.log('[Chat] sendMessage', { sessionId: activeSessionId, modelKey, thinkingLevel });
+        const response = await api.sendMessage(
+          activeSessionId,
+          text.trim(),
+          modelKey ?? '',
+          thinkingLevel ?? '',
+        );
+        // If we didn't get a streaming response via events, add the response directly.
+        if (response) {
+          setMessages((prev) => {
+            // Avoid duplicates if streaming already added it
+            const hasStreaming = prev.some(
+              (m) => m.role === 'assistant' && m.streaming,
+            );
+            if (hasStreaming) {
+              return prev.map((m) =>
+                m.streaming ? { ...m, streaming: false } : m,
+              );
+            }
+            return [
+              ...prev,
+              {
+                id: `assistant-${Date.now()}`,
+                role: 'assistant' as const,
+                content: response,
+              },
+            ];
+          });
+        }
+        setLoading(false);
         if (modelKey) recordSuccess(modelKey);
       } catch (e: any) {
         setLoading(false);
         if (modelKey) recordFailure(modelKey);
         const msg = e?.message || 'Erro ao enviar mensagem';
-        setError(msg);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: 'assistant',
-            content: msg,
-            error: true,
-          },
-        ]);
+        showSnackbar(msg, 'error');
       }
       // O streaming finaliza via chat:turnEnd; a resposta também vem no retorno,
       // mas confiamos nos eventos para montar o texto progressivamente.
@@ -261,7 +271,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     activeSessionWorker,
     messages,
     loading,
-    error,
     loadSessions,
     createSession,
     selectSession,

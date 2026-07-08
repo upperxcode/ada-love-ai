@@ -41,7 +41,8 @@ export function ChatInput() {
 
   const handleSubmit = () => {
     if (!draft.trim() || loading || !activeSessionId) return;
-    sendMessage(draft.trim(), selectedModel ?? undefined);
+    console.log('[ChatInput] handleSubmit', { selectedModel, thinking, draft: draft.trim().substring(0, 50) });
+    sendMessage(draft.trim(), selectedModel ?? undefined, thinking ? 'high' : undefined);
     setDraft('');
     if (expanded) setExpanded(false);
   };
@@ -151,7 +152,10 @@ export function ChatInput() {
           {/* Send */}
           <Button
             size="icon"
-            className="h-7 w-7 shrink-0 rounded-md"
+            className={cn(
+              'h-7 w-7 shrink-0 rounded-md transition-colors',
+              loading && 'bg-red-500/20 text-red-400 hover:bg-red-500/30',
+            )}
             disabled={!activeSessionId || loading || !draft.trim()}
             onClick={handleSubmit}
             title="Enviar"
@@ -236,7 +240,10 @@ export function ChatInput() {
               />
               <Button
                 size="icon"
-                className="h-7 w-7 shrink-0 rounded-md"
+                className={cn(
+                  'h-7 w-7 shrink-0 rounded-md transition-colors',
+                  loading && 'bg-red-500/20 text-red-400 hover:bg-red-500/30',
+                )}
                 disabled={!activeSessionId || loading || !draft.trim()}
                 onClick={handleSubmit}
                 title="Enviar (Ctrl+Enter)"

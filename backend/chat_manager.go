@@ -31,7 +31,7 @@ func (e *Engine) RenameSession(sessionID, newTitle string) {
 	}
 }
 
-func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string, modelOverride string, thinkingLevel string) (string, error) {
+func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string, modelOverride string, thinkingLevel string, mode string) (string, error) {
 	e.eventBus.Emit(Event{Kind: EventKindTurnStart, SessionID: sessionID, Time: time.Now()})
 	defer e.eventBus.Emit(Event{Kind: EventKindTurnEnd, SessionID: sessionID, Time: time.Now()})
 
@@ -84,9 +84,9 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 			e.overrideModelMu.RUnlock()
 		}
 		// Pass both the frontend key and the resolved model ID.
-		ctx = bus.WithOverrides(ctx, modelOverride, resolvedModelID, thinkingLevel, cached)
-	} else if thinkingLevel != "" {
-		ctx = bus.WithOverrides(ctx, "", "", thinkingLevel, nil)
+		ctx = bus.WithOverrides(ctx, modelOverride, resolvedModelID, thinkingLevel, cached, mode)
+	} else if thinkingLevel != "" || mode != "" {
+		ctx = bus.WithOverrides(ctx, "", "", thinkingLevel, nil, mode)
 	}
 
 	// Ada-Love utiliza chaves de sessão para manter o histórico.
@@ -103,6 +103,9 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
 		e.db.SaveSession(*sess)
 	}
+
+	// Track the pending sessionID so the event bridge can map opaque keys
+	e.setPendingSessionID(sessionID)
 
 	resp, err := e.agentLoop.ProcessDirect(ctx, finalPrompt, sessionKey)
 	if err != nil {
@@ -158,7 +161,7 @@ func (e *Engine) CheckAndSummarize(sessionID string) {
 
 func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (string, error) {
 	if e.adaCfg.TinyBrain.ModelName == "" {
-		return e.SendMessage(ctx, prompt, "", "", "")
+		return e.SendMessage(ctx, prompt, "", "", "", "")
 	}
 
 	// Tenta encontrar a URL base para o provider no model_list

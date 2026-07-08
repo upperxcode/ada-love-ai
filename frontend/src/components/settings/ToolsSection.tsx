@@ -58,48 +58,74 @@ function ToolsSection() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    api.getAvailableTools().then(setTools).catch(() => setTools([]));
-    api.getToolProfiles().then((profiles) => {
-      setProfiles(profiles ?? []);
-      const defaultProfile = (profiles ?? []).find((p) => p.name === 'Default');
-      if (defaultProfile) setSelectedProfileID(defaultProfile.id);
-    }).catch(() => {});
+    api
+      .getAvailableTools()
+      .then(setTools)
+      .catch(() => setTools([]));
+    api
+      .getToolProfiles()
+      .then((profiles) => {
+        setProfiles(profiles ?? []);
+        const defaultProfile = (profiles ?? []).find(
+          (p) => p.name === 'Default',
+        );
+        if (defaultProfile) setSelectedProfileID(defaultProfile.id);
+      })
+      .catch(() => {});
   }, []);
 
   const handleToggle = async (toolName: string, enabled: boolean) => {
-    const profile = profiles.find((p) => p.id === selectedProfileID);
-    if (!profile) return;
-    await api.toggleProfileTool(profile.id, toolName, enabled);
-    setProfiles((prev) =>
-      prev.map((p) => {
-        if (p.id === profile.id) {
-          return {
-            ...p,
-            tools: enabled
-              ? [...p.tools, toolName]
-              : p.tools.filter((t) => t !== toolName),
-          };
+      const profile = profiles.find((p) => p.id === selectedProfileID);
+      if (!profile) return;
+
+      try {
+        const success = await api.toggleProfileTool(profile.id, toolName, enabled);
+        if (success) {
+          // Optimistic update
+          setProfiles((prev) =>
+            prev.map((p) => {
+              if (p.id === profile.id) {
+                return {
+                  ...p,
+                  tools: enabled
+                    ? [...p.tools, toolName]
+                    : p.tools.filter((t) => t !== toolName),
+                };
+              }
+              return p;
+            }),
+          );
+        } else {
+          // If backend failed, show error or revert optimistic update
+          console.error('Failed to toggle tool in backend');
+          // Optionally revert the UI change here if needed
         }
-        return p;
-      }),
-    );
-  };
+      } catch (error) {
+        console.error('Error toggling tool:', error);
+        // Revert optimistic update on error
+        // (In a real app, you might want to show a notification to the user)
+      }
+    };
 
   const handleCreateProfile = async () => {
-    const profile = await api.createToolProfile(
-      newProfileName,
-      newProfileColor,
-      newProfileIcon,
-    );
-    if (profile) {
-      setProfiles((prev) => [...prev, profile]);
-      setSelectedProfileID(profile.id);
-      setShowNewProfileDialog(false);
-      setNewProfileName('');
-      setNewProfileColor('#6b7280');
-      setNewProfileIcon('🔧');
-    }
-  };
+      try {
+        const profile = await api.createToolProfile(
+          newProfileName,
+          newProfileColor,
+          newProfileIcon,
+        );
+        if (profile) {
+          setProfiles((prev) => [...prev, profile]);
+          setSelectedProfileID(profile.id);
+          setShowNewProfileDialog(false);
+          setNewProfileName('');
+          setNewProfileColor('#6b7280');
+          setNewProfileIcon('🔧');
+        }
+      } catch (error) {
+        console.error('Error creating profile:', error);
+      }
+    };
 
   const handleDeleteProfile = async (id: number) => {
     const success = await api.deleteToolProfile(id);
@@ -132,7 +158,7 @@ function ToolsSection() {
     return true;
   });
 
-  const groupedTools = tools.filter(filteredTools => filteredTools).reduce(
+  const groupedTools = selectedTools.reduce(
     (acc, tool) => {
       const cat = tool.category || 'Other';
       if (!acc[cat]) acc[cat] = [];
@@ -235,7 +261,8 @@ function ToolsSection() {
           </h4>
           <div className="tools-grid">
             {categoryTools.map((tool) => {
-              const isEnabled = selectedProfile?.tools.includes(tool.name) ?? false;
+              const isEnabled =
+                selectedProfile?.tools.includes(tool.name) ?? false;
               return (
                 <BaseCard
                   key={tool.name}

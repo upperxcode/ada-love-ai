@@ -39,6 +39,9 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
 
+	// Filter tools based on chat mode (ask/plan/auto/full)
+	exec.providerToolDefs = filterToolsByMode(turnCtx, exec.providerToolDefs)
+
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web")
 	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
@@ -539,4 +542,34 @@ func (p *Pipeline) CallLLM(
 	}
 
 	return ControlToolLoop, nil
+}
+
+// filterToolsByMode removes tools that are not allowed in the current chat mode.
+// "ask" = no tools, "plan" = read-only tools, "auto"/"full" = all tools.
+func filterToolsByMode(ctx context.Context, defs []providers.ToolDefinition) []providers.ToolDefinition {
+	mode := bus.GetOverride(ctx, bus.OverrideModeKey)
+	switch mode {
+	case "ask":
+		return nil
+	case "plan":
+		readOnlyTools := map[string]bool{
+			"read_file":     true,
+			"list_dir":      true,
+			"grep":          true,
+			"web":           true,
+			"web_search":    true,
+			"memory_search": true,
+			"memory_list":   true,
+			"ask_user":      true,
+		}
+		filtered := make([]providers.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if readOnlyTools[d.Function.Name] {
+				filtered = append(filtered, d)
+			}
+		}
+		return filtered
+	default:
+		return defs
+	}
 }

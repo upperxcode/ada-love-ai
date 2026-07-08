@@ -25,12 +25,32 @@ declare global {
           ): Promise<backend.ProviderModel[]>;
           ListChatProviders(): Promise<string[]>;
           // Sessions / Chat
-          CreateSession(workspaceID: string, workerName: string): Promise<backend.ChatSession>;
-          CreateSummarizedSession(workspaceID: string, workerName: string, sourceSessionID: string): Promise<backend.ChatSession>;
+          CreateSession(
+            workspaceID: string,
+            workerName: string,
+          ): Promise<backend.ChatSession>;
+          CreateSummarizedSession(
+            workspaceID: string,
+            workerName: string,
+            sourceSessionID: string,
+          ): Promise<backend.ChatSession>;
           GetSessions(workspaceID: string): Promise<backend.ChatSession[]>;
           DeleteSession(id: string): Promise<void>;
           RenameSession(id: string, newTitle: string): Promise<void>;
-          SendMessage(sessionID: string, text: string, modelOverride: string, thinkingLevel: string): Promise<string>;
+          SendMessage(
+            sessionID: string,
+            text: string,
+            modelOverride: string,
+            thinkingLevel: string,
+            mode: string,
+          ): Promise<string>;
+          AnswerQuestion(sessionID: string, answer: string): Promise<void>;
+          AnswerApproval(
+            requestID: string,
+            approved: boolean,
+            reason: string,
+          ): Promise<void>;
+          StopGeneration(sessionID: string): Promise<void>;
           TogglePin(sessionID: string): Promise<void>;
           GetToolProfiles(): Promise<backend.ToolProfile[]>;
           CreateToolProfile(
@@ -65,7 +85,11 @@ declare global {
           GetWorkerCategories(): Promise<string[]>;
           SetWorkerCategories(categories: string[]): Promise<void>;
           GetPredefinedConnections(): Promise<backend.ConnectionDefinition[]>;
-          TestConnection(connectionType: string, connectionName: string, connectionConfig: string): Promise<backend.ConnectionTestResult>;
+          TestConnection(
+            connectionType: string,
+            connectionName: string,
+            connectionConfig: string,
+          ): Promise<backend.ConnectionTestResult>;
           // Agents — specialized task executors/delegators
           GetAgents(): Promise<backend.AgentConfig[]>;
           SetAgents(agents: backend.AgentConfig[]): Promise<void>;
@@ -242,7 +266,9 @@ export namespace backend {
       this.worker_name = source['worker_name'] ?? '';
       this.title = source['title'] ?? '';
       this.summary = source['summary'] ?? '';
-      this.messages = (source['messages'] ?? []).map((m: any) => new ChatMessage(m));
+      this.messages = (source['messages'] ?? []).map(
+        (m: any) => new ChatMessage(m),
+      );
       const ca = source['created_at'];
       this.created_at = ca ? new Date(ca).toISOString() : '';
       const ua = source['updated_at'];
@@ -336,11 +362,11 @@ export namespace backend {
   export class WorkerConfig {
     name: string = '';
     persona: string = '';
-    language: string = '';       // idioma de resposta ao usuário
+    language: string = ''; // idioma de resposta ao usuário
     // Conexão (binding)
-    connection_type: string = 'ada';   // "ada", "cli", "rest", "mcp"
-    connection_name: string = 'Ada';   // nome do preset
-    connection_config: string = '';    // JSON com config específica
+    connection_type: string = 'ada'; // "ada", "cli", "rest", "mcp"
+    connection_name: string = 'Ada'; // nome do preset
+    connection_config: string = ''; // JSON com config específica
     // Inheritência do workspace (toggles)
     inherit_folders: boolean = true;
     inherit_knowledge: boolean = true;
@@ -366,8 +392,8 @@ export namespace backend {
 
   export class ConnectionDefinition {
     name: string = '';
-    type: string = '';        // "ada", "cli", "rest", "mcp"
-    command: string = '';     // CLI command
+    type: string = ''; // "ada", "cli", "rest", "mcp"
+    command: string = ''; // CLI command
     description: string = '';
     icon: string = '';
 
@@ -430,6 +456,73 @@ export namespace backend {
     }
   }
 
+  export class StackItem {
+    name: string = '';
+    example: string = '';
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.example = source['example'] ?? '';
+    }
+  }
+
+  export class SpecWizardConfig {
+    name: string = '';
+    description: string = '';
+    expert_language_plugin: string = '';
+    prd: string = '';
+    functional_requirements: string[] = [];
+    non_functional_requirements: string[] = [];
+    persistence: string = '';
+    architecture: string = '';
+    engineering_philosophies: string[] = [];
+    design_patterns: string[] = [];
+    data_patterns: string[] = [];
+    stack_config: StackItem[] = [];
+    business: {
+      state_management: string;
+      api_contract: string;
+      customization_details: string;
+      final_adjustments: string;
+      architecture_recommendations: string;
+    } = {
+      state_management: '',
+      api_contract: '',
+      customization_details: '',
+      final_adjustments: '',
+      architecture_recommendations: '',
+    };
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.name = source['name'] ?? '';
+      this.description = source['description'] ?? '';
+      this.expert_language_plugin = source['expert_language_plugin'] ?? '';
+      this.prd = source['prd'] ?? '';
+      this.functional_requirements = source['functional_requirements'] ?? [];
+      this.non_functional_requirements =
+        source['non_functional_requirements'] ?? [];
+      this.persistence = source['persistence'] ?? '';
+      this.architecture = source['architecture'] ?? '';
+      this.engineering_philosophies = source['engineering_philosophies'] ?? [];
+      this.design_patterns = source['design_patterns'] ?? [];
+      this.data_patterns = source['data_patterns'] ?? [];
+      this.stack_config = (source['stack_config'] ?? []).map(
+        (s: any) => new StackItem(s),
+      );
+      this.business = {
+        state_management: source['business']?.['state_management'] ?? '',
+        api_contract: source['business']?.['api_contract'] ?? '',
+        customization_details:
+          source['business']?.['customization_details'] ?? '',
+        final_adjustments: source['business']?.['final_adjustments'] ?? '',
+        architecture_recommendations:
+          source['business']?.['architecture_recommendations'] ?? '',
+      };
+    }
+  }
+
   export class WorkspaceConfig {
     id: number = 0;
     title: string = '';
@@ -482,7 +575,7 @@ export namespace backend {
     worker_categories: string[] = [];
     agents: AgentConfig[] = [];
     agent_categories: string[] = [];
-    tools: any = {};  // MCP servers config (config.json tools section)
+    tools: any = {}; // MCP servers config (config.json tools section)
     provider_keys: Record<string, string> = {};
     provider_bases: Record<string, string> = {};
     model_settings: Record<string, any> = {};
@@ -721,7 +814,9 @@ export async function setWorkers(
   } catch {}
 }
 
-export async function getPredefinedConnections(): Promise<backend.ConnectionDefinition[]> {
+export async function getPredefinedConnections(): Promise<
+  backend.ConnectionDefinition[]
+> {
   const app = getApp();
   if (!app) return [];
   try {
@@ -738,12 +833,23 @@ export async function testConnection(
   connectionConfig: string,
 ): Promise<backend.ConnectionTestResult> {
   const app = getApp();
-  if (!app) return new backend.ConnectionTestResult({ success: false, message: 'App not available' });
+  if (!app)
+    return new backend.ConnectionTestResult({
+      success: false,
+      message: 'App not available',
+    });
   try {
-    const raw = await app.TestConnection(connectionType, connectionName, connectionConfig);
+    const raw = await app.TestConnection(
+      connectionType,
+      connectionName,
+      connectionConfig,
+    );
     return new backend.ConnectionTestResult(raw);
   } catch {
-    return new backend.ConnectionTestResult({ success: false, message: 'Test failed' });
+    return new backend.ConnectionTestResult({
+      success: false,
+      message: 'Test failed',
+    });
   }
 }
 
@@ -861,7 +967,11 @@ export async function createSummarizedSession(
   const app = getApp();
   if (!app) return null;
   try {
-    const raw = await app.CreateSummarizedSession(workspaceID, workerName, sourceSessionID);
+    const raw = await app.CreateSummarizedSession(
+      workspaceID,
+      workerName,
+      sourceSessionID,
+    );
     return new backend.ChatSession(raw);
   } catch {
     return null;
@@ -889,7 +999,10 @@ export async function deleteSession(id: string): Promise<void> {
   } catch {}
 }
 
-export async function renameSession(id: string, newTitle: string): Promise<void> {
+export async function renameSession(
+  id: string,
+  newTitle: string,
+): Promise<void> {
   const app = getApp();
   if (!app) return;
   try {
@@ -910,12 +1023,25 @@ export async function sendMessage(
   text: string,
   modelOverride: string = '',
   thinkingLevel: string = '',
+  mode: string = '',
 ): Promise<string> {
   const app = getApp();
   if (!app) return '';
   try {
-    console.log('[api.sendMessage]', { sessionID, modelOverride, thinkingLevel, text: text.substring(0, 50) });
-    return await app.SendMessage(sessionID, text, modelOverride, thinkingLevel);
+    console.log('[api.sendMessage]', {
+      sessionID,
+      modelOverride,
+      thinkingLevel,
+      mode,
+      text: text.substring(0, 50),
+    });
+    return await app.SendMessage(
+      sessionID,
+      text,
+      modelOverride,
+      thinkingLevel,
+      mode,
+    );
   } catch {
     return '';
   }
@@ -924,7 +1050,15 @@ export async function sendMessage(
 // --- Wails runtime events ---
 
 export function onChatEvent(
-  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error' | 'chat:status',
+  event:
+    | 'chat:delta'
+    | 'chat:turnStart'
+    | 'chat:turnEnd'
+    | 'chat:error'
+    | 'chat:status'
+    | 'chat:question'
+    | 'chat:questionAnswered'
+    | 'chat:toolApproval',
   callback: (payload: any) => void,
 ): () => void {
   const runtime = (window as any).runtime;
@@ -933,11 +1067,50 @@ export function onChatEvent(
 }
 
 export function offChatEvent(
-  event: 'chat:delta' | 'chat:turnStart' | 'chat:turnEnd' | 'chat:error' | 'chat:status',
+  event:
+    | 'chat:delta'
+    | 'chat:turnStart'
+    | 'chat:turnEnd'
+    | 'chat:error'
+    | 'chat:status'
+    | 'chat:question'
+    | 'chat:questionAnswered'
+    | 'chat:toolApproval',
 ): void {
   const runtime = (window as any).runtime;
   if (!runtime?.EventsOff) return;
   runtime.EventsOff(event);
+}
+
+export async function answerQuestion(
+  sessionID: string,
+  answer: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.AnswerQuestion(sessionID, answer);
+  } catch {}
+}
+
+export async function answerApproval(
+  requestID: string,
+  approved: boolean,
+  reason: string = '',
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.AnswerApproval(requestID, approved, reason);
+  } catch {}
+}
+
+export async function stopGeneration(sessionID: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.StopGeneration(sessionID);
+  } catch {}
 }
 
 export async function toggleWorkspace(path: string): Promise<void> {

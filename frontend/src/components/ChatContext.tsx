@@ -24,6 +24,8 @@ export interface ChatState {
   messages: LocalMessage[];
   loading: boolean;
   stage: string;
+  pendingQuestion: { question: string } | null;
+  pendingApproval: { id: string; tool: string; args: string } | null;
 }
 
 interface ChatContextValue extends ChatState {
@@ -37,7 +39,10 @@ interface ChatContextValue extends ChatState {
     summarized?: boolean,
   ) => Promise<api.backend.ChatSession | null>;
   selectSession: (sessionId: string | null) => void;
-  sendMessage: (text: string, modelKey?: string, thinkingLevel?: string) => Promise<void>;
+  sendMessage: (text: string, modelKey?: string, thinkingLevel?: string, mode?: string) => Promise<void>;
+  answerQuestion: (answer: string) => Promise<void>;
+  answerApproval: (approved: boolean, reason?: string) => Promise<void>;
+  stopGeneration: () => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionId: string, newTitle: string) => Promise<void>;
   togglePinSession: (sessionId: string) => Promise<void>;
@@ -63,6 +68,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState('');
+  const [pendingQuestion, setPendingQuestion] = useState<{ question: string } | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<{ id: string; tool: string; args: string } | null>(null);
   const { recordSuccess, recordFailure } = useModelHealth();
   const { showSnackbar } = useSnackbar();
   const recordFailureRef = useRef(recordFailure);
@@ -73,6 +80,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   activeSessionRef.current = activeSession;
   const activeSessionPath = activeSession?.workspace_id ?? null;
   const activeSessionWorker = activeSession?.worker_name ?? null;
+  const activeWorkspacePath = activeSession?.workspace_id ?? null;
 
   // Persist active chat
   useEffect(() => {
@@ -116,19 +124,60 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     );
 
     unsubs.push(
-      api.onChatEvent('chat:turnEnd', () => {
+      api.onChatEvent('chat:status', (payload: any) => {
+        const { session_id, stage: newStage } = payload || {};
+        if (!session_id || !newStage) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setStage(newStage);
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('chat:turnEnd', (payload: any) => {
         setLoading(false);
+        setStage('');
         setMessages((prev) =>
           prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
         );
+        // Reload sessions from backend to sync with DB
+        const sid = payload?.session_id;
+        const sess = activeSessionRef.current;
+        if (sid && sess && sess.id === sid && sess.workspace_id) {
+          loadSessionsRef.current(sess.workspace_id);
+        }
       }),
     );
 
     unsubs.push(
       api.onChatEvent('chat:error', (payload: any) => {
         setLoading(false);
+        setStage('');
         const msg = payload?.message || 'Erro desconhecido';
         showSnackbar(msg, 'error');
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('chat:question', (payload: any) => {
+        const { session_id, question } = payload || {};
+        if (!session_id || !question) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setPendingQuestion({ question });
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('chat:questionAnswered', () => {
+        setPendingQuestion(null);
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('chat:toolApproval', (payload: any) => {
+        const { id, session_id, tool, args } = payload || {};
+        if (!id || !session_id || !tool) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setPendingApproval({ id, tool, args: args || '' });
       }),
     );
 
@@ -145,15 +194,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return stillExists ? current : (list[0]?.id ?? null);
     });
   }, []);
+  const loadSessionsRef = useRef(loadSessions);
+  loadSessionsRef.current = loadSessions;
 
   const selectSession = useCallback((sessionId: string | null) => {
     setActiveSessionId(sessionId);
   }, []);
 
-  // Sync messages when active session changes
+  // Sync messages when active session changes or sessions are reloaded from backend
   useEffect(() => {
     setMessages(mapMessages(activeSession));
-  }, [activeSessionId, activeSession?.id]);
+  }, [activeSessionId, activeSession]);
 
   const createSession = useCallback(
     async (
@@ -184,9 +235,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    async (text: string, modelKey?: string, thinkingLevel?: string) => {
+    async (text: string, modelKey?: string, thinkingLevel?: string, mode?: string) => {
       if (!activeSessionId || !text.trim()) return;
       setLoading(true);
+      setStage('');
+      setPendingQuestion(null);
 
       const localUserMsg: LocalMessage = {
         id: `user-${Date.now()}`,
@@ -196,12 +249,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setMessages((prev) => [...prev, localUserMsg]);
 
       try {
-        console.log('[Chat] sendMessage', { sessionId: activeSessionId, modelKey, thinkingLevel });
+        console.log('[Chat] sendMessage', { sessionId: activeSessionId, modelKey, thinkingLevel, mode });
         const response = await api.sendMessage(
           activeSessionId,
           text.trim(),
           modelKey ?? '',
           thinkingLevel ?? '',
+          mode ?? '',
         );
         // If we didn't get a streaming response via events, add the response directly.
         if (response) {
@@ -264,17 +318,48 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const answerQuestion = useCallback(async (answer: string) => {
+    if (!activeSessionId || !answer.trim()) return;
+    await api.answerQuestion(activeSessionId, answer.trim());
+    setPendingQuestion(null);
+  }, [activeSessionId]);
+
+  const answerApproval = useCallback(async (approved: boolean, reason: string = '') => {
+    if (!pendingApproval) return;
+    await api.answerApproval(pendingApproval.id, approved, reason);
+    setPendingApproval(null);
+  }, [pendingApproval]);
+
+  const stopGeneration = useCallback(async () => {
+    if (!activeSessionId) return;
+    await api.stopGeneration(activeSessionId);
+    setLoading(false);
+    setStage('');
+    setPendingQuestion(null);
+    setPendingApproval(null);
+    setMessages((prev) =>
+      prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+    );
+  }, [activeSessionId]);
+
   const value: ChatContextValue = {
     sessions,
     activeSessionId,
     activeSessionPath,
     activeSessionWorker,
+    activeWorkspacePath,
     messages,
     loading,
+    stage,
+    pendingQuestion,
+    pendingApproval,
     loadSessions,
     createSession,
     selectSession,
     sendMessage,
+    answerQuestion,
+    answerApproval,
+    stopGeneration,
     deleteSession,
     renameSession,
     togglePinSession,

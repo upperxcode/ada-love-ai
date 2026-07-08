@@ -91,13 +91,13 @@ function MCPSection() {
       if (config) {
         const mcpServers: Record<string, any> = {};
         serverList.forEach((s) => {
-        mcpServers[s.name] = {
-          command: s.command,
-          args: s.args,
-          url: s.url,
-          enabled: s.enabled,
-          icon: s.icon,
-        };
+          mcpServers[s.name] = {
+            command: s.command,
+            args: s.args,
+            url: s.url,
+            enabled: s.enabled,
+            icon: s.icon,
+          };
         });
         const newConfig = {
           ...config,
@@ -290,15 +290,12 @@ function MCPSection() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Icon</label>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">{M.icon || '🔌'}</span>
-              <IconPicker
-                value={M.icon || '🔌'}
-                onChange={(v) => setM({ ...M, icon: v })}
-              />
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">{M.icon || '🔌'}</span>
+            <IconPicker
+              value={M.icon || '🔌'}
+              onChange={(v) => setM({ ...M, icon: v })}
+            />
           </div>
         </div>
       </EditDialog>

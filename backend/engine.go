@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ada-love-ai/pkg/agent"
@@ -17,6 +18,7 @@ import (
 	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/skills"
 	adatools "ada-love-ai/pkg/tools"
+	"ada-love-ai/pkg/tools/integration"
 )
 
 const (
@@ -33,9 +35,15 @@ type Engine struct {
 	adaConfigPath string
 	SessionMgr *SessionManager
 	skillReg   *skills.RegistryManager
+	// sessionKeyMap tracks agent opaque session keys (sk_v1_...) back to the
+	// original sessionID used by the frontend. Keyed by the opaque session key.
+	sessionKeyMap   map[string]string
+	sessionKeyMapMu sync.RWMutex
 	eventBus   *EventBus
 	db         *Store
 	toolReg    *adatools.ToolRegistry
+	questionReg *integrationtools.QuestionRegistry
+	approvalReg *integrationtools.ApprovalRegistry
 	providerCache map[string]any
 	providerMu    sync.RWMutex
 	// overrideModelIDs maps frontend model key (e.g. "OpenRouter/nvidia/...") to the
@@ -134,6 +142,7 @@ func NewEngine() (*Engine, error) {
 		db:         db,
 		providerCache: make(map[string]any),
 		overrideModelIDs: make(map[string]string),
+		sessionKeyMap:   make(map[string]string),
 	}
 
 	e.connectMessageBus()
@@ -183,10 +192,28 @@ func NewEngine() (*Engine, error) {
 		return nil, fmt.Errorf("erro ao criar provider: %w", err)
 	}
 	provider := e.wrapProvider(rawProvider)
+	e.questionReg = integrationtools.NewQuestionRegistry()
+	e.approvalReg = integrationtools.NewApprovalRegistry()
+	// Wire session key resolvers so tools/hooks can map opaque keys to frontend sessionIDs
+	e.questionReg.SetResolver(e.resolveSessionID)
+	e.approvalReg.SetResolver(e.resolveSessionID)
 	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
+
+	// Register ask_user tool with all agents
+	if e.agentLoop != nil {
+		e.agentLoop.RegisterToolForAllAgents(integrationtools.NewAskUserTool(e.questionReg, 0))
+		// Mount frontend approval hook for tool execution
+		e.agentLoop.MountHook(agent.HookRegistration{
+			Name:   "frontend_approval",
+			Hook:   NewFrontendApprovalHook(e.approvalReg, 0),
+			Source: agent.HookSourceInProcess,
+		})
+	}
 
 	// Bridge eventos do agente para o backend EventBus (para status no frontend)
 	go e.bridgeAgentEvents()
+	// Track session key mappings (opaque sk_v1_ -> frontend sessionID)
+	go e.trackSessionKeys()
 
 	return e, nil
 }
@@ -382,6 +409,20 @@ func (e *Engine) ReloadAgentLoop() error {
 
 	provider := e.wrapProvider(rawProvider)
 	e.agentLoop = agent.NewAgentLoop(e.cfg, e.msgBus, provider, e)
+
+	// Re-register ask_user tool and frontend approval hook on the new loop
+	if e.agentLoop != nil {
+		e.agentLoop.RegisterToolForAllAgents(integrationtools.NewAskUserTool(e.questionReg, 0))
+		e.agentLoop.MountHook(agent.HookRegistration{
+			Name:   "frontend_approval",
+			Hook:   NewFrontendApprovalHook(e.approvalReg, 0),
+			Source: agent.HookSourceInProcess,
+		})
+	}
+
+	// Re-subscribe the agent event bridge to the new loop's event bus
+	go e.bridgeAgentEvents()
+
 	return nil
 }
 
@@ -401,10 +442,7 @@ func (e *Engine) bridgeAgentEvents() {
 	}
 	sub := e.agentLoop.SubscribeEvents(64)
 	for evt := range sub.C {
-		var sessionID string
-		if sk := evt.Meta.SessionKey; strings.HasPrefix(sk, "ada:") {
-			sessionID = strings.TrimPrefix(sk, "ada:")
-		}
+		sessionID := e.resolveSessionID(evt.Meta.SessionKey)
 		if sessionID == "" {
 			continue
 		}
@@ -453,6 +491,134 @@ func (e *Engine) SaveSessionDB(sessionID string) {
 	if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
 		e.db.SaveSession(*sess)
 	}
+}
+
+// AnswerQuestion delivers the user's answer to a pending ask_user question.
+func (e *Engine) AnswerQuestion(sessionID, answer string) {
+	if e.questionReg != nil {
+		e.questionReg.Respond(sessionID, answer)
+	}
+}
+
+// trackSessionKeys watches agent events and records opaque session key (sk_v1_...)
+// to frontend sessionID mappings. It uses the backend EventBus's TurnStart event
+// (which carries the correct SessionID) to correlate with the agent's opaque key.
+func (e *Engine) trackSessionKeys() {
+	if e.agentLoop == nil {
+		return
+	}
+	sub := e.agentLoop.SubscribeEvents(16)
+	for evt := range sub.C {
+		if evt.Kind != agent.EventKindTurnStart {
+			continue
+		}
+		opaqueKey := evt.Meta.SessionKey
+		if opaqueKey == "" || !strings.HasPrefix(opaqueKey, "sk_v1_") {
+			continue
+		}
+		// The context value "session_id" was set by SendMessage. We can't read it
+		// from events, so we rely on the fact that only one SendMessage runs at a
+		// time per session. We check pendingSessionTrackers.
+		e.sessionKeyMapMu.RLock()
+		_, known := e.sessionKeyMap[opaqueKey]
+		e.sessionKeyMapMu.RUnlock()
+		if known {
+			continue
+		}
+		// Try to find the sessionID from the pending tracker
+		if sid := e.takePendingSessionID(); sid != "" {
+			e.trackSessionKey(opaqueKey, sid)
+		}
+	}
+}
+
+// pendingSessionID holds the sessionID of the in-flight SendMessage call.
+// This is simple and works because the frontend sends messages one at a time.
+var pendingSessionID atomic.Value
+
+func (e *Engine) setPendingSessionID(sid string) {
+	pendingSessionID.Store(sid)
+}
+
+func (e *Engine) takePendingSessionID() string {
+	v := pendingSessionID.Load()
+	if v == nil {
+		return ""
+	}
+	sid, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return sid
+}
+
+// QuestionRegistry returns the question registry for the App to connect callbacks.
+func (e *Engine) QuestionRegistry() *integrationtools.QuestionRegistry {
+	return e.questionReg
+}
+
+// ApprovalRegistry returns the approval registry for the App to connect callbacks.
+func (e *Engine) ApprovalRegistry() *integrationtools.ApprovalRegistry {
+	return e.approvalReg
+}
+
+// AnswerApproval delivers the user's approval decision to a pending tool approval.
+func (e *Engine) AnswerApproval(requestID string, approved bool, reason string) {
+	if e.approvalReg != nil {
+		e.approvalReg.Respond(requestID, approved, reason)
+	}
+}
+
+// StopGeneration aborts the current turn for the given session.
+func (e *Engine) StopGeneration(sessionID string) {
+	if e.agentLoop != nil && sessionID != "" {
+		// Try the opaque key first (what the agent actually uses internally)
+		if opaqueKey := e.resolveOpaqueKey(sessionID); opaqueKey != "" {
+			_ = e.agentLoop.HardAbort(opaqueKey)
+			return
+		}
+		_ = e.agentLoop.HardAbort("ada:" + sessionID)
+	}
+}
+
+// trackSessionKey records the mapping from agent opaque session key to frontend sessionID.
+func (e *Engine) trackSessionKey(opaqueKey, sessionID string) {
+	if opaqueKey == "" || sessionID == "" {
+		return
+	}
+	e.sessionKeyMapMu.Lock()
+	e.sessionKeyMap[opaqueKey] = sessionID
+	e.sessionKeyMapMu.Unlock()
+}
+
+// resolveSessionID maps an agent opaque session key (sk_v1_...) back to the
+// frontend sessionID. Falls back to stripping "ada:" prefix for legacy keys.
+func (e *Engine) resolveSessionID(opaqueKey string) string {
+	if opaqueKey == "" {
+		return ""
+	}
+	e.sessionKeyMapMu.RLock()
+	sessionID, ok := e.sessionKeyMap[opaqueKey]
+	e.sessionKeyMapMu.RUnlock()
+	if ok {
+		return sessionID
+	}
+	if strings.HasPrefix(opaqueKey, "ada:") {
+		return opaqueKey[4:]
+	}
+	return opaqueKey
+}
+
+// resolveOpaqueKey maps a frontend sessionID to the agent opaque key (sk_v1_...).
+func (e *Engine) resolveOpaqueKey(sessionID string) string {
+	e.sessionKeyMapMu.RLock()
+	defer e.sessionKeyMapMu.RUnlock()
+	for opaque, sid := range e.sessionKeyMap {
+		if sid == sessionID {
+			return opaque
+		}
+	}
+	return ""
 }
 
 // Implementação de interfaces.MemoryStore para o agente

@@ -345,21 +345,21 @@ function ModelsSection() {
             <label className="text-sm font-medium">Embedding Provider</label>
             <Select
               value={adaConfig?.embedding_provider || ''}
-                  onValueChange={(v) => {
-                    if (adaConfig) {
-                      const newCfg = new api.backend.AdaConfig({
-                        ...adaConfig,
-                        embedding_provider: v,
-                      });
-                      setAdaConfig(newCfg);
-                      saveConfig(newCfg);
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
+              onValueChange={(v) => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    embedding_provider: v,
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
                 {adaConfig &&
                   Object.keys(adaConfig.providers || {}).map((name) => (
                     <SelectItem key={name} value={name}>
@@ -419,21 +419,21 @@ function ModelsSection() {
             <label className="text-sm font-medium">Image Provider</label>
             <Select
               value={adaConfig?.image_provider || ''}
-                  onValueChange={(v) => {
-                    if (adaConfig) {
-                      const newCfg = new api.backend.AdaConfig({
-                        ...adaConfig,
-                        image_provider: v,
-                      });
-                      setAdaConfig(newCfg);
-                      saveConfig(newCfg);
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
+              onValueChange={(v) => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    image_provider: v,
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
                 {adaConfig &&
                   Object.keys(adaConfig.providers || {}).map((name) => (
                     <SelectItem key={name} value={name}>
@@ -1172,7 +1172,10 @@ function ModelsSection() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCustomEmbedding(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowCustomEmbedding(false)}
+            >
               Cancel
             </Button>
             <Button

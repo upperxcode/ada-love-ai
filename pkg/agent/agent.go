@@ -27,6 +27,7 @@ import (
 	"ada-love-ai/pkg/routing"
 	"ada-love-ai/pkg/session"
 	"ada-love-ai/pkg/state"
+	tools "ada-love-ai/pkg/tools/shared"
 	"ada-love-ai/pkg/utils"
 )
 
@@ -606,5 +607,17 @@ func (al *AgentLoop) runAgentLoop(
 
 // filterClientWebSearch returns a copy of tools with the client-side
 // web_search tool removed. Used when native provider search is preferred.
+
+// RegisterToolForAllAgents registers a tool with all agent instances.
+func (al *AgentLoop) RegisterToolForAllAgents(tool tools.Tool) {
+	if al.registry == nil {
+		return
+	}
+	for _, agentID := range al.registry.ListAgentIDs() {
+		if agent, ok := al.registry.GetAgent(agentID); ok {
+			agent.Tools.Register(tool)
+		}
+	}
+}
 
 // Helper to extract provider from registry for cleanup

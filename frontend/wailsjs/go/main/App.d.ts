@@ -8,6 +8,10 @@ export function AddToolsToProfile(arg1:number,arg2:Array<string>):Promise<boolea
 
 export function AddWorkspace(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AnswerApproval(arg1:string,arg2:boolean,arg3:string):Promise<void>;
+
+export function AnswerQuestion(arg1:string,arg2:string):Promise<void>;
+
 export function CreateSession(arg1:string,arg2:string):Promise<backend.ChatSession>;
 
 export function CreateSummarizedSession(arg1:string,arg2:string,arg3:string):Promise<backend.ChatSession>;
@@ -76,7 +80,7 @@ export function SaveProvidersConfig():Promise<void>;
 
 export function SearchSkills(arg1:string):Promise<Array<backend.SearchResult>>;
 
-export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
 
 export function SetActiveWorkspace(arg1:string):Promise<void>;
 
@@ -91,6 +95,8 @@ export function SetWorkerCategories(arg1:Array<string>):Promise<void>;
 export function SetWorkers(arg1:Array<backend.WorkerConfig>):Promise<void>;
 
 export function SetWorkspaceTools(arg1:string,arg2:Array<string>):Promise<void>;
+
+export function StopGeneration(arg1:string):Promise<void>;
 
 export function TestConnection(arg1:string,arg2:string,arg3:string):Promise<backend.ConnectionTestResult>;
 

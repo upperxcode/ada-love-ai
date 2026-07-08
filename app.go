@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"ada-love-ai/backend"
+	integration "ada-love-ai/pkg/tools/integration"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -21,6 +22,7 @@ func NewApp(engine *backend.Engine) *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.startEventBridge()
+	a.connectQuestionRegistry()
 }
 
 func (a *App) startEventBridge() {
@@ -248,13 +250,60 @@ func (a *App) DeleteSession(id string) {
 func (a *App) RenameSession(id, newTitle string) {
 	a.engine.RenameSession(id, newTitle)
 }
-func (a *App) SendMessage(sessionID, text, modelOverride, thinkingLevel string) (string, error) {
-	fmt.Printf("[App.SendMessage] sessionID=%q modelOverride=%q thinkingLevel=%q text=%q\n",
-		sessionID, modelOverride, thinkingLevel, text[:min(len(text), 50)])
-	return a.engine.SendMessage(a.ctx, text, sessionID, modelOverride, thinkingLevel)
+func (a *App) SendMessage(sessionID, text, modelOverride, thinkingLevel, mode string) (string, error) {
+	fmt.Printf("[App.SendMessage] sessionID=%q modelOverride=%q thinkingLevel=%q mode=%q text=%q\n",
+		sessionID, modelOverride, thinkingLevel, mode, text[:min(len(text), 50)])
+	return a.engine.SendMessage(a.ctx, text, sessionID, modelOverride, thinkingLevel, mode)
+}
+
+func (a *App) AnswerQuestion(sessionID, answer string) {
+	a.engine.AnswerQuestion(sessionID, answer)
+}
+func (a *App) AnswerApproval(requestID string, approved bool, reason string) {
+	a.engine.AnswerApproval(requestID, approved, reason)
+}
+func (a *App) StopGeneration(sessionID string) {
+	a.engine.StopGeneration(sessionID)
 }
 func (a *App) TogglePin(sessionID string) {
 	a.engine.TogglePin(sessionID)
+}
+
+func (a *App) connectQuestionRegistry() {
+	// Bridge ask_user questions
+	qr := a.engine.QuestionRegistry()
+	if qr != nil {
+		qr.OnAsk(func(sessionID, question string) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "chat:question", map[string]interface{}{
+					"session_id": sessionID,
+					"question":   question,
+				})
+			}
+		})
+		qr.OnAnswer(func(sessionID string) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "chat:questionAnswered", map[string]interface{}{
+					"session_id": sessionID,
+				})
+			}
+		})
+	}
+
+	// Bridge tool approval requests
+	ar := a.engine.ApprovalRegistry()
+	if ar != nil {
+		ar.OnApprove(func(req integration.ApprovalRequest) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "chat:toolApproval", map[string]interface{}{
+					"id":         req.ID,
+					"session_id": req.SessionID,
+					"tool":       req.Tool,
+					"args":       req.Args,
+				})
+			}
+		})
+	}
 }
 
 // Skills

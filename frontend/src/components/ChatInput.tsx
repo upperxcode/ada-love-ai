@@ -41,8 +41,8 @@ export function ChatInput() {
 
   const handleSubmit = () => {
     if (!draft.trim() || loading || !activeSessionId) return;
-    console.log('[ChatInput] handleSubmit', { selectedModel, thinking, draft: draft.trim().substring(0, 50) });
-    sendMessage(draft.trim(), selectedModel ?? undefined, thinking ? 'high' : undefined);
+    console.log('[ChatInput] handleSubmit', { selectedModel, thinking, mode, draft: draft.trim().substring(0, 50) });
+    sendMessage(draft.trim(), selectedModel ?? undefined, thinking ? 'high' : undefined, mode);
     setDraft('');
     if (expanded) setExpanded(false);
   };

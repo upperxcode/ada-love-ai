@@ -60,10 +60,11 @@ const (
 	OverrideModelIDKey   ctxKey = "override_model_id"
 	OverrideThinkingKey  ctxKey = "override_thinking_level"
 	OverrideProviderKey  ctxKey = "override_provider"
+	OverrideModeKey      ctxKey = "override_mode"
 )
 
-// WithOverrides returns a new context with model/thinking/provider overrides attached.
-func WithOverrides(ctx context.Context, model, modelID, thinkingLevel string, provider any) context.Context {
+// WithOverrides returns a new context with model/thinking/provider/mode overrides attached.
+func WithOverrides(ctx context.Context, model, modelID, thinkingLevel string, provider any, mode ...string) context.Context {
 	if model != "" {
 		ctx = context.WithValue(ctx, OverrideModelKey, model)
 	}
@@ -75,6 +76,9 @@ func WithOverrides(ctx context.Context, model, modelID, thinkingLevel string, pr
 	}
 	if provider != nil {
 		ctx = context.WithValue(ctx, OverrideProviderKey, provider)
+	}
+	if len(mode) > 0 && mode[0] != "" {
+		ctx = context.WithValue(ctx, OverrideModeKey, mode[0])
 	}
 	return ctx
 }

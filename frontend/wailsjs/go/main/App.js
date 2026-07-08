@@ -14,6 +14,14 @@ export function AddWorkspace(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddWorkspace'](arg1, arg2, arg3);
 }
 
+export function AnswerApproval(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AnswerApproval'](arg1, arg2, arg3);
+}
+
+export function AnswerQuestion(arg1, arg2) {
+  return window['go']['main']['App']['AnswerQuestion'](arg1, arg2);
+}
+
 export function CreateSession(arg1, arg2) {
   return window['go']['main']['App']['CreateSession'](arg1, arg2);
 }
@@ -150,8 +158,8 @@ export function SearchSkills(arg1) {
   return window['go']['main']['App']['SearchSkills'](arg1);
 }
 
-export function SendMessage(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
+export function SendMessage(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SetActiveWorkspace(arg1) {
@@ -180,6 +188,10 @@ export function SetWorkers(arg1) {
 
 export function SetWorkspaceTools(arg1, arg2) {
   return window['go']['main']['App']['SetWorkspaceTools'](arg1, arg2);
+}
+
+export function StopGeneration(arg1) {
+  return window['go']['main']['App']['StopGeneration'](arg1);
 }
 
 export function TestConnection(arg1, arg2, arg3) {

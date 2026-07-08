@@ -9,6 +9,7 @@ import SkillsSection from './settings/SkillsSection';
 import ToolsSection from './settings/ToolsSection';
 import ModelsSection from './settings/ModelsSection';
 import MCPSection from './settings/MCPSection';
+import SpecWizardSection from './spec-wizard/SpecWizardSection';
 
 interface SettingsPageProps {
   onClose?: () => void;
@@ -21,6 +22,7 @@ const settingsSections = [
   { id: 'agents', icon: 'User', label: 'Agents' },
   { id: 'skills', icon: 'Brain', label: 'Skills' },
   { id: 'tools', icon: 'Wrench', label: 'Tools' },
+  { id: 'spec-wizard', icon: 'Code', label: 'Spec Wizard' },
   { id: 'mcp', icon: 'Plug', label: 'MCP' },
   { id: 'models', icon: 'Cpu', label: 'Models' },
 ];
@@ -72,6 +74,7 @@ function SettingsPage({ onClose }: SettingsPageProps) {
           {activeSection === 'tools' && <ToolsSection />}
           {activeSection === 'mcp' && <MCPSection />}
           {activeSection === 'models' && <ModelsSection />}
+          {activeSection === 'spec-wizard' && <SpecWizardSection />}
         </div>
       </div>
     </div>

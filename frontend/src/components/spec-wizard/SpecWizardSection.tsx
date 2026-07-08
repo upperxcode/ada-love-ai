@@ -14,7 +14,7 @@ import { EditDialog } from '../EditDialog';
 import { Icon } from '../Icon';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { plugins } from './plugins/registry';
+import { usePatterns } from './plugins/usePatterns';
 
 interface Wizard {
   id: string;
@@ -244,24 +244,26 @@ function SpecWizardSection() {
     return Math.max(0, Math.min(100, score));
   };
 
-  // Plugin system
-  const languagePlugin = wizardState.expertLanguagePlugin
-    ? plugins[wizardState.expertLanguagePlugin]
-    : null;
+  // Plugin system — consumido do backend via hook (sem hardcoded).
+  const expertPlugin = wizardState.expertLanguagePlugin;
+  const { patterns, experts, isLoading, error: pluginsError } =
+    usePatterns(expertPlugin);
 
-  const engineeringPhilosophies = languagePlugin?.engineeringPhilosophies || [
-    'KISS',
-    'YAGNI',
-    'SOLID',
-    'DRY',
-  ];
-  const designPatterns = languagePlugin?.designPatterns || [
-    'Factory',
-    'Builder',
-    'Singleton',
-    'Observer',
-    'Strategy',
-  ];
+  const engineeringPhilosophies = patterns.philosophies.map((p) => p.name);
+  const designPatterns = patterns.designPatterns.map((p) => p.name);
+  const dataPatterns = patterns.dataPatterns.map((p) => p.name);
+  const architectureOptions = patterns.architectures.map((p) => ({
+    value: p.id,
+    label: p.name,
+  }));
+  const persistenceOptions = patterns.dataStrategies.map((p) => ({
+    value: p.id,
+    label: p.name,
+  }));
+  const stateManagementOptions = patterns.stateManagements.map((p) => ({
+    value: p.id,
+    label: p.name,
+  }));
 
   useEffect(() => {
     loadWizards();
@@ -330,8 +332,7 @@ function SpecWizardSection() {
               {wizard.expertLanguagePlugin && (
                 <div className="flex flex-wrap gap-1 justify-center mt-1">
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
-                    {plugins[wizard.expertLanguagePlugin]?.name ||
-                      wizard.expertLanguagePlugin}
+                    {wizard.expertLanguagePlugin}
                   </span>
                 </div>
               )}
@@ -356,6 +357,11 @@ function SpecWizardSection() {
         onIconChange={(icon) => updateWizardState('icon', icon)}
       >
         <div className="space-y-4 flex flex-col items-stretch justify-start">
+          {pluginsError && (
+            <p className="text-xs text-destructive">
+              Erro ao carregar plugins: {pluginsError}
+            </p>
+          )}
           {/* Phase Tabs with connected dots */}
           <div className="flex items-center justify-start mb-6">
             <div className="flex items-center">
@@ -430,9 +436,9 @@ function SpecWizardSection() {
                     <SelectValue placeholder="Select a language..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(plugins).map(([key, plugin]) => (
-                      <SelectItem key={key} value={key}>
-                        {plugin.name}
+                    {experts.map((expert) => (
+                      <SelectItem key={expert.id} value={expert.language}>
+                        {expert.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -512,11 +518,11 @@ function SpecWizardSection() {
                     <SelectValue placeholder="Select persistence strategy..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="custom">Custom</SelectItem>
-                    <SelectItem value="remote">Remote Only</SelectItem>
-                    <SelectItem value="sql">SQL</SelectItem>
-                    <SelectItem value="nosql">NoSQL</SelectItem>
-                    <SelectItem value="mixed">Mixed</SelectItem>
+                    {persistenceOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -533,20 +539,16 @@ function SpecWizardSection() {
                     <SelectValue placeholder="Select architecture..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="custom">Custom</SelectItem>
-                    <SelectItem value="flat">Flat/Standard</SelectItem>
-                    <SelectItem value="clean">Clean Architecture</SelectItem>
-                    <SelectItem value="crud">CRUD</SelectItem>
-                    <SelectItem value="event-sourcing">
-                      Event Sourcing
-                    </SelectItem>
-                    <SelectItem value="cqrs">CQRS</SelectItem>
-                    <SelectItem value="mvc">MVC</SelectItem>
+                    {architectureOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {languagePlugin && (
+              {engineeringPhilosophies.length > 0 && (
                 <>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
@@ -626,13 +628,7 @@ function SpecWizardSection() {
                       Padrões de Dados:
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      {[
-                        'DTO',
-                        'Entity',
-                        'Repository',
-                        'Active Record',
-                        'DAO',
-                      ].map((p) => (
+                      {dataPatterns.map((p) => (
                         <div key={p} className="flex items-center space-x-2">
                           <Checkbox
                             id={`data-${p}`}
@@ -741,12 +737,11 @@ function SpecWizardSection() {
                     <SelectValue placeholder="Select state management..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="redux">Redux</SelectItem>
-                    <SelectItem value="context">React Context</SelectItem>
-                    <SelectItem value="mobx">MobX</SelectItem>
-                    <SelectItem value="zustand">Zustand</SelectItem>
-                    <SelectItem value="recoil">Recoil</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
+                    {stateManagementOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

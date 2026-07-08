@@ -1,10 +1,3 @@
-export interface LanguagePlugin {
-  name: string;
-  engineeringPhilosophies: string[];
-  designPatterns: string[];
-  dataPatterns?: string[];
-}
-
-export interface PluginRegistry {
-  [language: string]: LanguagePlugin;
-}
+// Tipos re-exportados para uso legado.
+// (registry.ts foi removido; consumidores devem usar usePatterns + api.ts.)
+export type { Pattern, Architecture, ExpertPlugin } from './api';

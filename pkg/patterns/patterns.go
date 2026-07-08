@@ -7,7 +7,7 @@ type Pattern struct {
 	Name             string   `json:"name"`
 	Category         string   `json:"category"`
 	Group            string   `json:"group"`
-	Scope            string   `json:"scope"`
+	Scope            string   `json:"scope"` // empty=global, mobile/web/backend
 	Description      string   `json:"description"`
 	IncompatibleWith []string `json:"incompatibleWith"`
 	GoldenRules      []string `json:"goldenRules"`
@@ -115,7 +115,11 @@ func (r *PatternRepository) setupDefaults() {
 }
 
 func (r *PatternRepository) GetPatternsForLanguage(lang string) []Pattern {
-	return r.Store[strings.ToLower(lang)]
+	patterns, ok := r.Store[strings.ToLower(lang)]
+	if !ok {
+		return []Pattern{}
+	}
+	return patterns
 }
 
 func (r *PatternRepository) GetMultiplePatternRules(lang string, patternIDs []string) map[string][]string {

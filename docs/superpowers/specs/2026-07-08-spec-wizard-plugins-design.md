@@ -97,7 +97,7 @@ type TestConfig struct {
 
 type ExpertPlugin struct {
     ID                 string      `yaml:"id" json:"id"`
-    Name               string      `yaml:"id"` // alinhado ao original
+    Name               string      `yaml:"name" json:"name"`
     Description        string      `yaml:"description" json:"description"`
     Endpoint           string      `yaml:"endpoint" json:"endpoint"`
     Triggers           []string    `yaml:"triggers" json:"triggers"`
@@ -131,10 +131,11 @@ Adicionado ao `app.go`:
 | GET    | `/api/patterns/categories?lang=<lang>` | Agrupado por categoria                            |
 | GET    | `/api/architectures`                   | Lê `config/architectures.yaml`                    |
 | GET    | `/api/experts`                         | Lista `ExpertPlugin`s carregados                  |
-| POST   | `/api/experts/{id}/start`              | Inicia o binário via `StartCommand` (opcional MVP) |
+| POST   | `/api/experts/{id}/start`              | (Fora de escopo desta entrega)    |
 
-**Escopo MVP**: apenas os 3 GETs. `POST /start` fica como TODO — para esta entrega,
-o frontend não precisa iniciar experts; ele só lista as opções disponíveis.
+**Escopo MVP**: apenas os 3 GETs (`/api/patterns`, `/api/architectures`,
+`/api/experts`). `POST /start` está explicitamente fora de escopo (ver
+seção 7).
 
 ### 3.5 Frontend
 

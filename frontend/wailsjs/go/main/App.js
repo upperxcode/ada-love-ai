@@ -62,12 +62,24 @@ export function GetAgents() {
   return window['go']['main']['App']['GetAgents']();
 }
 
+export function GetArchitectures() {
+  return window['go']['main']['App']['GetArchitectures']();
+}
+
 export function GetAvailableTools() {
   return window['go']['main']['App']['GetAvailableTools']();
 }
 
+export function GetExperts() {
+  return window['go']['main']['App']['GetExperts']();
+}
+
 export function GetInstalledSkills() {
   return window['go']['main']['App']['GetInstalledSkills']();
+}
+
+export function GetPatterns(arg1) {
+  return window['go']['main']['App']['GetPatterns'](arg1);
 }
 
 export function GetPredefinedConnections() {

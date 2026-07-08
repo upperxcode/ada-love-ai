@@ -114,6 +114,10 @@ declare global {
             tagsCSV: string,
             content: string,
           ): Promise<void>;
+          // Spec Wizard plugins
+          GetPatterns(lang: string): Promise<Record<string, any>[]>;
+          GetArchitectures(): Promise<Record<string, any>[]>;
+          GetExperts(): Promise<Record<string, any>[]>;
         };
       };
     };

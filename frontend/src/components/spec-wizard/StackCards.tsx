@@ -34,7 +34,7 @@ function StackLibraryCard({ name, mandatory, usageExample, onToggleMandatory, on
             }`}
             title={mandatory ? 'Mandatory (click to remove)' : 'Optional (click to make mandatory)'}
           >
-            ❗
+            ⚠️
           </button>
           {onRemove && (
             <button

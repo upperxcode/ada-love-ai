@@ -616,8 +616,8 @@ input[type='number'] {
 
 /* Fixed height dialog for Spec Wizard */
 .fixed-height-dialog {
-  height: 70vh;
-  max-height: 70vh;
+  height: 84vh;
+  max-height: 84vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -795,8 +795,8 @@ input[type='number'] {
 
 /* Fixed height dialog for Spec Wizard */
 .fixed-height-dialog {
-  height: 70vh;
-  max-height: 70vh;
+  height: 84vh;
+  max-height: 84vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;

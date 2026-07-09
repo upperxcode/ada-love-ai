@@ -17,7 +17,7 @@ import { Label } from '../ui/label';
 import { usePatterns } from './plugins/usePatterns';
 import { fetchStacks, StackTemplate } from './plugins/api';
 import { StackCards } from './StackCards';
-import { ArchitectureSelector } from './ArchitectureSelector';
+import { PatternSelector } from './PatternSelector';
 import { ReviewSection } from './ReviewSection';
 import { HealthBar } from './HealthBar';
 import { AISuggestIcon } from './AISuggestIcon';
@@ -256,7 +256,8 @@ function SpecWizardSection() {
     usePatterns(expertPlugin);
 
   const [stacks, setStacks] = useState<StackTemplate[]>([]);
-  const [selectedStacks, setSelectedStacks] = useState<Array<{name: string; example: string}>>([]);
+  const [selectedStack, setSelectedStack] = useState<{name: string; example: string} | null>(null);
+  const [manualStacks, setManualStacks] = useState<Array<{name: string; example: string}>>([]);
 
   const engineeringPhilosophies = patterns.philosophies.map((p) => p.name);
   const designPatterns = patterns.designPatterns.map((p) => p.name);
@@ -465,59 +466,89 @@ function SpecWizardSection() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  PRD (Escopo do Problema)
+                  PRD (Problem Scope)
                 </label>
-                <textarea
-                  value={wizardState.prd}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState('prd', e.target.value)
-                  }
-                  placeholder="Problem scope and objectives..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={wizardState.prd}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState('prd', e.target.value)
+                    }
+                    placeholder="Problem scope and objectives..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="PRD"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      currentValue={wizardState.prd}
+                      onApply={(value) => updateWizardState('prd', value)}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Requisitos Funcionais
+                  Functional Requirements
                 </label>
-                <textarea
-                  value={wizardState.functionalRequirements?.join('\n') || ''}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState(
-                      'functionalRequirements',
-                      e.target.value
-                        .split('\n')
-                        .filter((l: string) => l.trim()),
-                    )
-                  }
-                  placeholder="O que o sistema faz..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={wizardState.functionalRequirements?.join('\n') || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState(
+                        'functionalRequirements',
+                        e.target.value
+                          .split('\n')
+                          .filter((l: string) => l.trim()),
+                      )
+                    }
+                    placeholder="What the system does..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="Functional Requirements"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin, prd: wizardState.prd })}
+                      currentValue={wizardState.functionalRequirements?.join('\n')}
+                      onApply={(value) => updateWizardState('functionalRequirements', value.split('\n').filter(Boolean))}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Requisitos Não Funcionais
+                  Non-Functional Requirements
                 </label>
-                <textarea
-                  value={
-                    wizardState.nonFunctionalRequirements?.join('\n') || ''
-                  }
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState(
-                      'nonFunctionalRequirements',
-                      e.target.value
-                        .split('\n')
-                        .filter((l: string) => l.trim()),
-                    )
-                  }
-                  placeholder="Rápido, escalável, seguro..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={
+                      wizardState.nonFunctionalRequirements?.join('\n') || ''
+                    }
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState(
+                        'nonFunctionalRequirements',
+                        e.target.value
+                          .split('\n')
+                          .filter((l: string) => l.trim()),
+                      )
+                    }
+                    placeholder="Fast, scalable, secure..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="Non-Functional Requirements"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      currentValue={wizardState.nonFunctionalRequirements?.join('\n')}
+                      onApply={(value) => updateWizardState('nonFunctionalRequirements', value.split('\n').filter(Boolean))}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -547,121 +578,34 @@ function SpecWizardSection() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Architectures:</label>
-                <ArchitectureSelector
+                <PatternSelector
                   options={patterns.architectures}
                   selected={wizardState.engineeringPhilosophies || []}
                   onChange={(selected) => updateWizardState('engineeringPhilosophies', selected)}
+                  title=""
                 />
               </div>
 
-              {engineeringPhilosophies.length > 0 && (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Filosofia de Engenharia:
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {engineeringPhilosophies.map((p) => (
-                        <div key={p} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`philosophy-${p}`}
-                            checked={
-                              wizardState.engineeringPhilosophies?.includes(
-                                p,
-                              ) || false
-                            }
-                            onCheckedChange={(checked: boolean | undefined) => {
-                              const newPhils = checked
-                                ? [
-                                    ...(wizardState.engineeringPhilosophies ||
-                                      []),
-                                    p,
-                                  ]
-                                : (
-                                    wizardState.engineeringPhilosophies || []
-                                  ).filter((x) => x !== p);
-                              updateWizardState(
-                                'engineeringPhilosophies',
-                                newPhils,
-                              );
-                            }}
-                          />
-                          <Label
-                            htmlFor={`philosophy-${p}`}
-                            className="text-sm cursor-pointer"
-                          >
-                            {p}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <PatternSelector
+                options={patterns.philosophies.map(p => ({...p, name: p.name, description: `Engineering philosophy: ${p.name}`}))}
+                selected={wizardState.engineeringPhilosophies || []}
+                onChange={(selected) => updateWizardState('engineeringPhilosophies', selected)}
+                title="Engineering Philosophy"
+              />
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Padrões de Design:
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {designPatterns.map((p) => (
-                        <div key={p} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`pattern-${p}`}
-                            checked={
-                              wizardState.designPatterns?.includes(p) || false
-                            }
-                            onCheckedChange={(checked: boolean | undefined) => {
-                              const newPatterns = checked
-                                ? [...(wizardState.designPatterns || []), p]
-                                : (wizardState.designPatterns || []).filter(
-                                    (x) => x !== p,
-                                  );
-                              updateWizardState('designPatterns', newPatterns);
-                            }}
-                          />
-                          <Label
-                            htmlFor={`pattern-${p}`}
-                            className="text-sm cursor-pointer"
-                          >
-                            {p}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <PatternSelector
+                options={patterns.designPatterns.map(p => ({...p, name: p.name, description: `Design pattern: ${p.name}`}))}
+                selected={wizardState.designPatterns || []}
+                onChange={(selected) => updateWizardState('designPatterns', selected)}
+                title="Design Patterns"
+              />
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Padrões de Dados:
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {dataPatterns.map((p) => (
-                        <div key={p} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`data-${p}`}
-                            checked={
-                              wizardState.dataPatterns?.includes(p) || false
-                            }
-                            onCheckedChange={(checked: boolean | undefined) => {
-                              const newPatterns = checked
-                                ? [...(wizardState.dataPatterns || []), p]
-                                : (wizardState.dataPatterns || []).filter(
-                                    (x) => x !== p,
-                                  );
-                              updateWizardState('dataPatterns', newPatterns);
-                            }}
-                          />
-                          <Label
-                            htmlFor={`data-${p}`}
-                            className="text-sm cursor-pointer"
-                          >
-                            {p}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
+              <PatternSelector
+                options={patterns.dataPatterns.map(p => ({...p, name: p.name, description: `Data pattern: ${p.name}`}))}
+                selected={wizardState.dataPatterns || []}
+                onChange={(selected) => updateWizardState('dataPatterns', selected)}
+                title="Data Patterns"
+              />
             </div>
           )}
 
@@ -673,15 +617,32 @@ function SpecWizardSection() {
                 </label>
                 <StackCards
                   templates={stacks}
-                  selectedStacks={selectedStacks}
+                  selectedStack={selectedStack}
                   onSelect={(stack) => {
-                    if (!selectedStacks.some((s) => s.name === stack.name)) {
-                      setSelectedStacks([...selectedStacks, stack]);
+                    setSelectedStack(stack);
+                    if (stack) {
                       updateWizardState('stackConfig', [
-                        ...(wizardState.stackConfig || []),
                         { name: stack.name, example: stack.example },
                       ]);
+                    } else {
+                      updateWizardState('stackConfig', []);
                     }
+                  }}
+                  manualStacks={manualStacks}
+                  onAddManual={(stack) => {
+                    setManualStacks([...manualStacks, stack]);
+                    updateWizardState('stackConfig', [
+                      ...(wizardState.stackConfig || []),
+                      stack,
+                    ]);
+                  }}
+                  onRemoveManual={(idx) => {
+                    const newManual = manualStacks.filter((_, i) => i !== idx);
+                    setManualStacks(newManual);
+                    const newStackConfig = (wizardState.stackConfig || []).filter(
+                      (_, i) => i !== idx + (selectedStack ? 1 : 0),
+                    );
+                    updateWizardState('stackConfig', newStackConfig);
                   }}
                 />
               </div>
@@ -773,56 +734,86 @@ function SpecWizardSection() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Contrato de API / Comunicação
+                  API Contract / Communication
                 </label>
-                <textarea
-                  value={wizardState.business?.apiContract || ''}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState('business', {
-                      ...wizardState.business,
-                      apiContract: e.target.value,
-                    })
-                  }
-                  placeholder="API contract details..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={wizardState.business?.apiContract || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState('business', {
+                        ...wizardState.business,
+                        apiContract: e.target.value,
+                      })
+                    }
+                    placeholder="API contract details..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="API Contract"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin, architecture: wizardState.architecture })}
+                      currentValue={wizardState.business?.apiContract}
+                      onApply={(value) => updateWizardState('business', { ...wizardState.business, apiContract: value })}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Detalhes de Customização e Sutilezas
+                  Customization Details
                 </label>
-                <textarea
-                  value={wizardState.business?.customizationDetails || ''}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState('business', {
-                      ...wizardState.business,
-                      customizationDetails: e.target.value,
-                    })
-                  }
-                  placeholder="Customization details..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={wizardState.business?.customizationDetails || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState('business', {
+                        ...wizardState.business,
+                        customizationDetails: e.target.value,
+                      })
+                    }
+                    placeholder="Customization details..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="Customization Details"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      currentValue={wizardState.business?.customizationDetails}
+                      onApply={(value) => updateWizardState('business', { ...wizardState.business, customizationDetails: value })}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Ajustes Finais e Advisor
+                  Final Adjustments
                 </label>
-                <textarea
-                  value={wizardState.business?.finalAdjustments || ''}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState('business', {
-                      ...wizardState.business,
-                      finalAdjustments: e.target.value,
-                    })
-                  }
-                  placeholder="Final adjustments and advisor notes..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={wizardState.business?.finalAdjustments || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState('business', {
+                        ...wizardState.business,
+                        finalAdjustments: e.target.value,
+                      })
+                    }
+                    placeholder="Final adjustments and advisor notes..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="Final Adjustments"
+                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      currentValue={wizardState.business?.finalAdjustments}
+                      onApply={(value) => updateWizardState('business', { ...wizardState.business, finalAdjustments: value })}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -846,20 +837,35 @@ function SpecWizardSection() {
                 <label className="text-sm font-medium">
                   Architecture Recommendations
                 </label>
-                <textarea
-                  value={
-                    wizardState.business?.architectureRecommendations || ''
-                  }
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    updateWizardState('business', {
-                      ...wizardState.business,
-                      architectureRecommendations: e.target.value,
-                    })
-                  }
-                  placeholder="Architecture recommendations based on your choices..."
-                  rows={3}
-                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                />
+                <div className="relative">
+                  <textarea
+                    value={
+                      wizardState.business?.architectureRecommendations || ''
+                    }
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      updateWizardState('business', {
+                        ...wizardState.business,
+                        architectureRecommendations: e.target.value,
+                      })
+                    }
+                    placeholder="Architecture recommendations based on your choices..."
+                    rows={3}
+                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
+                  />
+                  <div className="absolute right-1 top-1">
+                    <AISuggestIcon
+                      fieldName="Architecture Recommendations"
+                      context={JSON.stringify({
+                        language: wizardState.expertLanguagePlugin,
+                        architecture: wizardState.architecture,
+                        persistence: wizardState.persistence,
+                        stack: wizardState.stackConfig?.map(s => s.name).join(', '),
+                      })}
+                      currentValue={wizardState.business?.architectureRecommendations}
+                      onApply={(value) => updateWizardState('business', { ...wizardState.business, architectureRecommendations: value })}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )}

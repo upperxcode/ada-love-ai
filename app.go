@@ -449,23 +449,29 @@ func (a *App) GetStacks(lang string) []map[string]any {
 
 // SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
 func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
+	fmt.Printf("[App.SuggestFieldValue] fieldName=%q currentValue=%q\n", fieldName, currentValue)
 	if a.engine == nil {
+		fmt.Println("[App.SuggestFieldValue] ERROR: engine not initialized")
 		return "", fmt.Errorf("engine not initialized")
 	}
 
 	adaCfg := a.engine.GetAdaConfig()
 	specProvider := adaCfg.SpecProvider
 	specModel := adaCfg.SpecModel
+	fmt.Printf("[App.SuggestFieldValue] specProvider=%q specModel=%q\n", specProvider, specModel)
 
 	if specProvider == "" || specModel == "" {
+		fmt.Println("[App.SuggestFieldValue] ERROR: no Spec Model configured")
 		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
 	}
 
 	// Find the provider config
 	provCfg, ok := adaCfg.Providers[specProvider]
 	if !ok {
+		fmt.Printf("[App.SuggestFieldValue] ERROR: provider %q not found\n", specProvider)
 		return "", fmt.Errorf("provider '%s' not found in configured providers", specProvider)
 	}
+	fmt.Printf("[App.SuggestFieldValue] provider found: api_url=%q type=%q\n", provCfg.ApiUrl, provCfg.TypeConnection)
 
 	// Create provider from config
 	providerCfg := config.ModelConfig{
@@ -476,11 +482,14 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		APIKeys:     config.SimpleSecureStrings(provCfg.ApiKey),
 		ConnectMode: provCfg.TypeConnection,
 	}
+	fmt.Printf("[App.SuggestFieldValue] creating provider: provider=%q model=%q\n", specProvider, specModel)
 
 	provider, _, err := providers.CreateProviderFromConfig(&providerCfg)
 	if err != nil {
+		fmt.Printf("[App.SuggestFieldValue] ERROR creating provider: %v\n", err)
 		return "", fmt.Errorf("failed to create provider: %w", err)
 	}
+	fmt.Println("[App.SuggestFieldValue] provider created successfully")
 
 	systemPrompt := "You are an expert software architect. Generate concise, practical suggestions for specification fields. Return ONLY the suggested value, no explanations, no markdown, no formatting."
 	userPrompt := fmt.Sprintf("Field: %s\nContext: %s\nCurrent value: %s\n\nSuggest a value for this field:", fieldName, context, currentValue)
@@ -490,14 +499,18 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		{Role: "user", Content: userPrompt},
 	}
 
+	fmt.Println("[App.SuggestFieldValue] calling LLM...")
 	response, err := provider.Chat(a.ctx, messages, nil, specModel, nil)
 	if err != nil {
+		fmt.Printf("[App.SuggestFieldValue] ERROR calling LLM: %v\n", err)
 		return "", fmt.Errorf("LLM request failed: %w", err)
 	}
 
 	if response == nil || response.Content == "" {
+		fmt.Println("[App.SuggestFieldValue] ERROR: empty response from LLM")
 		return "", fmt.Errorf("no response from LLM")
 	}
 
+	fmt.Printf("[App.SuggestFieldValue] response length=%d\n", len(response.Content))
 	return response.Content, nil
 }

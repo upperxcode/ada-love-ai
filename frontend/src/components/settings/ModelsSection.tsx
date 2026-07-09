@@ -330,6 +330,16 @@ function ModelsSection() {
       .map(([name]) => ({ value: name, label: name }));
   })();
 
+  const specModels = (() => {
+    const provider = adaConfig?.spec_provider;
+    const models = provider
+      ? adaConfig?.providers?.[provider]?.models
+      : undefined;
+    if (!models) return [];
+    return Object.entries(models)
+      .map(([name]) => ({ value: name, label: name }));
+  })();
+
   return (
     <div className="space-y-6">
       <div>
@@ -478,6 +488,80 @@ function ModelsSection() {
                 className="shrink-0 px-2"
                 onClick={() => {
                   setCustomImageValue(adaConfig?.image_model || '');
+                  setShowCustomImage(true);
+                }}
+                title="Custom model"
+              >
+                <Icon name="Plus" size={14} />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Spec Provider</label>
+            <Select
+              value={adaConfig?.spec_provider || ''}
+              onValueChange={(v) => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    spec_provider: v,
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {adaConfig &&
+                  Object.keys(adaConfig.providers || {}).map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Spec Model</label>
+            <div className="flex gap-2">
+              <Select
+                value={adaConfig?.spec_model || ''}
+                onValueChange={(v) => {
+                  if (adaConfig) {
+                    const newCfg = new api.backend.AdaConfig({
+                      ...adaConfig,
+                      spec_model: v,
+                    });
+                    setAdaConfig(newCfg);
+                    saveConfig(newCfg);
+                  }
+                }}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {specModels.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() => {
+                  setCustomImageValue(adaConfig?.spec_model || '');
                   setShowCustomImage(true);
                 }}
                 title="Custom model"

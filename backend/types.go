@@ -122,6 +122,8 @@ type AdaConfig struct {
 	EmbeddingProvider string `json:"embedding_provider"`
 	ImageModel        string `json:"image_model"`
 	ImageProvider     string `json:"image_provider"`
+	SpecModel         string `json:"spec_model"`
+	SpecProvider      string `json:"spec_provider"`
 	Workers              []WorkerConfig     `json:"workers"`
 	WorkerCategories     []string          `json:"worker_categories"`
 	Agents               []AgentConfig     `json:"agents"`

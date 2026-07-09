@@ -591,6 +591,8 @@ export namespace backend {
     embedding_provider: string = '';
     image_model: string = '';
     image_provider: string = '';
+    spec_model: string = '';
+    spec_provider: string = '';
 
     constructor(source: any = {}) {
       if (typeof source === 'string') source = JSON.parse(source);
@@ -618,6 +620,8 @@ export namespace backend {
       this.embedding_provider = source['embedding_provider'] ?? '';
       this.image_model = source['image_model'] ?? '';
       this.image_provider = source['image_provider'] ?? '';
+      this.spec_model = source['spec_model'] ?? '';
+      this.spec_provider = source['spec_provider'] ?? '';
     }
   }
 }

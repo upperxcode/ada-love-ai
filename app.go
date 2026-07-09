@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 
 	"ada-love-ai/backend"
+	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/patterns"
+	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/registry"
 	integration "ada-love-ai/pkg/tools/integration"
 
@@ -446,12 +448,56 @@ func (a *App) GetStacks(lang string) []map[string]any {
 }
 
 // SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
-// Esta é uma implementação MVP que usa o engine existente.
 func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
 	if a.engine == nil {
 		return "", fmt.Errorf("engine not initialized")
 	}
-	// Por enquanto, retorna uma sugestão placeholder
-	// TODO: Integrar com o LLM real usando o agent loop
-	return fmt.Sprintf("[AI Suggestion for %s]\n\nBased on the context provided, here is a suggested value for the field '%s'.\n\nThis is a placeholder implementation that will be connected to the LLM in a future update.", fieldName, fieldName), nil
+
+	adaCfg := a.engine.GetAdaConfig()
+	specProvider := adaCfg.SpecProvider
+	specModel := adaCfg.SpecModel
+
+	if specProvider == "" || specModel == "" {
+		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
+	}
+
+	// Find the provider config
+	provCfg, ok := adaCfg.Providers[specProvider]
+	if !ok {
+		return "", fmt.Errorf("provider '%s' not found in configured providers", specProvider)
+	}
+
+	// Create provider from config
+	providerCfg := config.ModelConfig{
+		Provider:    specProvider,
+		ModelName:   specModel,
+		Model:       specModel,
+		APIBase:     provCfg.ApiUrl,
+		APIKeys:     config.SimpleSecureStrings(provCfg.ApiKey),
+		ConnectMode: provCfg.TypeConnection,
+	}
+
+	provider, _, err := providers.CreateProviderFromConfig(&providerCfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to create provider: %w", err)
+	}
+
+	systemPrompt := "You are an expert software architect. Generate concise, practical suggestions for specification fields. Return ONLY the suggested value, no explanations, no markdown, no formatting."
+	userPrompt := fmt.Sprintf("Field: %s\nContext: %s\nCurrent value: %s\n\nSuggest a value for this field:", fieldName, context, currentValue)
+
+	messages := []providers.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	response, err := provider.Chat(a.ctx, messages, nil, specModel, nil)
+	if err != nil {
+		return "", fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	if response == nil || response.Content == "" {
+		return "", fmt.Errorf("no response from LLM")
+	}
+
+	return response.Content, nil
 }

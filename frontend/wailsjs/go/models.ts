@@ -236,6 +236,8 @@ export namespace backend {
 	    embedding_provider: string;
 	    image_model: string;
 	    image_provider: string;
+	    spec_model: string;
+	    spec_provider: string;
 	    workers: WorkerConfig[];
 	    worker_categories: string[];
 	    agents: AgentConfig[];
@@ -261,6 +263,8 @@ export namespace backend {
 	        this.embedding_provider = source["embedding_provider"];
 	        this.image_model = source["image_model"];
 	        this.image_provider = source["image_provider"];
+	        this.spec_model = source["spec_model"];
+	        this.spec_provider = source["spec_provider"];
 	        this.workers = this.convertValues(source["workers"], WorkerConfig);
 	        this.worker_categories = source["worker_categories"];
 	        this.agents = this.convertValues(source["agents"], AgentConfig);

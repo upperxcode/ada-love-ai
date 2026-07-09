@@ -775,19 +775,7 @@ function SpecWizardSection() {
                   { title: 'Stack', value: wizardState.stackConfig?.map(s => s.name).join(', ') || '—' },
                 ]}
               />
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Architecture Recommendations
-                </label>
-                {wizardState.business?.architectureRecommendations ? (
-                  <div className="p-3 bg-muted rounded-md text-sm whitespace-pre-wrap">
-                    {wizardState.business.architectureRecommendations}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground italic">
-                    No recommendations generated yet. Click "Generate" to get AI-powered architecture recommendations.
-                  </div>
-                )}
+              {!wizardState.business?.architectureRecommendations && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -816,7 +804,7 @@ function SpecWizardSection() {
                 >
                   <Icon name="Sparkles" size={14} className="mr-1" /> Generate
                 </Button>
-              </div>
+              )}
             </div>
           )}
         </div>

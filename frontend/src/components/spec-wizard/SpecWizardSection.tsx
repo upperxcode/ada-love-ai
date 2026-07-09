@@ -779,35 +779,43 @@ function SpecWizardSection() {
                 <label className="text-sm font-medium">
                   Architecture Recommendations
                 </label>
-                <div className="relative">
-                  <textarea
-                    value={
-                      wizardState.business?.architectureRecommendations || ''
-                    }
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      updateWizardState('business', {
-                        ...wizardState.business,
-                        architectureRecommendations: e.target.value,
-                      })
-                    }
-                    placeholder="Architecture recommendations based on your choices..."
-                    rows={3}
-                    className="w-full px-3 py-2 pr-8 border rounded-md bg-background text-foreground resize-none"
-                  />
-                  <div className="absolute right-1 top-1">
-                    <AISuggestIcon
-                      fieldName="Architecture Recommendations"
-                      context={JSON.stringify({
+                {wizardState.business?.architectureRecommendations ? (
+                  <div className="p-3 bg-muted rounded-md text-sm whitespace-pre-wrap">
+                    {wizardState.business.architectureRecommendations}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground italic">
+                    No recommendations generated yet. Click "Generate" to get AI-powered architecture recommendations.
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const app = window.go?.main?.App;
+                      if (!app?.SuggestFieldValue) {
+                        alert('AI suggestions not available. Please configure a Spec Model in Models settings.');
+                        return;
+                      }
+                      const context = JSON.stringify({
                         language: wizardState.expertLanguagePlugin,
                         architecture: wizardState.architecture,
                         persistence: wizardState.persistence,
                         stack: wizardState.stackConfig?.map(s => s.name).join(', '),
-                      })}
-                      currentValue={wizardState.business?.architectureRecommendations}
-                      onApply={(value) => updateWizardState('business', { ...wizardState.business, architectureRecommendations: value })}
-                    />
-                  </div>
-                </div>
+                      });
+                      const result = await app.SuggestFieldValue('Architecture Recommendations', context, '');
+                      updateWizardState('business', {
+                        ...wizardState.business,
+                        architectureRecommendations: result,
+                      });
+                    } catch (err) {
+                      alert('Failed to generate recommendations. Please configure a Spec Model in Models settings.');
+                    }
+                  }}
+                >
+                  <Icon name="Sparkles" size={14} className="mr-1" /> Generate
+                </Button>
               </div>
             </div>
           )}

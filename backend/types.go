@@ -160,6 +160,20 @@ func (p *ProviderConfig) GetAPIKey() string {
 	return p.ApiKey
 }
 
+// GetProviderAPIKey resolves the API key for a provider name.
+// Checks: 1) ProviderConfig.api_keys, 2) ProviderConfig.api_key, 3) AdaConfig.ProviderKeys map.
+func (c *AdaConfig) GetProviderAPIKey(providerName string) string {
+	if provider, ok := c.Providers[providerName]; ok {
+		if key := provider.GetAPIKey(); key != "" {
+			return key
+		}
+	}
+	if key, ok := c.ProviderKeys[providerName]; ok {
+		return key
+	}
+	return ""
+}
+
 // ModelSettings represents per-model settings.
 type ModelSettings struct {
 	ContextSize int     `json:"context_size,omitempty"`

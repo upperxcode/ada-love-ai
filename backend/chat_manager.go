@@ -57,7 +57,7 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 				fullKey := provider + "/" + modelName
 				if modelName == modelOverride || modelField == modelOverride || fullKey == modelOverride {
 					fmt.Printf("[Engine] Match at index %d: provider=%q modelField=%q\n", i, provider, modelField)
-					p, _, err := e.createProviderFromModelConfig(mc)
+					p, _, err := e.CreateProviderFromModelConfig(mc)
 					if err == nil && p != nil {
 						cached = p
 						resolvedModelID = modelField

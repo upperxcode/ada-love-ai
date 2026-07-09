@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ada-love-ai/backend"
-	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/patterns"
 	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/registry"
@@ -448,6 +448,7 @@ func (a *App) GetStacks(lang string) []map[string]any {
 }
 
 // SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
+// Segue o mesmo padrão do chat (SendMessage): busca o modelo em ModelList e usa createProviderFromModelConfig.
 func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
 	fmt.Printf("[App.SuggestFieldValue] fieldName=%q currentValue=%q\n", fieldName, currentValue)
 	if a.engine == nil {
@@ -461,37 +462,48 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	fmt.Printf("[App.SuggestFieldValue] specProvider=%q specModel=%q\n", specProvider, specModel)
 
 	if specProvider == "" || specModel == "" {
-		fmt.Println("[App.SuggestFieldValue] ERROR: no Spec Model configured")
 		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
 	}
 
-	// Find the provider config
-	provCfg, ok := adaCfg.Providers[specProvider]
+	// Search ModelList for matching model (same as SendMessage override resolution)
+	var foundProvider any
+	var resolvedModel string
+	fmt.Printf("[App.SuggestFieldValue] searching %d models in ModelList\n", len(adaCfg.ModelList))
+	for i, mc := range adaCfg.ModelList {
+		if mc == nil {
+			continue
+		}
+		provider := strings.TrimSpace(mc.Provider)
+		modelName := strings.TrimSpace(mc.ModelName)
+		modelField := strings.TrimSpace(mc.Model)
+
+		// Match by provider+model name or full key
+		if provider == specProvider && (modelName == specModel || modelField == specModel || provider+"/"+modelName == specModel) {
+			fmt.Printf("[App.SuggestFieldValue] match at index %d: provider=%q modelField=%q\n", i, provider, modelField)
+			p, _, err := a.engine.CreateProviderFromModelConfig(mc)
+			if err == nil && p != nil {
+				foundProvider = p
+				resolvedModel = modelField
+				if resolvedModel == "" {
+					resolvedModel = specModel
+				}
+				fmt.Printf("[App.SuggestFieldValue] provider created OK, modelID=%q\n", resolvedModel)
+				break
+			}
+			fmt.Printf("[App.SuggestFieldValue] provider creation FAILED: %v\n", err)
+		}
+	}
+
+	if foundProvider == nil {
+		fmt.Printf("[App.SuggestFieldValue] NO MATCH for provider=%q model=%q\n", specProvider, specModel)
+		return "", fmt.Errorf("model '%s' not found in ModelList for provider '%s'. Please add it in Models settings.", specModel, specProvider)
+	}
+
+	// Cast to LLMProvider interface
+	llmProvider, ok := foundProvider.(providers.LLMProvider)
 	if !ok {
-		fmt.Printf("[App.SuggestFieldValue] ERROR: provider %q not found\n", specProvider)
-		return "", fmt.Errorf("provider '%s' not found in configured providers", specProvider)
+		return "", fmt.Errorf("provider does not implement LLMProvider interface")
 	}
-	// Resolve API key from ProviderConfig or ProviderKeys map
-	apiKey := adaCfg.GetProviderAPIKey(specProvider)
-	fmt.Printf("[App.SuggestFieldValue] provider found: api_url=%q type=%q api_key_len=%d\n", provCfg.ApiUrl, provCfg.TypeConnection, len(apiKey))
-
-	// Create provider from config
-	providerCfg := config.ModelConfig{
-		Provider:    specProvider,
-		ModelName:   specModel,
-		Model:       specModel,
-		APIBase:     provCfg.ApiUrl,
-		APIKeys:     config.SimpleSecureStrings(apiKey),
-		ConnectMode: provCfg.TypeConnection,
-	}
-	fmt.Printf("[App.SuggestFieldValue] creating provider: provider=%q model=%q api_keys_count=%d\n", specProvider, specModel, len(providerCfg.APIKeys))
-
-	provider, _, err := providers.CreateProviderFromConfig(&providerCfg)
-	if err != nil {
-		fmt.Printf("[App.SuggestFieldValue] ERROR creating provider: %v\n", err)
-		return "", fmt.Errorf("failed to create provider: %w", err)
-	}
-	fmt.Println("[App.SuggestFieldValue] provider created successfully")
 
 	systemPrompt := "You are an expert software architect. Generate concise, practical suggestions for specification fields. Return ONLY the suggested value, no explanations, no markdown, no formatting."
 	userPrompt := fmt.Sprintf("Field: %s\nContext: %s\nCurrent value: %s\n\nSuggest a value for this field:", fieldName, context, currentValue)
@@ -502,14 +514,13 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	}
 
 	fmt.Println("[App.SuggestFieldValue] calling LLM...")
-	response, err := provider.Chat(a.ctx, messages, nil, specModel, nil)
+	response, err := llmProvider.Chat(a.ctx, messages, nil, resolvedModel, nil)
 	if err != nil {
 		fmt.Printf("[App.SuggestFieldValue] ERROR calling LLM: %v\n", err)
 		return "", fmt.Errorf("LLM request failed: %w", err)
 	}
 
 	if response == nil || response.Content == "" {
-		fmt.Println("[App.SuggestFieldValue] ERROR: empty response from LLM")
 		return "", fmt.Errorf("no response from LLM")
 	}
 

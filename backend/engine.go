@@ -675,9 +675,9 @@ func (e *Engine) extractProtocol(mc *config.ModelConfig) (protocol, modelID stri
 	return provider, model
 }
 
-// createProviderFromModelConfig creates an LLM provider from a ModelConfig,
+// CreateProviderFromModelConfig creates an LLM provider from a ModelConfig,
 // enriching it with api_key and api_base from providers config or env vars.
-func (e *Engine) createProviderFromModelConfig(mc *config.ModelConfig) (any, string, error) {
+func (e *Engine) CreateProviderFromModelConfig(mc *config.ModelConfig) (any, string, error) {
 	if mc == nil {
 		return nil, "", fmt.Errorf("nil ModelConfig")
 	}

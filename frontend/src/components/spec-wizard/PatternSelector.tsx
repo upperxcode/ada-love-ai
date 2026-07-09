@@ -35,7 +35,7 @@ export function PatternSelector({ options, selected, onChange, title }: PatternS
               className={`flex items-start p-3 border rounded-lg text-left transition-all ${
                 isSelected
                   ? 'border-primary bg-primary/5'
-                  : 'border-transparent hover:border-primary/50 hover:bg-accent/50'
+                  : 'border-border hover:border-primary/50 hover:bg-accent/50'
               }`}
             >
               <div className="flex-1 min-w-0">

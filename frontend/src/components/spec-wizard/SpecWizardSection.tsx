@@ -12,8 +12,6 @@ import { Card, CardContent } from '../ui/card';
 import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
 import { Icon } from '../Icon';
-import { Checkbox } from '../ui/checkbox';
-import { Label } from '../ui/label';
 import { usePatterns } from './plugins/usePatterns';
 import { fetchStacks, StackTemplate } from './plugins/api';
 import { StackCards } from './StackCards';
@@ -257,7 +255,6 @@ function SpecWizardSection() {
 
   const [stacks, setStacks] = useState<StackTemplate[]>([]);
   const [selectedStack, setSelectedStack] = useState<{name: string; example: string} | null>(null);
-  const [manualStacks, setManualStacks] = useState<Array<{name: string; example: string}>>([]);
 
   const engineeringPhilosophies = patterns.philosophies.map((p) => p.name);
   const designPatterns = patterns.designPatterns.map((p) => p.name);
@@ -611,96 +608,26 @@ function SpecWizardSection() {
 
           {currentPhase === 3 && (
             <div className="space-y-4 flex flex-col items-stretch justify-start">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Stack Templates
-                </label>
-                <StackCards
-                  templates={stacks}
-                  selectedStack={selectedStack}
-                  onSelect={(stack) => {
-                    setSelectedStack(stack);
-                    if (stack) {
-                      updateWizardState('stackConfig', [
-                        { name: stack.name, example: stack.example },
-                      ]);
-                    } else {
-                      updateWizardState('stackConfig', []);
-                    }
-                  }}
-                  manualStacks={manualStacks}
-                  onAddManual={(stack) => {
-                    setManualStacks([...manualStacks, stack]);
+              <StackCards
+                templates={stacks}
+                selectedStack={selectedStack}
+                onSelect={(stack) => {
+                  setSelectedStack(stack);
+                  if (stack) {
                     updateWizardState('stackConfig', [
-                      ...(wizardState.stackConfig || []),
-                      stack,
+                      { name: stack.name, example: stack.example },
                     ]);
-                  }}
-                  onRemoveManual={(idx) => {
-                    const newManual = manualStacks.filter((_, i) => i !== idx);
-                    setManualStacks(newManual);
-                    const newStackConfig = (wizardState.stackConfig || []).filter(
-                      (_, i) => i !== idx + (selectedStack ? 1 : 0),
-                    );
-                    updateWizardState('stackConfig', newStackConfig);
-                  }}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Manual Stack Configuration
-                </label>
-                <div className="space-y-2">
-                  {wizardState.stackConfig?.map((item, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <Input
-                        value={item.name}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                          const newStack = [...(wizardState.stackConfig || [])];
-                          newStack[idx] = { ...item, name: e.target.value };
-                          updateWizardState('stackConfig', newStack);
-                        }}
-                        placeholder="Library name"
-                      />
-                      <Input
-                        value={item.example}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                          const newStack = [...(wizardState.stackConfig || [])];
-                          newStack[idx] = { ...item, example: e.target.value };
-                          updateWizardState('stackConfig', newStack);
-                        }}
-                        placeholder="Example usage"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const newStack = (
-                            wizardState.stackConfig || []
-                          ).filter((_, i) => i !== idx);
-                          updateWizardState('stackConfig', newStack);
-                        }}
-                      >
-                        <Icon name="X" size={16} />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newStack = [
-                        ...(wizardState.stackConfig || []),
-                        { name: '', example: '' },
-                      ];
-                      updateWizardState('stackConfig', newStack);
-                    }}
-                  >
-                    <Icon name="Plus" size={16} /> Add Stack Item
-                  </Button>
-                </div>
-              </div>
+                  } else {
+                    updateWizardState('stackConfig', []);
+                  }
+                }}
+                onAddManual={(stack) => {
+                  updateWizardState('stackConfig', [
+                    ...(wizardState.stackConfig || []),
+                    stack,
+                  ]);
+                }}
+              />
             </div>
           )}
 

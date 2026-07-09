@@ -16,11 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Separator } from '../ui/separator';
 import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
 import { ExpandableEditor } from '../ExpandableEditor';
-import { IconPicker } from '../IconPicker';
 import { Icon } from '../Icon';
 import * as api from '../../api';
 
@@ -288,6 +286,10 @@ function WorkspacesSection() {
         title="Edit Workspace"
         description={editing ? `${computeTokens(editing)} tokens` : undefined}
         onSave={handleSaveEdit}
+        color={E.color}
+        icon={E.icon}
+        onColorChange={(color) => setE({ ...E, color })}
+        onIconChange={(icon) => setE({ ...E, icon })}
       >
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <div className="space-y-1">
@@ -306,25 +308,6 @@ function WorkspacesSection() {
           </div>
 
           <div className="col-span-2 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1">
-              <div
-                className="w-7 h-7 rounded border cursor-pointer"
-                style={{ backgroundColor: E.color }}
-                onClick={() => document.getElementById('pick-color')?.click()}
-              />
-              <input
-                id="pick-color"
-                type="color"
-                value={E.color}
-                onChange={(e) => setE({ ...E, color: e.target.value })}
-                className="w-0 h-0 opacity-0"
-              />
-            </div>
-            <IconPicker
-              value={E.icon}
-              onChange={(v) => setE({ ...E, icon: v })}
-            />
-            <Separator orientation="vertical" className="h-6" />
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-muted-foreground whitespace-nowrap">
                 Max Prompt

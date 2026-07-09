@@ -314,51 +314,50 @@ function SpecWizardSection() {
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {wizards.map((wizard) => (
-            <BaseCard
-              key={wizard.id}
-              color={wizard.color}
-              icon={wizard.icon}
-              headerLeft={
-                <span className="text-xs text-white opacity-90 font-medium truncate">
-                  {wizard.name}
-                </span>
-              }
-              headerRight={
-                <>
-                  <button
-                    className="base-card-btn"
-                    onClick={() => openEdit(wizard)}
-                    title="Edit"
-                  >
-                    <Icon name="Edit" className="w-3 h-3" />
-                  </button>
-                  <button
-                    className="base-card-btn"
-                    onClick={() => handleDelete(wizard.id)}
-                    title="Delete"
-                  >
-                    <Icon name="Trash2" className="w-3 h-3" />
-                  </button>
-                </>
-              }
-              title={wizard.name}
-            >
-              {wizard.description && (
-                <div className="base-card-desc line-clamp-2">{wizard.description}</div>
-              )}
-              {wizard.expertLanguagePlugin && (
-                <div className="flex flex-wrap gap-1 justify-center mt-1">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
-                    {wizard.expertLanguagePlugin}
+              <BaseCard
+                key={wizard.id}
+                color={wizard.color}
+                icon={wizard.icon}
+                headerLeft={
+                  <span className="text-xs text-white opacity-90 font-medium truncate">
+                    {wizard.name}
                   </span>
-                </div>
-              )}
-              {wizard.prd && (
-                <div className="text-[10px] text-muted-foreground mt-1 line-clamp-3">
-                  {wizard.prd}
-                </div>
-              )}
-            </BaseCard>
+                }
+                headerRight={
+                  <>
+                    <button
+                      className="base-card-btn"
+                      onClick={() => openEdit(wizard)}
+                      title="Edit"
+                    >
+                      <Icon name="Edit" className="w-3 h-3" />
+                    </button>
+                    <button
+                      className="base-card-btn"
+                      onClick={() => handleDelete(wizard.id)}
+                      title="Delete"
+                    >
+                      <Icon name="Trash2" className="w-3 h-3" />
+                    </button>
+                  </>
+                }
+              >
+                {wizard.description && (
+                  <div className="text-xs text-muted-foreground line-clamp-2">{wizard.description}</div>
+                )}
+                {wizard.expertLanguagePlugin && (
+                  <div className="flex flex-wrap gap-1 justify-center mt-1">
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
+                      {wizard.expertLanguagePlugin}
+                    </span>
+                  </div>
+                )}
+                {wizard.prd && (
+                  <div className="text-xs text-muted-foreground mt-1 line-clamp-3">
+                    {wizard.prd}
+                  </div>
+                )}
+              </BaseCard>
           ))}
         </div>
       )}

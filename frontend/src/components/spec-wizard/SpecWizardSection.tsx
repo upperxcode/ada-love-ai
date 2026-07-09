@@ -20,6 +20,20 @@ import { ReviewSection } from './ReviewSection';
 import { HealthBar } from './HealthBar';
 import { AISuggestIcon } from './AISuggestIcon';
 
+// Helper to build context for AI suggestions from wizard state
+function buildWizardContext(wizardState: any): string {
+  return JSON.stringify({
+    language: wizardState.expertLanguagePlugin || '',
+    architecture: wizardState.architecture || '',
+    persistence: wizardState.persistence || '',
+    stack: wizardState.stackConfig?.map((s: any) => s.name).join(', ') || '',
+    prd: wizardState.prd || '',
+    description: wizardState.description || '',
+    engineering_philosophies: wizardState.engineeringPhilosophies || [],
+    design_patterns: wizardState.designPatterns || [],
+  });
+}
+
 interface Wizard {
   id: string;
   name: string;
@@ -483,7 +497,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="PRD"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.prd}
                       onApply={(value) => updateWizardState('prd', value)}
                     />
@@ -513,7 +527,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="Functional Requirements"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin, prd: wizardState.prd })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.functionalRequirements?.join('\n')}
                       onApply={(value) => updateWizardState('functionalRequirements', value.split('\n').filter(Boolean))}
                     />
@@ -545,7 +559,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="Non-Functional Requirements"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.nonFunctionalRequirements?.join('\n')}
                       onApply={(value) => updateWizardState('nonFunctionalRequirements', value.split('\n').filter(Boolean))}
                     />
@@ -698,7 +712,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="API Contract"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin, architecture: wizardState.architecture })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.business?.apiContract}
                       onApply={(value) => updateWizardState('business', { ...wizardState.business, apiContract: value })}
                     />
@@ -726,7 +740,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="Customization Details"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.business?.customizationDetails}
                       onApply={(value) => updateWizardState('business', { ...wizardState.business, customizationDetails: value })}
                     />
@@ -754,7 +768,7 @@ function SpecWizardSection() {
                   <div className="absolute right-1 top-1">
                     <AISuggestIcon
                       fieldName="Final Adjustments"
-                      context={JSON.stringify({ language: wizardState.expertLanguagePlugin })}
+                      context={buildWizardContext(wizardState)}
                       currentValue={wizardState.business?.finalAdjustments}
                       onApply={(value) => updateWizardState('business', { ...wizardState.business, finalAdjustments: value })}
                     />
@@ -787,22 +801,25 @@ function SpecWizardSection() {
                     try {
                       const app = window.go?.main?.App;
                       if (!app?.SuggestFieldValue) {
-                        alert('AI suggestions not available. Please configure a Spec Model in Models settings.');
+                        alert('AI suggestions not available. Please restart the application.');
                         return;
                       }
-                      const context = JSON.stringify({
-                        language: wizardState.expertLanguagePlugin,
-                        architecture: wizardState.architecture,
-                        persistence: wizardState.persistence,
-                        stack: wizardState.stackConfig?.map(s => s.name).join(', '),
-                      });
-                      const result = await app.SuggestFieldValue('Architecture Recommendations', context, '');
+                      const result = await app.SuggestFieldValue('Architecture Recommendations', buildWizardContext(wizardState), '');
                       updateWizardState('business', {
                         ...wizardState.business,
                         architectureRecommendations: result,
                       });
                     } catch (err) {
-                      alert('Failed to generate recommendations. Please configure a Spec Model in Models settings.');
+                      const msg = err instanceof Error ? err.message : String(err);
+                      if (msg.includes('429') || msg.includes('rate') || msg.includes('limit')) {
+                        alert('Rate limit exceeded. Please try again in a few seconds or use a different Spec Model.');
+                      } else if (msg.includes('401') || msg.includes('auth') || msg.includes('credentials')) {
+                        alert('Authentication failed. Please check your API key in Models settings.');
+                      } else if (msg.includes('no Spec Model')) {
+                        alert(msg);
+                      } else {
+                        alert('Failed to generate recommendations: ' + msg);
+                      }
                     }
                   }}
                 >

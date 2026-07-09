@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -449,7 +450,8 @@ func (a *App) GetStacks(lang string) []map[string]any {
 }
 
 // SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
-func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
+// Recebe o estado completo do wizard e gera um prompt específico por campo.
+func (a *App) SuggestFieldValue(fieldName, wizardStateJSON, currentValue string) (string, error) {
 	if a.engine == nil {
 		return "", fmt.Errorf("engine not initialized")
 	}
@@ -462,7 +464,52 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
 	}
 
-	// Search ModelList for matching model (case-insensitive provider match)
+	// Parse wizard state
+	var ws map[string]interface{}
+	if err := json.Unmarshal([]byte(wizardStateJSON), &ws); err != nil {
+		return "", fmt.Errorf("invalid wizard state: %w", err)
+	}
+
+	// Build context string from non-empty fields
+	var contextParts []string
+	if v, ok := ws["language"].(string); ok && v != "" {
+		contextParts = append(contextParts, "Language: "+v)
+	}
+	if v, ok := ws["architecture"].(string); ok && v != "" {
+		contextParts = append(contextParts, "Architecture: "+v)
+	}
+	if v, ok := ws["persistence"].(string); ok && v != "" {
+		contextParts = append(contextParts, "Persistence: "+v)
+	}
+	if v, ok := ws["stack"].(string); ok && v != "" {
+		contextParts = append(contextParts, "Stack: "+v)
+	}
+	if v, ok := ws["prd"].(string); ok && v != "" {
+		contextParts = append(contextParts, "PRD: "+v)
+	}
+	if v, ok := ws["description"].(string); ok && v != "" {
+		contextParts = append(contextParts, "Description: "+v)
+	}
+	if v, ok := ws["engineering_philosophies"].([]interface{}); ok && len(v) > 0 {
+		contextParts = append(contextParts, "Engineering Philosophies: "+strings.Join(stringSlice(v), ", "))
+	}
+	if v, ok := ws["design_patterns"].([]interface{}); ok && len(v) > 0 {
+		contextParts = append(contextParts, "Design Patterns: "+strings.Join(stringSlice(v), ", "))
+	}
+
+	contextStr := strings.Join(contextParts, "\n")
+
+	// Get field-specific prompt
+	systemPrompt, tokenLimit := getFieldPrompt(fieldName)
+
+	// Build user prompt
+	userPrompt := fmt.Sprintf("%s\n\nContext:\n%s\n", systemPrompt, contextStr)
+	if currentValue != "" {
+		userPrompt += fmt.Sprintf("\nCurrent value (improve/refine if needed):\n%s\n", currentValue)
+	}
+	userPrompt += fmt.Sprintf("\nGenerate a value for: %s\nMax %d lines.", fieldName, tokenLimit)
+
+	// Find and create provider
 	var provider any
 	var resolvedModel string
 
@@ -489,7 +536,6 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		}
 	}
 
-	// Fallback: create provider via ModelConfig to leverage env var keys, etc.
 	if provider == nil {
 		providerCfg := config.ModelConfig{
 			Provider:  specProvider,
@@ -507,16 +553,13 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	}
 
 	if provider == nil {
-		return "", fmt.Errorf("failed to create provider for model '%s'. Please check Models settings.", specModel)
+		return "", fmt.Errorf("failed to create provider for model '%s'", specModel)
 	}
 
 	llmProvider, ok := provider.(providers.LLMProvider)
 	if !ok {
 		return "", fmt.Errorf("provider does not implement LLMProvider interface")
 	}
-
-	systemPrompt := "You are an expert software architect. Generate concise, practical suggestions for specification fields. Return ONLY the suggested value, no explanations, no markdown, no formatting."
-	userPrompt := fmt.Sprintf("Field: %s\nContext: %s\nCurrent value: %s\n\nSuggest a value for this field:", fieldName, context, currentValue)
 
 	messages := []providers.Message{
 		{Role: "system", Content: systemPrompt},
@@ -533,4 +576,99 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	}
 
 	return response.Content, nil
+}
+
+// stringSlice converts []interface{} to []string.
+func stringSlice(in []interface{}) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// getFieldPrompt returns a tailored system prompt and token limit for each field.
+func getFieldPrompt(fieldName string) (string, int) {
+	switch fieldName {
+	case "PRD":
+		return `You are a product analyst. Write a concise Product Requirements Document (PRD) for a software project.
+
+RULES:
+- Write in ENGLISH
+- Max 8 lines total
+- Structure: Problem Statement, Target Users, Core Features (3-5 bullet points), Success Criteria
+- Be specific to the given language and stack
+- Use plain text, no markdown, no code blocks
+- If a PRD is already provided, refine and improve it (don't repeat)`, 8
+
+	case "Functional Requirements":
+		return `You are a software architect. List functional requirements for this project.
+
+RULES:
+- Write in ENGLISH
+- Max 8 lines total
+- One requirement per line, starting with a verb (e.g., "Allow users to...")
+- Be specific to the given language and stack
+- Focus on core business features, not technical implementation
+- Use plain text, no markdown, no code blocks`, 8
+
+	case "Non-Functional Requirements":
+		return `You are a software architect. List non-functional requirements for this project.
+
+RULES:
+- Write in ENGLISH
+- Max 6 lines total
+- One requirement per line (e.g., "Response time under 200ms for API endpoints")
+- Cover: performance, security, scalability, accessibility, availability
+- Be realistic for the given stack
+- Use plain text, no markdown, no code blocks`, 6
+
+	case "API Contract":
+		return `You are a backend architect. Define the API contract for this project.
+
+RULES:
+- Write in ENGLISH
+- Max 8 lines total
+- List 3-5 key REST endpoints with method, path, and brief description
+- Format: "GET /api/resource — description"
+- Be specific to the given architecture and persistence strategy
+- Use plain text, no markdown, no code blocks`, 8
+
+	case "Customization Details":
+		return `You are a solution architect. Describe customization and special considerations.
+
+RULES:
+- Write in ENGLISH
+- Max 5 lines total
+- List any non-standard behavior, business rules, or edge cases
+- Be specific to the given stack and architecture
+- Use plain text, no markdown, no code blocks`, 5
+
+	case "Final Adjustments":
+		return `You are a technical advisor. Suggest final adjustments before implementation.
+
+RULES:
+- Write in ENGLISH
+- Max 5 lines total
+- List 2-3 specific action items or warnings
+- Focus on what the developer should verify or configure first
+- Be practical and actionable
+- Use plain text, no markdown, no code blocks`, 5
+
+	case "Architecture Recommendations":
+		return `You are a senior software architect. Provide architecture recommendations for this project.
+
+RULES:
+- Write in ENGLISH
+- Max 6 lines total
+- One recommendation per line, starting with a bullet point (•)
+- Cover: code organization, error handling, testing strategy, deployment
+- Be specific to the chosen language, architecture, and stack
+- Use plain text, no markdown, no code blocks`, 6
+
+	default:
+		return fmt.Sprintf("You are an expert. Suggest a value for the field '%s'. Be concise. Max 5 lines. Write in ENGLISH.", fieldName), 5
+	}
 }

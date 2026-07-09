@@ -84,6 +84,7 @@ type WorkspaceConfig struct {
 	MaxPromptSend    int      `json:"max_prompt_send"`
 	CommitChanges    bool     `json:"commit_changes"`
 	MaxContextLength int      `json:"max_context_length"`
+	SpecWizard       string   `json:"spec_wizard"` // ID of the linked Spec Wizard
 }
 
 type ToolUIInfo struct {

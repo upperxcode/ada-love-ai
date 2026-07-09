@@ -9,6 +9,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from '../ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import { Separator } from '../ui/separator';
 import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
@@ -36,10 +43,19 @@ function WorkspacesSection() {
   const [availableProfiles, setAvailableProfiles] = useState<
     api.backend.ToolProfile[]
   >([]);
+  const [specWizards, setSpecWizards] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
     api.getAvailableTools().then(setAvailableTools);
     api.getToolProfiles().then(setAvailableProfiles);
+    // Load spec wizards from localStorage
+    const saved = localStorage.getItem('spec-wizards');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setSpecWizards(parsed.map((w: any) => ({ id: w.id, name: w.name })));
+      } catch {}
+    }
   }, []);
   const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
   const [knownSkills, setKnownSkills] = useState<string[]>([]);
@@ -58,6 +74,7 @@ function WorkspacesSection() {
     maxPromptSend: 0,
     commitChanges: true,
     maxContextLength: 0,
+    specWizard: '',
   });
   const [A, setA] = useState({ title: '', personality: '' });
   const [selectedField, setSelectedField] = useState('folders');
@@ -135,6 +152,7 @@ function WorkspacesSection() {
       maxPromptSend: ws.max_prompt_send || 0,
       commitChanges: ws.commit_changes !== false,
       maxContextLength: ws.max_context_length || 0,
+      specWizard: ws.spec_wizard || '',
     });
     setShowEdit(true);
   };
@@ -157,6 +175,7 @@ function WorkspacesSection() {
       max_prompt_send: E.maxPromptSend,
       commit_changes: E.commitChanges,
       max_context_length: E.maxContextLength,
+      spec_wizard: E.specWizard,
     });
     setShowEdit(false);
     setEditing(null);
@@ -344,6 +363,33 @@ function WorkspacesSection() {
                 Commit
               </label>
             </div>
+          </div>
+
+          <div className="col-span-2">
+            <label className="text-xs font-medium mb-1 block">Spec Wizard</label>
+            <Select
+              value={E.specWizard || ''}
+              onValueChange={(v) => setE({ ...E, specWizard: v })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Link a Spec Wizard..." />
+              </SelectTrigger>
+              <SelectContent>
+                {specWizards.map((sw) => (
+                  <SelectItem key={sw.id} value={sw.id}>
+                    {sw.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {E.specWizard && (
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground mt-0.5"
+                onClick={() => setE({ ...E, specWizard: '' })}
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           <div className="col-span-2">

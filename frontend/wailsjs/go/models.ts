@@ -200,6 +200,7 @@ export namespace backend {
 	    max_prompt_send: number;
 	    commit_changes: boolean;
 	    max_context_length: number;
+	    spec_wizard: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceConfig(source);
@@ -222,6 +223,7 @@ export namespace backend {
 	        this.max_prompt_send = source["max_prompt_send"];
 	        this.commit_changes = source["commit_changes"];
 	        this.max_context_length = source["max_context_length"];
+	        this.spec_wizard = source["spec_wizard"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

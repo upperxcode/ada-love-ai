@@ -546,6 +546,7 @@ export namespace backend {
     max_prompt_send: number = 0;
     commit_changes: boolean = true;
     max_context_length: number = 0;
+    spec_wizard: string = '';
 
     constructor(source: any = {}) {
       if (typeof source === 'string') source = JSON.parse(source);
@@ -569,6 +570,7 @@ export namespace backend {
       this.max_prompt_send = source['max_prompt_send'] ?? 0;
       this.commit_changes = source['commit_changes'] ?? true;
       this.max_context_length = source['max_context_length'] ?? 0;
+      this.spec_wizard = source['spec_wizard'] ?? '';
     }
   }
 

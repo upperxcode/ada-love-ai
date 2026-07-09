@@ -449,73 +449,33 @@ func (a *App) GetStacks(lang string) []map[string]any {
 }
 
 // SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
-// Segue o mesmo padrão do chat (SendMessage): busca o modelo em ModelList e usa createProviderFromModelConfig.
 func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
-	fmt.Printf("[App.SuggestFieldValue] fieldName=%q currentValue=%q\n", fieldName, currentValue)
 	if a.engine == nil {
-		fmt.Println("[App.SuggestFieldValue] ERROR: engine not initialized")
 		return "", fmt.Errorf("engine not initialized")
 	}
 
 	adaCfg := a.engine.GetAdaConfig()
 	specProvider := adaCfg.SpecProvider
 	specModel := adaCfg.SpecModel
-	fmt.Printf("[App.SuggestFieldValue] specProvider=%q specModel=%q\n", specProvider, specModel)
 
 	if specProvider == "" || specModel == "" {
 		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
 	}
 
-	// Dump the OpenRouter provider config to see what we have
-	if provCfg, ok := adaCfg.Providers[specProvider]; ok {
-		fmt.Printf("[App.SuggestFieldValue] ProviderConfig api_keys count=%d api_key_len=%d\n", len(provCfg.ApiKeys), len(provCfg.ApiKey))
-		for i, k := range provCfg.ApiKeys {
-			fmt.Printf("[App.SuggestFieldValue]   api_keys[%d] key_len=%d\n", i, len(k.Key))
-		}
-	}
-
-	// Also check ProviderKeys map
-	if key, ok := adaCfg.ProviderKeys[specProvider]; ok {
-		fmt.Printf("[App.SuggestFieldValue] ProviderKeys[%q] len=%d\n", specProvider, len(key))
-	}
-
-	// Check what provider is used for default chat
-	fmt.Printf("[App.SuggestFieldValue] ModelList[0] provider=%q api_keys=%d\n",
-		func() string {
-			if len(adaCfg.ModelList) > 0 && adaCfg.ModelList[0] != nil {
-				return adaCfg.ModelList[0].Provider
-			}
-			return "none"
-		}(),
-		func() int {
-			if len(adaCfg.ModelList) > 0 && adaCfg.ModelList[0] != nil {
-				return len(adaCfg.ModelList[0].APIKeys)
-			}
-			return 0
-		}(),
-	)
-
-	// Search ModelList for matching model (same as SendMessage override resolution)
-	fmt.Printf("[App.SuggestFieldValue] searching %d models in ModelList\n", len(adaCfg.ModelList))
-	fmt.Printf("[App.SuggestFieldValue] looking for provider=%q model=%q\n", specProvider, specModel)
+	// Search ModelList for matching model (case-insensitive provider match)
 	var provider any
 	var resolvedModel string
 
-	// Also search providers map (fallback if model not in ModelList)
-	for i, mc := range adaCfg.ModelList {
+	for _, mc := range adaCfg.ModelList {
 		if mc == nil {
 			continue
 		}
 		p := strings.TrimSpace(mc.Provider)
 		mn := strings.TrimSpace(mc.ModelName)
 		mf := strings.TrimSpace(mc.Model)
-		fullKey := p + "/" + mn
 
-		fmt.Printf("[App.SuggestFieldValue] [%d] provider=%q modelName=%q model=%q\n", i, p, mn, mf)
-
-		if mn == specModel || mf == specModel || fullKey == specModel {
-			if p == specProvider || specProvider == "" {
-				fmt.Printf("[App.SuggestFieldValue] MATCH in ModelList at index %d\n", i)
+		if mn == specModel || mf == specModel {
+			if strings.EqualFold(p, specProvider) {
 				p2, _, err := a.engine.CreateProviderFromModelConfig(mc)
 				if err == nil && p2 != nil {
 					provider = p2
@@ -523,18 +483,14 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 					if resolvedModel == "" {
 						resolvedModel = specModel
 					}
-					fmt.Printf("[App.SuggestFieldValue] provider created OK, modelID=%q\n", resolvedModel)
 					break
 				}
-				fmt.Printf("[App.SuggestFieldValue] provider creation FAILED: %v\n", err)
 			}
 		}
 	}
 
-	// Fallback: create provider using ModelConfig so it gets enriched
-	// with API keys from env vars, ProviderKeys map, etc.
+	// Fallback: create provider via ModelConfig to leverage env var keys, etc.
 	if provider == nil {
-		fmt.Printf("[App.SuggestFieldValue] not found in ModelList, creating provider via ModelConfig fallback...\n")
 		providerCfg := config.ModelConfig{
 			Provider:  specProvider,
 			ModelName: specModel,
@@ -547,18 +503,13 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 			if resolvedModel == "" {
 				resolvedModel = specModel
 			}
-			fmt.Printf("[App.SuggestFieldValue] provider created OK via fallback, modelID=%q\n", resolvedModel)
-		} else {
-			fmt.Printf("[App.SuggestFieldValue] fallback FAILED: %v\n", err)
 		}
 	}
 
 	if provider == nil {
-		fmt.Printf("[App.SuggestFieldValue] NO MATCH for provider=%q model=%q\n", specProvider, specModel)
-		return "", fmt.Errorf("model '%s' not found in ModelList for provider '%s'. Please add it in Models settings.", specModel, specProvider)
+		return "", fmt.Errorf("failed to create provider for model '%s'. Please check Models settings.", specModel)
 	}
 
-	// Cast to LLMProvider interface
 	llmProvider, ok := provider.(providers.LLMProvider)
 	if !ok {
 		return "", fmt.Errorf("provider does not implement LLMProvider interface")
@@ -572,10 +523,8 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		{Role: "user", Content: userPrompt},
 	}
 
-	fmt.Println("[App.SuggestFieldValue] calling LLM...")
 	response, err := llmProvider.Chat(a.ctx, messages, nil, resolvedModel, nil)
 	if err != nil {
-		fmt.Printf("[App.SuggestFieldValue] ERROR calling LLM: %v\n", err)
 		return "", fmt.Errorf("LLM request failed: %w", err)
 	}
 
@@ -583,6 +532,5 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		return "", fmt.Errorf("no response from LLM")
 	}
 
-	fmt.Printf("[App.SuggestFieldValue] response length=%d\n", len(response.Content))
 	return response.Content, nil
 }

@@ -422,3 +422,36 @@ func patternToMap(p patterns.Pattern) map[string]any {
 		"description": p.Description,
 	}
 }
+
+// GetStacks retorna os stack templates para a linguagem especificada.
+func (a *App) GetStacks(lang string) []map[string]any {
+	repo := patterns.NewRepository()
+	out := []map[string]any{}
+	for _, s := range repo.GetStacksForLanguage(lang) {
+		libs := []map[string]any{}
+		for _, lib := range s.Libraries {
+			libs = append(libs, map[string]any{
+				"name":          lib.Name,
+				"mandatory":     lib.Mandatory,
+				"usage_example": lib.UsageExample,
+			})
+		}
+		out = append(out, map[string]any{
+			"id":        s.ID,
+			"name":      s.Name,
+			"libraries": libs,
+		})
+	}
+	return out
+}
+
+// SuggestFieldValue usa o LLM para sugerir um valor para um campo do SpecWizard.
+// Esta é uma implementação MVP que usa o engine existente.
+func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string, error) {
+	if a.engine == nil {
+		return "", fmt.Errorf("engine not initialized")
+	}
+	// Por enquanto, retorna uma sugestão placeholder
+	// TODO: Integrar com o LLM real usando o agent loop
+	return fmt.Sprintf("[AI Suggestion for %s]\n\nBased on the context provided, here is a suggested value for the field '%s'.\n\nThis is a placeholder implementation that will be connected to the LLM in a future update.", fieldName, fieldName), nil
+}

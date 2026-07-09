@@ -106,6 +106,10 @@ export function GetSkillFullInfo(arg1) {
   return window['go']['main']['App']['GetSkillFullInfo'](arg1);
 }
 
+export function GetStacks(arg1) {
+  return window['go']['main']['App']['GetStacks'](arg1);
+}
+
 export function GetToolProfile(arg1) {
   return window['go']['main']['App']['GetToolProfile'](arg1);
 }
@@ -204,6 +208,10 @@ export function SetWorkspaceTools(arg1, arg2) {
 
 export function StopGeneration(arg1) {
   return window['go']['main']['App']['StopGeneration'](arg1);
+}
+
+export function SuggestFieldValue(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SuggestFieldValue'](arg1, arg2, arg3);
 }
 
 export function TestConnection(arg1, arg2, arg3) {

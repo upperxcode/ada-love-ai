@@ -15,6 +15,12 @@ import { Icon } from '../Icon';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { usePatterns } from './plugins/usePatterns';
+import { fetchStacks, StackTemplate } from './plugins/api';
+import { StackCards } from './StackCards';
+import { ArchitectureSelector } from './ArchitectureSelector';
+import { ReviewSection } from './ReviewSection';
+import { HealthBar } from './HealthBar';
+import { AISuggestIcon } from './AISuggestIcon';
 
 interface Wizard {
   id: string;
@@ -249,6 +255,9 @@ function SpecWizardSection() {
   const { patterns, experts, isLoading, error: pluginsError } =
     usePatterns(expertPlugin);
 
+  const [stacks, setStacks] = useState<StackTemplate[]>([]);
+  const [selectedStacks, setSelectedStacks] = useState<Array<{name: string; example: string}>>([]);
+
   const engineeringPhilosophies = patterns.philosophies.map((p) => p.name);
   const designPatterns = patterns.designPatterns.map((p) => p.name);
   const dataPatterns = patterns.dataPatterns.map((p) => p.name);
@@ -268,6 +277,15 @@ function SpecWizardSection() {
   useEffect(() => {
     loadWizards();
   }, []);
+
+  // Carregar stacks quando linguagem mudar
+  useEffect(() => {
+    if (expertPlugin) {
+      fetchStacks(expertPlugin).then(setStacks).catch(() => setStacks([]));
+    } else {
+      setStacks([]);
+    }
+  }, [expertPlugin]);
 
   return (
     <div className="space-y-6">
@@ -528,24 +546,12 @@ function SpecWizardSection() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Arquitetura</label>
-                <Select
-                  value={wizardState.architecture || ''}
-                  onValueChange={(value) =>
-                    updateWizardState('architecture', value)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select architecture..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {architectureOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label className="text-sm font-medium">Architectures:</label>
+                <ArchitectureSelector
+                  options={patterns.architectures}
+                  selected={wizardState.engineeringPhilosophies || []}
+                  onChange={(selected) => updateWizardState('engineeringPhilosophies', selected)}
+                />
               </div>
 
               {engineeringPhilosophies.length > 0 && (
@@ -663,7 +669,26 @@ function SpecWizardSection() {
             <div className="space-y-4 flex flex-col items-stretch justify-start">
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Stack Configurável
+                  Stack Templates
+                </label>
+                <StackCards
+                  templates={stacks}
+                  selectedStacks={selectedStacks}
+                  onSelect={(stack) => {
+                    if (!selectedStacks.some((s) => s.name === stack.name)) {
+                      setSelectedStacks([...selectedStacks, stack]);
+                      updateWizardState('stackConfig', [
+                        ...(wizardState.stackConfig || []),
+                        { name: stack.name, example: stack.example },
+                      ]);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Manual Stack Configuration
                 </label>
                 <div className="space-y-2">
                   {wizardState.stackConfig?.map((item, idx) => (
@@ -804,49 +829,37 @@ function SpecWizardSection() {
 
           {currentPhase === 5 && (
             <div className="space-y-4 flex flex-col items-stretch justify-start">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Recomendações da Arquitetura
-                  </label>
-                  <textarea
-                    value={
-                      wizardState.business?.architectureRecommendations || ''
-                    }
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      updateWizardState('business', {
-                        ...wizardState.business,
-                        architectureRecommendations: e.target.value,
-                      })
-                    }
-                    placeholder="Architecture recommendations based on your choices..."
-                    rows={3}
-                    className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Saúde da Arquitetura
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="w-full bg-muted rounded-full h-2.5">
-                        <div
-                          className="bg-green-500 h-2.5 rounded-full transition-all duration-300"
-                          style={{ width: `${calculateHealth()}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                        <span>Complexidade Alta</span>
-                        <span className="font-medium text-foreground">
-                          {calculateHealth()}%
-                        </span>
-                        <span>Saúde Alta</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <HealthBar score={calculateHealth()} />
+              <ReviewSection
+                recommendations={
+                  wizardState.business?.architectureRecommendations?.split('\n').filter(Boolean) || []
+                }
+                healthScore={calculateHealth()}
+                items={[
+                  { title: 'Name', value: wizardState.name || '—' },
+                  { title: 'Architecture', value: wizardState.architecture || '—' },
+                  { title: 'Persistence', value: wizardState.persistence || '—' },
+                  { title: 'Stack', value: wizardState.stackConfig?.map(s => s.name).join(', ') || '—' },
+                ]}
+              />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Architecture Recommendations
+                </label>
+                <textarea
+                  value={
+                    wizardState.business?.architectureRecommendations || ''
+                  }
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    updateWizardState('business', {
+                      ...wizardState.business,
+                      architectureRecommendations: e.target.value,
+                    })
+                  }
+                  placeholder="Architecture recommendations based on your choices..."
+                  rows={3}
+                  className="w-full px-3 py-2 border rounded-md bg-background text-foreground resize-none"
+                />
               </div>
             </div>
           )}

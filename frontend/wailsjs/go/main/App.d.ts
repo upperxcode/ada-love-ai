@@ -56,6 +56,8 @@ export function GetSkillDetails(arg1:string):Promise<string>;
 
 export function GetSkillFullInfo(arg1:string):Promise<backend.SkillFullInfo>;
 
+export function GetStacks(arg1:string):Promise<Array<Record<string, any>>>;
+
 export function GetToolProfile(arg1:number):Promise<backend.ToolProfile>;
 
 export function GetToolProfiles():Promise<Array<backend.ToolProfile>>;
@@ -105,6 +107,8 @@ export function SetWorkers(arg1:Array<backend.WorkerConfig>):Promise<void>;
 export function SetWorkspaceTools(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function StopGeneration(arg1:string):Promise<void>;
+
+export function SuggestFieldValue(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function TestConnection(arg1:string,arg2:string,arg3:string):Promise<backend.ConnectionTestResult>;
 

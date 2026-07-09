@@ -47,6 +47,9 @@ type Config struct {
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
+	// SpecModel is the model used for spec wizard AI suggestions
+	SpecModel string `json:"spec_model,omitempty" yaml:"spec_model,omitempty"`
+
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
 }

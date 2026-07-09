@@ -122,6 +122,92 @@ func (r *PatternRepository) GetPatternsForLanguage(lang string) []Pattern {
 	return patterns
 }
 
+// StackTemplate representa um template de stack para uma linguagem.
+type StackTemplate struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Libraries []Library `json:"libraries"`
+}
+
+// Library representa uma biblioteca dentro de um stack template.
+type Library struct {
+	Name         string `json:"name"`
+	Mandatory    bool   `json:"mandatory"`
+	UsageExample string `json:"usage_example"`
+}
+
+// GetStacksForLanguage retorna stack templates para a linguagem especificada.
+func (r *PatternRepository) GetStacksForLanguage(lang string) []StackTemplate {
+	switch strings.ToLower(lang) {
+	case "flutter":
+		return []StackTemplate{
+			{
+				ID:   "flutter_standard",
+				Name: "Flutter Standard (Dio/GetIt/Bloc)",
+				Libraries: []Library{
+					{Name: "dio", Mandatory: true, UsageExample: "final dio = Dio();\nawait dio.get('/api');"},
+					{Name: "get_it", Mandatory: true, UsageExample: "GetIt.I.registerSingleton(Service());"},
+					{Name: "flutter_bloc", Mandatory: true, UsageExample: "BlocProvider(create: (_) => MyBloc());"},
+				},
+			},
+			{
+				ID:   "flutter_enterprise",
+				Name: "Flutter Enterprise (Riverpod/Freezed)",
+				Libraries: []Library{
+					{Name: "flutter_riverpod", Mandatory: true, UsageExample: "final provider = StateProvider((ref) => 0);"},
+					{Name: "freezed_annotation", Mandatory: true, UsageExample: "@freezed class User with _$User {...}"},
+					{Name: "dio", Mandatory: true, UsageExample: "final response = await dio.get('/endpoint');"},
+				},
+			},
+		}
+	case "go":
+		return []StackTemplate{
+			{
+				ID:   "go_standard",
+				Name: "Go Standard (Chi/GORM)",
+				Libraries: []Library{
+					{Name: "chi", Mandatory: true, UsageExample: "r := chi.NewRouter()\nr.Get(\"/api\", handler)"},
+					{Name: "gorm", Mandatory: true, UsageExample: "db.Create(&user)\nvar result User\nFirst(&result, 1)"},
+				},
+			},
+			{
+				ID:   "go_microservices",
+				Name: "Go Microservices (gRPC/Redis)",
+				Libraries: []Library{
+					{Name: "grpc-go", Mandatory: true, UsageExample: "lis, _ := net.Listen(\"tcp\", \":50051\")\ngrpc.NewServer()"},
+					{Name: "go-redis", Mandatory: true, UsageExample: "rdb := redis.NewClient(&redis.Options{Addr: \"localhost:6379\"})"},
+				},
+			},
+		}
+	case "python":
+		return []StackTemplate{
+			{
+				ID:   "python_fastapi",
+				Name: "Python FastAPI (SQLAlchemy/Pydantic)",
+				Libraries: []Library{
+					{Name: "fastapi", Mandatory: true, UsageExample: "@app.get(\"/api\")\nasync def read_items(): ..."},
+					{Name: "sqlalchemy", Mandatory: true, UsageExample: "engine = create_engine(\"sqlite:///db.sqlite\")"},
+					{Name: "pydantic", Mandatory: true, UsageExample: "class User(BaseModel):\n    name: str"},
+				},
+			},
+		}
+	case "javascript", "typescript":
+		return []StackTemplate{
+			{
+				ID:   "react_standard",
+				Name: "React Standard (Vite/Zustand/TanStack)",
+				Libraries: []Library{
+					{Name: "zustand", Mandatory: true, UsageExample: "const useStore = create((set) => ({ count: 0 }))"},
+					{Name: "@tanstack/react-query", Mandatory: true, UsageExample: "useQuery({ queryKey: ['todos'], queryFn: fetchTodos })"},
+					{Name: "axios", Mandatory: false, UsageExample: "const res = await axios.get('/api')"},
+				},
+			},
+		}
+	default:
+		return []StackTemplate{}
+	}
+}
+
 func (r *PatternRepository) GetMultiplePatternRules(lang string, patternIDs []string) map[string][]string {
 	result := make(map[string][]string)
 	langPatterns := r.Store[strings.ToLower(lang)]

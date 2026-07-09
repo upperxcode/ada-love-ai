@@ -118,6 +118,8 @@ declare global {
           GetPatterns(lang: string): Promise<Record<string, any>[]>;
           GetArchitectures(): Promise<Record<string, any>[]>;
           GetExperts(): Promise<Record<string, any>[]>;
+          GetStacks(lang: string): Promise<Record<string, any>[]>;
+          SuggestFieldValue(fieldName: string, context: string, currentValue: string): Promise<string>;
         };
       };
     };

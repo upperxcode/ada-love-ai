@@ -28,6 +28,21 @@ export interface ExpertPlugin {
   triggers: string[];
 }
 
+export interface StackTemplate {
+  id: string;
+  name: string;
+  libraries: Array<{
+    name: string;
+    mandatory: boolean;
+    usage_example: string;
+  }>;
+}
+
+export interface StackConfig {
+  name: string;
+  example: string;
+}
+
 // TTL do cache: 5 minutos.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -38,6 +53,7 @@ interface CacheEntry<T> {
 const patternsCache = new Map<string, CacheEntry<Pattern[]>>();
 let architecturesCache: CacheEntry<Architecture[]> | null = null;
 let expertsCache: CacheEntry<ExpertPlugin[]> | null = null;
+const stacksCache = new Map<string, CacheEntry<StackTemplate[]>>();
 
 export async function fetchPatterns(lang: string): Promise<Pattern[]> {
   if (!lang) return [];
@@ -83,4 +99,21 @@ export function clearPluginsCache(): void {
   patternsCache.clear();
   architecturesCache = null;
   expertsCache = null;
+  stacksCache.clear();
+}
+
+export async function fetchStacks(lang: string): Promise<StackTemplate[]> {
+  if (!lang) return [];
+  const cached = stacksCache.get(lang);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.data;
+  }
+  if (!window.go?.main?.App?.GetStacks) {
+    throw new Error('Wails bindings not available');
+  }
+  const data = (await window.go.main.App.GetStacks(
+    lang,
+  )) as unknown as StackTemplate[];
+  stacksCache.set(lang, { data, fetchedAt: Date.now() });
+  return data;
 }

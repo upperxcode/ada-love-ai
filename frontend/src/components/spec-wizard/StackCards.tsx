@@ -12,6 +12,36 @@ import {
   SelectValue,
 } from '../ui/select';
 
+interface StackLibraryCardProps {
+  name: string;
+  mandatory: boolean;
+  usageExample: string;
+  onToggleMandatory: () => void;
+}
+
+function StackLibraryCard({ name, mandatory, usageExample, onToggleMandatory }: StackLibraryCardProps) {
+  return (
+    <div className="border rounded-lg p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-mono font-medium">{name}</span>
+        <button
+          type="button"
+          onClick={onToggleMandatory}
+          className={`text-lg transition-all hover:scale-110 ${
+            mandatory ? 'opacity-100' : 'opacity-30'
+          }`}
+          title={mandatory ? 'Mandatory (click to remove)' : 'Optional (click to make mandatory)'}
+        >
+          ❗
+        </button>
+      </div>
+      <pre className="text-xs text-muted-foreground bg-muted rounded p-2 overflow-x-auto">
+        {usageExample}
+      </pre>
+    </div>
+  );
+}
+
 interface StackCardsProps {
   templates: StackTemplate[];
   selectedStack: StackConfig | null;
@@ -27,8 +57,8 @@ export function StackCards({
 }: StackCardsProps) {
   const [manualName, setManualName] = useState('');
   const [manualExample, setManualExample] = useState('');
+  const [libraries, setLibraries] = useState<Record<string, boolean>>({});
 
-  // Find the selected template to display its card
   const selectedTemplate = templates.find((t) => t.name === selectedStack?.name);
 
   const handleAddManual = () => {
@@ -40,6 +70,17 @@ export function StackCards({
       setManualName('');
       setManualExample('');
     }
+  };
+
+  const toggleMandatory = (libName: string) => {
+    setLibraries((prev) => ({
+      ...prev,
+      [libName]: prev[libName] === undefined ? false : !prev[libName],
+    }));
+  };
+
+  const getMandatory = (libName: string, defaultVal: boolean) => {
+    return libraries[libName] ?? defaultVal;
   };
 
   return (
@@ -58,6 +99,12 @@ export function StackCards({
                   .map((l) => `${l.name}: ${l.usage_example}`)
                   .join('\n'),
               });
+              // Initialize mandatory state from template
+              const initState: Record<string, boolean> = {};
+              template.libraries.forEach((l) => {
+                initState[l.name] = l.mandatory;
+              });
+              setLibraries(initState);
             }
           }}
         >
@@ -86,37 +133,16 @@ export function StackCards({
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-2">
-              {selectedTemplate.libraries.map((lib) => (
-                <div key={lib.name} className="flex items-start gap-2 text-xs">
-                  <div className="flex items-center gap-1 min-w-0 flex-1">
-                    <span className="font-mono font-medium">{lib.name}</span>
-                    {lib.mandatory && (
-                      <span
-                        className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-medium"
-                        title="Mandatory: AI will use this library"
-                      >
-                        <Icon name="Zap" size={10} />
-                        required
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {/* Show usage examples collapsed */}
-              <div className="mt-2 space-y-1">
-                {selectedTemplate.libraries.map((lib) => (
-                  <pre
-                    key={`example-${lib.name}`}
-                    className="p-2 bg-muted rounded text-[10px] overflow-x-auto"
-                  >
-                    <span className="text-muted-foreground">{lib.name}:</span>{' '}
-                    {lib.usage_example}
-                  </pre>
-                ))}
-              </div>
-            </div>
+          <CardContent className="pt-0 space-y-2">
+            {selectedTemplate.libraries.map((lib) => (
+              <StackLibraryCard
+                key={lib.name}
+                name={lib.name}
+                mandatory={getMandatory(lib.name, lib.mandatory)}
+                usageExample={lib.usage_example}
+                onToggleMandatory={() => toggleMandatory(lib.name)}
+              />
+            ))}
           </CardContent>
         </Card>
       )}

@@ -466,6 +466,35 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		return "", fmt.Errorf("no Spec Model configured. Please set a Spec Provider and Spec Model in Models settings.")
 	}
 
+	// Dump the OpenRouter provider config to see what we have
+	if provCfg, ok := adaCfg.Providers[specProvider]; ok {
+		fmt.Printf("[App.SuggestFieldValue] ProviderConfig api_keys count=%d api_key_len=%d\n", len(provCfg.ApiKeys), len(provCfg.ApiKey))
+		for i, k := range provCfg.ApiKeys {
+			fmt.Printf("[App.SuggestFieldValue]   api_keys[%d] key_len=%d\n", i, len(k.Key))
+		}
+	}
+
+	// Also check ProviderKeys map
+	if key, ok := adaCfg.ProviderKeys[specProvider]; ok {
+		fmt.Printf("[App.SuggestFieldValue] ProviderKeys[%q] len=%d\n", specProvider, len(key))
+	}
+
+	// Check what provider is used for default chat
+	fmt.Printf("[App.SuggestFieldValue] ModelList[0] provider=%q api_keys=%d\n",
+		func() string {
+			if len(adaCfg.ModelList) > 0 && adaCfg.ModelList[0] != nil {
+				return adaCfg.ModelList[0].Provider
+			}
+			return "none"
+		}(),
+		func() int {
+			if len(adaCfg.ModelList) > 0 && adaCfg.ModelList[0] != nil {
+				return len(adaCfg.ModelList[0].APIKeys)
+			}
+			return 0
+		}(),
+	)
+
 	// Search ModelList for matching model (same as SendMessage override resolution)
 	fmt.Printf("[App.SuggestFieldValue] searching %d models in ModelList\n", len(adaCfg.ModelList))
 	fmt.Printf("[App.SuggestFieldValue] looking for provider=%q model=%q\n", specProvider, specModel)
@@ -502,33 +531,25 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		}
 	}
 
-	// Fallback: search providers map directly
+	// Fallback: create provider using ModelConfig so it gets enriched
+	// with API keys from env vars, ProviderKeys map, etc.
 	if provider == nil {
-		fmt.Printf("[App.SuggestFieldValue] not found in ModelList, searching providers map...\n")
-		if provCfg, ok := adaCfg.Providers[specProvider]; ok {
-			fmt.Printf("[App.SuggestFieldValue] provider %q found in Providers, %d models\n", specProvider, len(provCfg.Models))
-			for name := range provCfg.Models {
-				fmt.Printf("[App.SuggestFieldValue]   model: %q\n", name)
+		fmt.Printf("[App.SuggestFieldValue] not found in ModelList, creating provider via ModelConfig fallback...\n")
+		providerCfg := config.ModelConfig{
+			Provider:  specProvider,
+			ModelName: specModel,
+			Model:     specModel,
+		}
+		p2, modelID, err := a.engine.CreateProviderFromModelConfig(&providerCfg)
+		if err == nil && p2 != nil {
+			provider = p2
+			resolvedModel = modelID
+			if resolvedModel == "" {
+				resolvedModel = specModel
 			}
-			if _, modelExists := provCfg.Models[specModel]; modelExists {
-				fmt.Printf("[App.SuggestFieldValue] EXACT MATCH found in Providers map!\n")
-				providerCfg := config.ModelConfig{
-					Provider:    specProvider,
-					ModelName:   specModel,
-					Model:       specModel,
-					APIBase:     provCfg.ApiUrl,
-					APIKeys:     config.SimpleSecureStrings(adaCfg.GetProviderAPIKey(specProvider)),
-					ConnectMode: provCfg.TypeConnection,
-				}
-				p2, _, err := providers.CreateProviderFromConfig(&providerCfg)
-				if err == nil && p2 != nil {
-					provider = p2
-					resolvedModel = specModel
-					fmt.Printf("[App.SuggestFieldValue] provider created OK from Providers map, modelID=%q\n", resolvedModel)
-				} else {
-					fmt.Printf("[App.SuggestFieldValue] provider creation from Providers map FAILED: %v\n", err)
-				}
-			}
+			fmt.Printf("[App.SuggestFieldValue] provider created OK via fallback, modelID=%q\n", resolvedModel)
+		} else {
+			fmt.Printf("[App.SuggestFieldValue] fallback FAILED: %v\n", err)
 		}
 	}
 

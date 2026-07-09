@@ -61,51 +61,43 @@ interface ManualStack {
   mandatory: boolean;
 }
 
+export type { ManualStack };
+
 interface StackCardsProps {
   templates: StackTemplate[];
   selectedStack: StackConfig | null;
   onSelect: (stack: StackConfig | null) => void;
-  onAddManual: (stack: StackConfig) => void;
+  manualStacks: ManualStack[];
+  onAddManual: (stack: ManualStack) => void;
+  onRemoveManual: (index: number) => void;
+  onToggleManualMandatory: (index: number) => void;
 }
 
 export function StackCards({
   templates,
   selectedStack,
   onSelect,
+  manualStacks,
   onAddManual,
+  onRemoveManual,
+  onToggleManualMandatory,
 }: StackCardsProps) {
   const [manualName, setManualName] = useState('');
   const [manualExample, setManualExample] = useState('');
   const [libraries, setLibraries] = useState<Record<string, boolean>>({});
-  const [manualStacks, setManualStacks] = useState<ManualStack[]>([]);
 
   const selectedTemplate = templates.find((t) => t.name === selectedStack?.name);
 
   const handleAddManual = () => {
     if (manualName.trim()) {
-      const newStack: ManualStack = {
+      onAddManual({
         name: manualName.trim(),
         example: manualExample.trim(),
         mandatory: true,
-      };
-      setManualStacks((prev) => [...prev, newStack]);
-      onAddManual({
-        name: newStack.name,
-        example: newStack.example,
       });
       setManualName('');
       setManualExample('');
     }
-  };
-
-  const removeManualStack = (index: number) => {
-    setManualStacks((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const toggleManualMandatory = (index: number) => {
-    setManualStacks((prev) =>
-      prev.map((s, i) => (i === index ? { ...s, mandatory: !s.mandatory } : s))
-    );
   };
 
   const toggleMandatory = (libName: string) => {
@@ -221,8 +213,8 @@ export function StackCards({
                 name={stack.name}
                 mandatory={stack.mandatory}
                 usageExample={stack.example || '(no example)'}
-                onToggleMandatory={() => toggleManualMandatory(idx)}
-                onRemove={() => removeManualStack(idx)}
+                onToggleMandatory={() => onToggleManualMandatory(idx)}
+                onRemove={() => onRemoveManual(idx)}
               />
             ))}
           </div>

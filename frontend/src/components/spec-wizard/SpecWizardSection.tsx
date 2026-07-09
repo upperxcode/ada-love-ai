@@ -14,7 +14,7 @@ import { EditDialog } from '../EditDialog';
 import { Icon } from '../Icon';
 import { usePatterns } from './plugins/usePatterns';
 import { fetchStacks, StackTemplate } from './plugins/api';
-import { StackCards } from './StackCards';
+import { StackCards, ManualStack } from './StackCards';
 import { PatternSelector } from './PatternSelector';
 import { ReviewSection } from './ReviewSection';
 import { HealthBar } from './HealthBar';
@@ -255,6 +255,7 @@ function SpecWizardSection() {
 
   const [stacks, setStacks] = useState<StackTemplate[]>([]);
   const [selectedStack, setSelectedStack] = useState<{name: string; example: string} | null>(null);
+  const [manualStacks, setManualStacks] = useState<ManualStack[]>([]);
 
   const engineeringPhilosophies = patterns.philosophies.map((p) => p.name);
   const designPatterns = patterns.designPatterns.map((p) => p.name);
@@ -621,11 +622,25 @@ function SpecWizardSection() {
                     updateWizardState('stackConfig', []);
                   }
                 }}
+                manualStacks={manualStacks}
                 onAddManual={(stack) => {
+                  setManualStacks((prev) => [...prev, stack]);
                   updateWizardState('stackConfig', [
                     ...(wizardState.stackConfig || []),
-                    stack,
+                    { name: stack.name, example: stack.example },
                   ]);
+                }}
+                onRemoveManual={(index) => {
+                  setManualStacks((prev) => prev.filter((_, i) => i !== index));
+                  const newStackConfig = (wizardState.stackConfig || []).filter(
+                    (_, i) => i !== index + (selectedStack ? 1 : 0),
+                  );
+                  updateWizardState('stackConfig', newStackConfig);
+                }}
+                onToggleManualMandatory={(index) => {
+                  setManualStacks((prev) =>
+                    prev.map((s, i) => (i === index ? { ...s, mandatory: !s.mandatory } : s))
+                  );
                 }}
               />
             </div>

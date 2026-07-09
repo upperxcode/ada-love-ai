@@ -42,11 +42,11 @@ function WorkspacesSection() {
     api.backend.ToolProfile[]
   >([]);
   const [specWizards, setSpecWizards] = useState<Array<{ id: string; name: string }>>([]);
+  const [skillInput, setSkillInput] = useState('');
 
   useEffect(() => {
     api.getAvailableTools().then(setAvailableTools);
     api.getToolProfiles().then(setAvailableProfiles);
-    // Load spec wizards from localStorage
     const saved = localStorage.getItem('spec-wizards');
     if (saved) {
       try {
@@ -55,6 +55,7 @@ function WorkspacesSection() {
       } catch {}
     }
   }, []);
+
   const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
   const [knownSkills, setKnownSkills] = useState<string[]>([]);
   const [E, setE] = useState({
@@ -180,6 +181,32 @@ function WorkspacesSection() {
     load();
   };
 
+  const handleFieldAdd = async (key: string) => {
+    if (key === 'folders') {
+      const dir = await api.openDirectoryDialog();
+      if (dir) {
+        const f = fieldMap[key];
+        if (!f.state.includes(dir)) f.set([...f.state, dir]);
+      }
+    } else if (key === 'knowledge') {
+      const file = await api.openFileDialog();
+      if (file) {
+        const f = fieldMap[key];
+        if (!f.state.includes(file)) f.set([...f.state, file]);
+      }
+    } else if (key === 'skills') {
+      if (skillInput.trim()) {
+        const f = fieldMap[key];
+        if (!f.state.includes(skillInput.trim())) {
+          f.set([...f.state, skillInput.trim()]);
+        }
+        setSkillInput('');
+      }
+    } else if (key === 'tools') {
+      setShowAddTool(true);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -238,7 +265,7 @@ function WorkspacesSection() {
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               {ws.folders?.length || 0} folders ·{' '}
-              {ws.workers?.length || 0} workers ·{' '}
+              {ws.workers?.length || 0} agents ·{' '}
               {ws.skills?.length || 0} skills
             </div>
           </BaseCard>
@@ -291,40 +318,40 @@ function WorkspacesSection() {
         onColorChange={(color) => setE({ ...E, color })}
         onIconChange={(icon) => setE({ ...E, icon })}
       >
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Title</label>
-            <Input
-              value={E.title}
-              onChange={(e) => setE({ ...E, title: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Description</label>
-            <Input
-              value={E.description}
-              onChange={(e) => setE({ ...E, description: e.target.value })}
-            />
+        <div className="space-y-4">
+          {/* Row 1: Title + Description */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Title</label>
+              <Input
+                value={E.title}
+                onChange={(e) => setE({ ...E, title: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Description</label>
+              <Input
+                value={E.description}
+                onChange={(e) => setE({ ...E, description: e.target.value })}
+              />
+            </div>
           </div>
 
-          <div className="col-span-2 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">
-                Max Prompt
-              </label>
+          {/* Row 2: Max Prompt, Max Context, Commit */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Max Prompt</label>
               <Input
                 type="number"
                 value={E.maxPromptSend}
                 onChange={(e) =>
                   setE({ ...E, maxPromptSend: parseInt(e.target.value) || 0 })
                 }
-                className="h-7 w-16"
+                className="h-8"
               />
             </div>
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">
-                Max Context
-              </label>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Max Context</label>
               <Input
                 type="number"
                 value={E.maxContextLength}
@@ -334,48 +361,56 @@ function WorkspacesSection() {
                     maxContextLength: parseInt(e.target.value) || 0,
                   })
                 }
-                className="h-7 w-16"
+                className="h-8"
               />
             </div>
-            <div className="flex items-center gap-1.5">
-              <Switch
-                checked={E.commitChanges}
-                onCheckedChange={(c) => setE({ ...E, commitChanges: c })}
-              />
-              <label className="text-xs text-muted-foreground cursor-pointer">
-                Commit
-              </label>
+            <div className="space-y-1 flex items-end">
+              <div className="flex items-center gap-1.5 h-8">
+                <Switch
+                  checked={E.commitChanges}
+                  onCheckedChange={(c) => setE({ ...E, commitChanges: c })}
+                />
+                <label className="text-xs text-muted-foreground cursor-pointer">
+                  Commit
+                </label>
+              </div>
             </div>
           </div>
 
-          <div className="col-span-2">
+          {/* Spec Wizard */}
+          <div>
             <label className="text-xs font-medium mb-1 block">Spec Wizard</label>
-            <Select
-              value={E.specWizard || ''}
-              onValueChange={(v) => setE({ ...E, specWizard: v })}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Link a Spec Wizard..." />
-              </SelectTrigger>
-              <SelectContent>
-                {specWizards.map((sw) => (
-                  <SelectItem key={sw.id} value={sw.id}>
-                    {sw.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {E.specWizard && (
-              <button
-                className="text-[10px] text-muted-foreground hover:text-foreground mt-0.5"
-                onClick={() => setE({ ...E, specWizard: '' })}
+            <div className="flex gap-2">
+              <Select
+                value={E.specWizard || ''}
+                onValueChange={(v) => setE({ ...E, specWizard: v })}
               >
-                Clear
-              </button>
-            )}
+                <SelectTrigger className="h-8 text-xs flex-1">
+                  <SelectValue placeholder="Link a Spec Wizard..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {specWizards.map((sw) => (
+                    <SelectItem key={sw.id} value={sw.id}>
+                      {sw.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {E.specWizard && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={() => setE({ ...E, specWizard: '' })}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
 
-          <div className="col-span-2">
+          {/* Personality */}
+          <div>
             <ExpandableEditor
               label="Personality"
               value={E.personality}
@@ -383,15 +418,16 @@ function WorkspacesSection() {
             />
           </div>
 
-          <div className="col-span-2 flex gap-0 min-h-[180px]">
+          {/* Tabs: Folders, Knowledge, Agents, Skills, Tools */}
+          <div className="flex gap-0 min-h-[180px]">
             <div className="w-28 shrink-0 flex flex-col gap-0 pt-0">
               {[
-                'folders',
-                'knowledge',
-                'workers',
-                'skills',
-                'tools',
-              ].map((key) => (
+                { key: 'folders', label: 'Folders' },
+                { key: 'knowledge', label: 'Knowledge' },
+                { key: 'workers', label: 'Agents' },
+                { key: 'skills', label: 'Skills' },
+                { key: 'tools', label: 'Tools' },
+              ].map(({ key, label }) => (
                 <div
                   key={key}
                   className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
@@ -401,40 +437,22 @@ function WorkspacesSection() {
                   }`}
                   onClick={() => setSelectedField(key)}
                 >
-                  <span className="grow text-left">
-                    {
-                      {
-                        folders: 'Folders',
-                        knowledge: 'Knowledge',
-                        workers: 'Workers',
-                        skills: 'Skills',
-                        tools: 'Tools',
-                      }[key]
-                    }
-                  </span>
+                  <span className="grow text-left">{label}</span>
                   {selectedField === key && (
                     <button
                       className="shrink-0 flex items-center justify-center w-4 h-4 rounded hover:bg-muted-foreground/20"
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
-                        console.log('Plus button clicked for:', key);
-                        if (key === 'folders') {
-                          const dir = await api.openDirectoryDialog();
-                          if (dir) {
-                            const f = fieldMap[key];
-                            if (!f.state.includes(dir))
-                              f.set([...f.state, dir]);
-                          }
-                        } else if (key === 'tools') {
-                          setShowAddTool(true);
-                        }
+                        handleFieldAdd(key);
                       }}
                       title={
                         key === 'folders'
                           ? 'Add folder'
                           : key === 'knowledge'
                             ? 'Add file'
-                            : 'Add'
+                            : key === 'skills'
+                              ? 'Add skill'
+                              : 'Add'
                       }
                     >
                       <Icon name="Plus" className="w-3 h-3" />
@@ -444,6 +462,32 @@ function WorkspacesSection() {
               ))}
             </div>
             <div className="flex-1 min-h-[28px] max-h-[160px] overflow-y-auto p-1.5 rounded border border-border">
+              {/* Skills input */}
+              {selectedField === 'skills' && (
+                <div className="flex gap-1 mb-1.5">
+                  <Input
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    placeholder="Type skill name..."
+                    className="h-6 text-xs flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleFieldAdd('skills');
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5"
+                    onClick={() => handleFieldAdd('skills')}
+                    disabled={!skillInput.trim()}
+                  >
+                    <Icon name="Plus" size={12} />
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1">
                 {fieldMap[selectedField]?.state.map((item: string) => (
                   <span

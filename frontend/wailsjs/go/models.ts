@@ -50,9 +50,24 @@ export namespace backend {
 	        this.thinking = source["thinking"];
 	    }
 	}
+	export class ProviderApiKey {
+	    key: string;
+	    user_key?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderApiKey(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.user_key = source["user_key"];
+	    }
+	}
 	export class ProviderConfig {
 	    api_url: string;
-	    api_key: string;
+	    api_key?: string;
+	    api_keys?: ProviderApiKey[];
 	    type_connection: string;
 	    models: Record<string, ModelSettings>;
 	
@@ -64,6 +79,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.api_url = source["api_url"];
 	        this.api_key = source["api_key"];
+	        this.api_keys = this.convertValues(source["api_keys"], ProviderApiKey);
 	        this.type_connection = source["type_connection"];
 	        this.models = this.convertValues(source["models"], ModelSettings, true);
 	    }
@@ -454,6 +470,7 @@ export namespace backend {
 	        this.latency_ms = source["latency_ms"];
 	    }
 	}
+	
 	
 	
 	

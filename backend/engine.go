@@ -693,8 +693,8 @@ func (e *Engine) createProviderFromModelConfig(mc *config.ModelConfig) (any, str
 				if clone.APIBase == "" && provCfg.ApiUrl != "" {
 					clone.APIBase = provCfg.ApiUrl
 				}
-				if len(clone.APIKeys) == 0 && provCfg.ApiKey != "" {
-					clone.APIKeys = config.SimpleSecureStrings(provCfg.ApiKey)
+				if len(clone.APIKeys) == 0 && provCfg.GetAPIKey() != "" {
+					clone.APIKeys = config.SimpleSecureStrings(provCfg.GetAPIKey())
 				}
 				break
 			}

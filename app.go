@@ -471,7 +471,7 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		fmt.Printf("[App.SuggestFieldValue] ERROR: provider %q not found\n", specProvider)
 		return "", fmt.Errorf("provider '%s' not found in configured providers", specProvider)
 	}
-	fmt.Printf("[App.SuggestFieldValue] provider found: api_url=%q type=%q\n", provCfg.ApiUrl, provCfg.TypeConnection)
+	fmt.Printf("[App.SuggestFieldValue] provider found: api_url=%q type=%q api_key_len=%d\n", provCfg.ApiUrl, provCfg.TypeConnection, len(provCfg.GetAPIKey()))
 
 	// Create provider from config
 	providerCfg := config.ModelConfig{
@@ -479,10 +479,10 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 		ModelName:   specModel,
 		Model:       specModel,
 		APIBase:     provCfg.ApiUrl,
-		APIKeys:     config.SimpleSecureStrings(provCfg.ApiKey),
+		APIKeys:     config.SimpleSecureStrings(provCfg.GetAPIKey()),
 		ConnectMode: provCfg.TypeConnection,
 	}
-	fmt.Printf("[App.SuggestFieldValue] creating provider: provider=%q model=%q\n", specProvider, specModel)
+	fmt.Printf("[App.SuggestFieldValue] creating provider: provider=%q model=%q api_keys_count=%d\n", specProvider, specModel, len(providerCfg.APIKeys))
 
 	provider, _, err := providers.CreateProviderFromConfig(&providerCfg)
 	if err != nil {

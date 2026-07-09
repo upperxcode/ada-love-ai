@@ -136,12 +136,28 @@ type AdaConfig struct {
 	ToolProfiles        []ToolProfile               `json:"tool_profiles,omitempty"`
 }
 
+// ProviderApiKey represents a single API key for a provider.
+type ProviderApiKey struct {
+	Key     string `json:"key"`
+	UserKey string `json:"user_key,omitempty"`
+}
+
 // ProviderConfig represents a unified provider configuration.
 type ProviderConfig struct {
 	ApiUrl         string                    `json:"api_url"`
-	ApiKey         string                    `json:"api_key"`
+	ApiKey         string                    `json:"api_key,omitempty"`        // Legacy single key
+	ApiKeys        []ProviderApiKey           `json:"api_keys,omitempty"`      // New format: array of keys
 	TypeConnection string                    `json:"type_connection"`
 	Models         map[string]ModelSettings  `json:"models"`
+}
+
+// GetAPIKey returns the first API key from the provider config.
+// Supports both legacy (api_key) and new (api_keys) formats.
+func (p *ProviderConfig) GetAPIKey() string {
+	if len(p.ApiKeys) > 0 {
+		return p.ApiKeys[0].Key
+	}
+	return p.ApiKey
 }
 
 // ModelSettings represents per-model settings.

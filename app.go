@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ada-love-ai/backend"
+	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/patterns"
 	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/registry"
@@ -466,41 +467,74 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	}
 
 	// Search ModelList for matching model (same as SendMessage override resolution)
-	var foundProvider any
-	var resolvedModel string
 	fmt.Printf("[App.SuggestFieldValue] searching %d models in ModelList\n", len(adaCfg.ModelList))
+	fmt.Printf("[App.SuggestFieldValue] looking for provider=%q model=%q\n", specProvider, specModel)
+	var provider any
+	var resolvedModel string
+
+	// Also search providers map (fallback if model not in ModelList)
 	for i, mc := range adaCfg.ModelList {
 		if mc == nil {
 			continue
 		}
-		provider := strings.TrimSpace(mc.Provider)
-		modelName := strings.TrimSpace(mc.ModelName)
-		modelField := strings.TrimSpace(mc.Model)
+		p := strings.TrimSpace(mc.Provider)
+		mn := strings.TrimSpace(mc.ModelName)
+		mf := strings.TrimSpace(mc.Model)
+		fullKey := p + "/" + mn
 
-		// Match by provider+model name or full key
-		if provider == specProvider && (modelName == specModel || modelField == specModel || provider+"/"+modelName == specModel) {
-			fmt.Printf("[App.SuggestFieldValue] match at index %d: provider=%q modelField=%q\n", i, provider, modelField)
-			p, _, err := a.engine.CreateProviderFromModelConfig(mc)
-			if err == nil && p != nil {
-				foundProvider = p
-				resolvedModel = modelField
-				if resolvedModel == "" {
-					resolvedModel = specModel
+		fmt.Printf("[App.SuggestFieldValue] [%d] provider=%q modelName=%q model=%q\n", i, p, mn, mf)
+
+		if mn == specModel || mf == specModel || fullKey == specModel {
+			if p == specProvider || specProvider == "" {
+				fmt.Printf("[App.SuggestFieldValue] MATCH in ModelList at index %d\n", i)
+				p2, _, err := a.engine.CreateProviderFromModelConfig(mc)
+				if err == nil && p2 != nil {
+					provider = p2
+					resolvedModel = mf
+					if resolvedModel == "" {
+						resolvedModel = specModel
+					}
+					fmt.Printf("[App.SuggestFieldValue] provider created OK, modelID=%q\n", resolvedModel)
+					break
 				}
-				fmt.Printf("[App.SuggestFieldValue] provider created OK, modelID=%q\n", resolvedModel)
-				break
+				fmt.Printf("[App.SuggestFieldValue] provider creation FAILED: %v\n", err)
 			}
-			fmt.Printf("[App.SuggestFieldValue] provider creation FAILED: %v\n", err)
 		}
 	}
 
-	if foundProvider == nil {
+	// Fallback: search providers map directly
+	if provider == nil {
+		fmt.Printf("[App.SuggestFieldValue] not found in ModelList, searching providers map...\n")
+		if provCfg, ok := adaCfg.Providers[specProvider]; ok {
+			if _, modelExists := provCfg.Models[specModel]; modelExists {
+				fmt.Printf("[App.SuggestFieldValue] found in Providers map, creating provider...\n")
+				providerCfg := config.ModelConfig{
+					Provider:    specProvider,
+					ModelName:   specModel,
+					Model:       specModel,
+					APIBase:     provCfg.ApiUrl,
+					APIKeys:     config.SimpleSecureStrings(adaCfg.GetProviderAPIKey(specProvider)),
+					ConnectMode: provCfg.TypeConnection,
+				}
+				p2, _, err := providers.CreateProviderFromConfig(&providerCfg)
+				if err == nil && p2 != nil {
+					provider = p2
+					resolvedModel = specModel
+					fmt.Printf("[App.SuggestFieldValue] provider created OK from Providers map, modelID=%q\n", resolvedModel)
+				} else {
+					fmt.Printf("[App.SuggestFieldValue] provider creation from Providers map FAILED: %v\n", err)
+				}
+			}
+		}
+	}
+
+	if provider == nil {
 		fmt.Printf("[App.SuggestFieldValue] NO MATCH for provider=%q model=%q\n", specProvider, specModel)
 		return "", fmt.Errorf("model '%s' not found in ModelList for provider '%s'. Please add it in Models settings.", specModel, specProvider)
 	}
 
 	// Cast to LLMProvider interface
-	llmProvider, ok := foundProvider.(providers.LLMProvider)
+	llmProvider, ok := provider.(providers.LLMProvider)
 	if !ok {
 		return "", fmt.Errorf("provider does not implement LLMProvider interface")
 	}

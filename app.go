@@ -506,8 +506,12 @@ func (a *App) SuggestFieldValue(fieldName, context, currentValue string) (string
 	if provider == nil {
 		fmt.Printf("[App.SuggestFieldValue] not found in ModelList, searching providers map...\n")
 		if provCfg, ok := adaCfg.Providers[specProvider]; ok {
+			fmt.Printf("[App.SuggestFieldValue] provider %q found in Providers, %d models\n", specProvider, len(provCfg.Models))
+			for name := range provCfg.Models {
+				fmt.Printf("[App.SuggestFieldValue]   model: %q\n", name)
+			}
 			if _, modelExists := provCfg.Models[specModel]; modelExists {
-				fmt.Printf("[App.SuggestFieldValue] found in Providers map, creating provider...\n")
+				fmt.Printf("[App.SuggestFieldValue] EXACT MATCH found in Providers map!\n")
 				providerCfg := config.ModelConfig{
 					Provider:    specProvider,
 					ModelName:   specModel,

@@ -58,6 +58,7 @@ function WorkspacesSection() {
 
   const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
   const [knownSkills, setKnownSkills] = useState<string[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<string[]>([]);
   const [E, setE] = useState({
     title: '',
     description: '',
@@ -68,6 +69,7 @@ function WorkspacesSection() {
     knowledge: [] as string[],
     workers: [] as string[],
     skills: [] as string[],
+    agents: [] as string[],
     tools: [] as string[],
     enabled: true,
     maxPromptSend: 0,
@@ -97,6 +99,10 @@ function WorkspacesSection() {
       state: E.skills,
       set: (v) => setE((prev) => ({ ...prev, skills: v })),
     },
+    agents: {
+      state: E.agents,
+      set: (v) => setE((prev) => ({ ...prev, agents: v })),
+    },
     tools: {
       state: E.tools,
       set: (v) => setE((prev) => ({ ...prev, tools: v })),
@@ -114,6 +120,7 @@ function WorkspacesSection() {
   const load = () => {
     api.getWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]));
     api.getAvailableTools().then(setKnownTools).catch(() => setKnownTools([]));
+    api.getAgents().then((agents) => setAvailableAgents(agents.map(a => a.name))).catch(() => {});
   };
   useEffect(() => {
     load();
@@ -146,6 +153,7 @@ function WorkspacesSection() {
       knowledge: ws.knowledge || [],
       workers: (ws.workers || []).map((w) => typeof w === 'string' ? w : (w as any).name || ''),
       skills: ws.skills || [],
+      agents: [],
       tools: ws.tools || [],
       enabled: ws.enabled,
       maxPromptSend: ws.max_prompt_send || 0,
@@ -169,6 +177,7 @@ function WorkspacesSection() {
       knowledge: E.knowledge,
       workers: E.workers.map((name) => ({ name } as api.backend.WorkerConfig)),
       skills: E.skills,
+      agents: E.agents,
       tools: E.tools,
       enabled: E.enabled,
       max_prompt_send: E.maxPromptSend,
@@ -195,15 +204,19 @@ function WorkspacesSection() {
         if (!f.state.includes(file)) f.set([...f.state, file]);
       }
     } else if (key === 'skills') {
-      if (skillInput.trim()) {
+      const val = prompt('Enter skill name:');
+      if (val && val.trim()) {
         const f = fieldMap[key];
-        if (!f.state.includes(skillInput.trim())) {
-          f.set([...f.state, skillInput.trim()]);
-        }
-        setSkillInput('');
+        if (!f.state.includes(val.trim())) f.set([...f.state, val.trim()]);
       }
     } else if (key === 'tools') {
       setShowAddTool(true);
+    } else if (key === 'agents') {
+      const val = prompt('Enter agent name:');
+      if (val && val.trim()) {
+        const f = fieldMap[key];
+        if (!f.state.includes(val.trim())) f.set([...f.state, val.trim()]);
+      }
     }
   };
 
@@ -265,7 +278,7 @@ function WorkspacesSection() {
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               {ws.folders?.length || 0} folders ·{' '}
-              {ws.workers?.length || 0} agents ·{' '}
+              {ws.workers?.length || 0} workers ·{' '}
               {ws.skills?.length || 0} skills
             </div>
           </BaseCard>
@@ -424,7 +437,8 @@ function WorkspacesSection() {
               {[
                 { key: 'folders', label: 'Folders' },
                 { key: 'knowledge', label: 'Knowledge' },
-                { key: 'workers', label: 'Agents' },
+                { key: 'workers', label: 'Workers' },
+                { key: 'agents', label: 'Agents' },
                 { key: 'skills', label: 'Skills' },
                 { key: 'tools', label: 'Tools' },
               ].map(({ key, label }) => (
@@ -462,32 +476,6 @@ function WorkspacesSection() {
               ))}
             </div>
             <div className="flex-1 min-h-[28px] max-h-[160px] overflow-y-auto p-1.5 rounded border border-border">
-              {/* Skills input */}
-              {selectedField === 'skills' && (
-                <div className="flex gap-1 mb-1.5">
-                  <Input
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    placeholder="Type skill name..."
-                    className="h-6 text-xs flex-1"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleFieldAdd('skills');
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-1.5"
-                    onClick={() => handleFieldAdd('skills')}
-                    disabled={!skillInput.trim()}
-                  >
-                    <Icon name="Plus" size={12} />
-                  </Button>
-                </div>
-              )}
               <div className="flex flex-wrap gap-1">
                 {fieldMap[selectedField]?.state.map((item: string) => (
                   <span

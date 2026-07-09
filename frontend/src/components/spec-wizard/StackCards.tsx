@@ -17,29 +17,48 @@ interface StackLibraryCardProps {
   mandatory: boolean;
   usageExample: string;
   onToggleMandatory: () => void;
+  onRemove?: () => void;
 }
 
-function StackLibraryCard({ name, mandatory, usageExample, onToggleMandatory }: StackLibraryCardProps) {
+function StackLibraryCard({ name, mandatory, usageExample, onToggleMandatory, onRemove }: StackLibraryCardProps) {
   return (
     <div className="border rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-sm font-mono font-medium">{name}</span>
-        <button
-          type="button"
-          onClick={onToggleMandatory}
-          className={`text-lg transition-all hover:scale-110 ${
-            mandatory ? 'opacity-100' : 'opacity-30'
-          }`}
-          title={mandatory ? 'Mandatory (click to remove)' : 'Optional (click to make mandatory)'}
-        >
-          ❗
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleMandatory}
+            className={`text-lg transition-all hover:scale-110 ${
+              mandatory ? 'opacity-100' : 'opacity-30'
+            }`}
+            title={mandatory ? 'Mandatory (click to remove)' : 'Optional (click to make mandatory)'}
+          >
+            ❗
+          </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+              title="Remove stack"
+            >
+              <Icon name="X" size={14} />
+            </button>
+          )}
+        </div>
       </div>
       <pre className="text-xs text-muted-foreground bg-muted rounded p-2 overflow-x-auto">
         {usageExample}
       </pre>
     </div>
   );
+}
+
+interface ManualStack {
+  name: string;
+  example: string;
+  mandatory: boolean;
 }
 
 interface StackCardsProps {
@@ -58,18 +77,35 @@ export function StackCards({
   const [manualName, setManualName] = useState('');
   const [manualExample, setManualExample] = useState('');
   const [libraries, setLibraries] = useState<Record<string, boolean>>({});
+  const [manualStacks, setManualStacks] = useState<ManualStack[]>([]);
 
   const selectedTemplate = templates.find((t) => t.name === selectedStack?.name);
 
   const handleAddManual = () => {
     if (manualName.trim()) {
-      onAddManual({
+      const newStack: ManualStack = {
         name: manualName.trim(),
         example: manualExample.trim(),
+        mandatory: true,
+      };
+      setManualStacks((prev) => [...prev, newStack]);
+      onAddManual({
+        name: newStack.name,
+        example: newStack.example,
       });
       setManualName('');
       setManualExample('');
     }
+  };
+
+  const removeManualStack = (index: number) => {
+    setManualStacks((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleManualMandatory = (index: number) => {
+    setManualStacks((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, mandatory: !s.mandatory } : s))
+    );
   };
 
   const toggleMandatory = (libName: string) => {
@@ -173,6 +209,25 @@ export function StackCards({
           </Button>
         </div>
       </div>
+
+      {/* Manual Stacks Cards */}
+      {manualStacks.length > 0 && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Manual Stacks</label>
+          <div className="space-y-2">
+            {manualStacks.map((stack, idx) => (
+              <StackLibraryCard
+                key={idx}
+                name={stack.name}
+                mandatory={stack.mandatory}
+                usageExample={stack.example || '(no example)'}
+                onToggleMandatory={() => toggleManualMandatory(idx)}
+                onRemove={() => removeManualStack(idx)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

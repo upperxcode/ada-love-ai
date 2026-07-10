@@ -67,6 +67,8 @@ func (e *Engine) SetProviderSettings(name, apiBase, apiKey string) {
 	e.adaCfg.ProviderKeys[name] = apiKey
 	e.mu.Unlock()
 	e.SaveAdaConfig()
+	// Write-through: atualiza provider no DB se existir em Providers
+	e.syncProviderToDB(name)
 }
 
 func (e *Engine) GetProviderSettings(name string) (string, string) {
@@ -106,8 +108,16 @@ func (e *Engine) RemoveProvider(name string) {
 		newList = append(newList, m)
 	}
 	e.adaCfg.ModelList = newList
+	// Remove de Providers (DB)
+	delete(e.adaCfg.Providers, name)
 	e.mu.Unlock()
 	e.SaveAdaConfig()
+	// Write-through: remove do DB
+	if e.db != nil {
+		if err := e.db.DeleteDBProvider(name); err != nil {
+			fmt.Printf("[Engine] Erro ao remover provider %s do DB: %v\n", name, err)
+		}
+	}
 }
 
 func (e *Engine) GetModelSettings(provider, modelID string) ExtraModelConfig {
@@ -502,4 +512,49 @@ func httpGetJSON(url string, headers map[string]string) ([]byte, error) {
 		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
 	}
 	return body, nil
+}
+
+// --- Provider DB write-through ---
+
+// syncProviderToDB writes the current in-memory provider config to DB.
+// Called after mutations that update ProviderBases/ProviderKeys/Providers.
+func (e *Engine) syncProviderToDB(name string) {
+	e.mu.RLock()
+	cfg, ok := e.adaCfg.Providers[name]
+	e.mu.RUnlock()
+	if !ok || e.db == nil {
+		return
+	}
+	if err := e.db.SaveDBProvider(name, cfg); err != nil {
+		fmt.Printf("[Engine] Erro ao sincronizar provider %s no DB: %v\n", name, err)
+	}
+}
+
+// SaveDBProvider saves a single provider to DB and updates in-memory config.
+func (e *Engine) SaveDBProvider(name string, cfg ProviderConfig) error {
+	e.mu.Lock()
+	if e.adaCfg.Providers == nil {
+		e.adaCfg.Providers = make(map[string]ProviderConfig)
+	}
+	e.adaCfg.Providers[name] = cfg
+	e.mu.Unlock()
+	if e.db != nil {
+		if err := e.db.SaveDBProvider(name, cfg); err != nil {
+			return fmt.Errorf("erro ao salvar provider %s no DB: %w", name, err)
+		}
+	}
+	return e.SaveAdaConfig()
+}
+
+// DeleteDBProvider removes a provider from DB and in-memory config.
+func (e *Engine) DeleteDBProvider(name string) error {
+	e.mu.Lock()
+	delete(e.adaCfg.Providers, name)
+	e.mu.Unlock()
+	if e.db != nil {
+		if err := e.db.DeleteDBProvider(name); err != nil {
+			return fmt.Errorf("erro ao remover provider %s do DB: %w", name, err)
+		}
+	}
+	return e.SaveAdaConfig()
 }

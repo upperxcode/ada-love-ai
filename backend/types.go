@@ -2,6 +2,8 @@ package backend
 
 import (
 	"ada-love-ai/pkg/config"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -9,6 +11,8 @@ type WorkerConfig struct {
 	Name             string `json:"name"`
 	Persona          string `json:"persona"`
 	Language         string `json:"language"`         // idioma de resposta ao usuário (ex: "pt-BR", "en", "es")
+	Icon             string `json:"icon"`
+	Color            string `json:"color"`
 	// Conexão (binding) — como o worker se comunica
 	ConnectionType   string `json:"connection_type"`   // "ada", "cli", "rest", "mcp"
 	ConnectionName   string `json:"connection_name"`   // nome do preset (ex: "Crush", "OpenCode")
@@ -26,6 +30,7 @@ type WorkerConfig struct {
 // autonomous task executors: they receive a task, work on it (possibly using
 // tools or sub-models), and deliver a result.
 type AgentConfig struct {
+	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	// Modelo que o agente usa para executar tarefas
@@ -42,6 +47,13 @@ type AgentConfig struct {
 	Delegates   []string `json:"delegates,omitempty"`
 	// Sistema de prompt customizado
 	SystemPrompt string  `json:"system_prompt,omitempty"`
+	// Subagents config (para integração com o sistema pkg/agent)
+	Subagents *SubagentsConfig `json:"subagents,omitempty"`
+}
+
+// SubagentsConfig defines which agents this agent can spawn.
+type SubagentsConfig struct {
+	AllowAgents []string `json:"allow_agents,omitempty"`
 }
 
 type SkillFullInfo struct {
@@ -75,7 +87,8 @@ type WorkspaceConfig struct {
 	Folders          []string `json:"folders"`
 	Personality      string   `json:"personality"`
 	Knowledge        []string `json:"knowledge"`
-	WorkspaceAgents  []WorkerConfig `json:"workspace_agents"`
+	Workers         []WorkerConfig `json:"workers"`        // Workers vinculados a este workspace
+	Agents          []string       `json:"agents"`         // list of agent names selected for this workspace
 	Skills           []string `json:"skills"`
 	Tools            []string `json:"tools"`
 	Enabled          bool     `json:"enabled"`
@@ -85,6 +98,9 @@ type WorkspaceConfig struct {
 	CommitChanges    bool     `json:"commit_changes"`
 	MaxContextLength int      `json:"max_context_length"`
 	SpecWizard       string   `json:"spec_wizard"` // ID of the linked Spec Wizard
+	// Summarization settings
+	EmbeddingModel    string `json:"embedding_model"`    // Modelo para sumarização/embedding
+	EmbeddingProvider string `json:"embedding_provider"` // Provider do modelo
 }
 
 type ToolUIInfo struct {
@@ -135,6 +151,18 @@ type AdaConfig struct {
 	ModelList           config.SecureModelList      `json:"model_list"`
 	Providers           map[string]ProviderConfig   `json:"providers,omitempty"`
 	ToolProfiles        []ToolProfile               `json:"tool_profiles,omitempty"`
+	MCPServers          map[string]MCPServerUI      `json:"mcp_servers,omitempty"`
+}
+
+// MCPServerUI extends MCP server config with UI fields (icon, color).
+type MCPServerUI struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url"`
+	Enabled bool              `json:"enabled"`
+	Icon    string            `json:"icon"`
+	Color   string            `json:"color"`
 }
 
 // ProviderApiKey represents a single API key for a provider.
@@ -145,6 +173,8 @@ type ProviderApiKey struct {
 
 // ProviderConfig represents a unified provider configuration.
 type ProviderConfig struct {
+	Icon           string                    `json:"icon"`
+	Color          string                    `json:"color"`
 	ApiUrl         string                    `json:"api_url"`
 	ApiKey         string                    `json:"api_key,omitempty"`        // Legacy single key
 	ApiKeys        []ProviderApiKey           `json:"api_keys,omitempty"`      // New format: array of keys
@@ -163,16 +193,23 @@ func (p *ProviderConfig) GetAPIKey() string {
 
 // GetProviderAPIKey resolves the API key for a provider name.
 // Checks: 1) ProviderConfig.api_keys, 2) ProviderConfig.api_key, 3) AdaConfig.ProviderKeys map.
+// 4) Environment variable (e.g., OPENROUTER_API_KEY)
 func (c *AdaConfig) GetProviderAPIKey(providerName string) string {
-	if provider, ok := c.Providers[providerName]; ok {
-		if key := provider.GetAPIKey(); key != "" {
-			return key
+	lower := strings.ToLower(providerName)
+	for key, provider := range c.Providers {
+		if strings.ToLower(key) == lower {
+			if k := provider.GetAPIKey(); k != "" {
+				return k
+			}
 		}
 	}
-	if key, ok := c.ProviderKeys[providerName]; ok {
-		return key
+	for key, val := range c.ProviderKeys {
+		if strings.ToLower(key) == lower {
+			return val
+		}
 	}
-	return ""
+	envKey := strings.ToUpper(strings.ReplaceAll(providerName, "-", "_")) + "_API_KEY"
+	return os.Getenv(envKey)
 }
 
 // ModelSettings represents per-model settings.
@@ -199,6 +236,11 @@ type ProviderModel struct {
 	Tools     bool   `json:"tools,omitempty"`     // supports tool/function calling
 	Free      bool   `json:"free,omitempty"`      // free / open-weight / no per-token cost
 	Thinking  bool   `json:"thinking,omitempty"` // reasoning / chain-of-thought
+}
+
+// WorkspaceCount returns the number of workspaces.
+func (c *AdaConfig) WorkspaceCount() int {
+	return len(c.Workspaces)
 }
 
 // ProviderTestResult is the outcome of a connection test against a provider's
@@ -232,6 +274,7 @@ const (
 	EventKindError
 	EventKindWorkspaceChanged
 	EventKindWorkspaceDeleted
+	EventKindCleared
 )
 
 type Event struct {

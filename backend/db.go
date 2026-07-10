@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -70,6 +71,7 @@ func (s *Store) init() error {
 			id TEXT PRIMARY KEY,
 			workspace_path TEXT,
 			worker_name TEXT DEFAULT '',
+			parent_session_id TEXT DEFAULT '',
 			title TEXT,
 			summary TEXT,
 			pinned INTEGER DEFAULT 0,
@@ -102,13 +104,46 @@ func (s *Store) init() error {
 		}
 	}
 
-	// Migrações manuais para colunas novas
-	s.db.Exec("ALTER TABLE sessions ADD COLUMN embedding BLOB") // Ignora erro se já existir
-	s.db.Exec("ALTER TABLE memories ADD COLUMN embedding BLOB") // Ignora erro se já existir
-	s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")   // Ignora erro se já existir
-	s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT") // Migração para novo campo manual
-	s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers") // Migração agents → workers
-	s.db.Exec("ALTER TABLE sessions ADD COLUMN worker_name TEXT DEFAULT ''") // Migração worker vinculado ao chat
+// Migrações manuais para colunas novas
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN embedding BLOB") // Ignora erro se já existir
+		s.db.Exec("ALTER TABLE memories ADD COLUMN embedding BLOB") // Ignora erro se já existir
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")   // Ignora erro se já existir
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT") // Migração para novo campo manual
+		s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers") // Migração agents → workers
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN worker_name TEXT DEFAULT ''") // Migração worker vinculado ao chat
+		// Migrações para novos campos de workspace
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN enabled INTEGER DEFAULT 0")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN color TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN icon TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_prompt_send INTEGER DEFAULT 0")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN commit_changes INTEGER DEFAULT 1")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER DEFAULT 0")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN spec_wizard TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN agents TEXT DEFAULT '[]'") // JSON array of agent names
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''")
+
+		// Migração para hierarquia de sessões
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT DEFAULT ''") // Sessão pai (se resumo)
+
+		// Migração para config per-chat
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN provider TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT 'ask'")
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN thinking TEXT DEFAULT ''")
+
+		// Migração para sumarização de contexto
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_context TEXT DEFAULT ''")
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_at DATETIME")
+		s.db.Exec("ALTER TABLE sessions ADD COLUMN last_summarized_msg_id INTEGER DEFAULT 0")
+
+	// Migração: sessões sem workspace_path → move para o workspace ativo
+	s.db.Exec(`
+		UPDATE sessions SET workspace_path = (
+			SELECT path FROM workspaces ORDER BY id LIMIT 1
+		) WHERE workspace_path = '' OR workspace_path IS NULL
+	`)
+	fmt.Printf("[DB] Init: migrated orphan sessions with empty workspace_path\n")
 
 	return nil
 }
@@ -146,21 +181,27 @@ func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
 func (s *Store) SaveWorkspace(ws WorkspaceConfig) error {
 	folders, _ := json.Marshal(ws.Folders)
 	knowledge, _ := json.Marshal(ws.Knowledge)
-	workers, _ := json.Marshal(ws.WorkspaceAgents)
+	workers, _ := json.Marshal(ws.Workers)
 	skills, _ := json.Marshal(ws.Skills)
 	tools, _ := json.Marshal(ws.Tools)
+	agents, _ := json.Marshal(ws.Agents)
 
+	fmt.Printf("[DB] SaveWorkspace: title=%q path=%q workers=%d\n", ws.Title, ws.Path, len(ws.Workers))
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO workspaces (title, description, path, personality, folders, knowledge, workers, skills, tools)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT OR REPLACE INTO workspaces (title, description, path, personality, folders, knowledge, workers, skills, tools, enabled, color, icon, max_prompt_send, commit_changes, max_context_length, spec_wizard, agents, embedding_model, embedding_provider)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ws.Title, ws.Description, ws.Path, ws.Personality,
 		string(folders), string(knowledge), string(workers), string(skills), string(tools),
+		ws.Enabled, ws.Color, ws.Icon, ws.MaxPromptSend, ws.CommitChanges, ws.MaxContextLength, ws.SpecWizard,
+		string(agents),
+		ws.EmbeddingModel, ws.EmbeddingProvider,
 	)
 	return err
 }
 
 func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
-	rows, err := s.db.Query(`SELECT title, description, path, personality, folders, knowledge, workers, skills, tools FROM workspaces`)
+	fmt.Printf("[DB] GetWorkspaces: querying all workspaces\n")
+	rows, err := s.db.Query(`SELECT title, description, path, personality, folders, knowledge, workers, skills, tools, enabled, color, icon, max_prompt_send, commit_changes, max_context_length, spec_wizard, agents, embedding_model, embedding_provider FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -169,18 +210,47 @@ func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
 	var workspaces []WorkspaceConfig
 	for rows.Next() {
 		var ws WorkspaceConfig
-		var folders, knowledge, workers, skills, tools string
-		err := rows.Scan(&ws.Title, &ws.Description, &ws.Path, &ws.Personality, &folders, &knowledge, &workers, &skills, &tools)
+		var folders, knowledge, workers, skills, tools, agents string
+		var enabled sql.NullBool
+		var commitChanges sql.NullBool
+		var maxPromptSend, maxContextLength sql.NullInt64
+		var color, icon, specWizard, embeddingModel, embeddingProvider sql.NullString
+		err := rows.Scan(&ws.Title, &ws.Description, &ws.Path, &ws.Personality, &folders, &knowledge, &workers, &skills, &tools,
+			&enabled, &color, &icon, &maxPromptSend, &commitChanges, &maxContextLength, &specWizard, &agents,
+			&embeddingModel, &embeddingProvider)
 		if err != nil {
 			return nil, err
 		}
+		ws.Enabled = !enabled.Valid || enabled.Bool
+		ws.CommitChanges = !commitChanges.Valid || commitChanges.Bool
+		ws.MaxPromptSend = int(maxPromptSend.Int64)
+		ws.MaxContextLength = int(maxContextLength.Int64)
+		if color.Valid {
+			ws.Color = color.String
+		}
+		if icon.Valid {
+			ws.Icon = icon.String
+		}
+		if specWizard.Valid {
+			ws.SpecWizard = specWizard.String
+		}
+		ws.EmbeddingModel = embeddingModel.String
+		ws.EmbeddingProvider = embeddingProvider.String
 		json.Unmarshal([]byte(folders), &ws.Folders)
 		json.Unmarshal([]byte(knowledge), &ws.Knowledge)
-		json.Unmarshal([]byte(workers), &ws.WorkspaceAgents)
+		json.Unmarshal([]byte(workers), &ws.Workers)
 		json.Unmarshal([]byte(skills), &ws.Skills)
 		json.Unmarshal([]byte(tools), &ws.Tools)
+		json.Unmarshal([]byte(agents), &ws.Agents)
+		// Garantir que path nunca seja vazio
+		if ws.Path == "" {
+			ws.Path = strings.ToLower(strings.ReplaceAll(ws.Title, " ", "_"))
+			s.db.Exec(`UPDATE workspaces SET path = ? WHERE title = ? AND (path = '' OR path IS NULL)`, ws.Path, ws.Title)
+		}
+		fmt.Printf("[DB] GetWorkspaces: title=%q path=%q workers=%d\n", ws.Title, ws.Path, len(ws.Workers))
 		workspaces = append(workspaces, ws)
 	}
+	fmt.Printf("[DB] GetWorkspaces: total %d workspaces found\n", len(workspaces))
 	return workspaces, nil
 }
 
@@ -192,10 +262,15 @@ func (s *Store) DeleteWorkspace(path string) error {
 // --- Operações de Sessão ---
 
 func (s *Store) SaveSession(sess ChatSession) error {
+	fmt.Printf("[DB] SaveSession: id=%q workspace=%q worker=%q parent=%q title=%q messages=%d pinned=%v model=%q mode=%q\n",
+		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID, sess.Title, len(sess.Messages), sess.Pinned, sess.Model, sess.Mode)
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO sessions (id, workspace_path, worker_name, title, summary, pinned, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.Title, sess.Summary, sess.Pinned, sess.CreatedAt, sess.UpdatedAt,
+		INSERT OR REPLACE INTO sessions (id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID, sess.Title, sess.Summary,
+		sess.Model, sess.Provider, sess.Mode, sess.Thinking,
+		sess.SummarizedContext, sess.SummarizedAt, sess.LastSummarizedMsgID,
+		sess.Pinned, sess.CreatedAt, sess.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -208,11 +283,16 @@ func (s *Store) SaveSession(sess ChatSession) error {
 		return err
 	}
 
-	for _, msg := range sess.Messages {
-		_, err = s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
+	for i, msg := range sess.Messages {
+		result, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
 			sess.ID, msg.Role, msg.Content, msg.Time)
 		if err != nil {
 			log.Printf("Erro ao salvar mensagem: %v", err)
+			continue
+		}
+		// Captura o ID gerado
+		if id, err := result.LastInsertId(); err == nil {
+			sess.Messages[i].ID = id
 		}
 	}
 
@@ -226,8 +306,9 @@ func (s *Store) AddMessageToSession(sessionID string, role string, content strin
 }
 
 func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
+	fmt.Printf("[DB] GetSessions: workspacePath=%q\n", workspacePath)
 	rows, err := s.db.Query(`
-		SELECT id, workspace_path, worker_name, title, summary, pinned, created_at, updated_at 
+		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at 
 		FROM sessions WHERE workspace_path = ?
 		ORDER BY pinned DESC, updated_at DESC`, workspacePath)
 	if err != nil {
@@ -238,17 +319,20 @@ func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 	var sessions []*ChatSession
 	for rows.Next() {
 		sess := &ChatSession{}
-		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.Title, &sess.Summary, &sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
+			&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
+			&sess.SummarizedContext, &sess.SummarizedAt, &sess.LastSummarizedMsgID,
+			&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
 		
 		// Carrega mensagens para esta sessão
-		msgRows, err := s.db.Query(`SELECT role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, sess.ID)
+		msgRows, err := s.db.Query(`SELECT id, role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, sess.ID)
 		if err == nil {
 			for msgRows.Next() {
 				var msg ChatMessage
-				msgRows.Scan(&msg.Role, &msg.Content, &msg.Time)
+				msgRows.Scan(&msg.ID, &msg.Role, &msg.Content, &msg.Time)
 				sess.Messages = append(sess.Messages, msg)
 			}
 			msgRows.Close()
@@ -257,6 +341,30 @@ func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 		sessions = append(sessions, sess)
 	}
 	return sessions, nil
+}
+
+func (s *Store) GetSession(id string) (*ChatSession, error) {
+	sess := &ChatSession{}
+	err := s.db.QueryRow(`
+		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at 
+		FROM sessions WHERE id = ?`, id).Scan(
+		&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
+		&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
+		&sess.SummarizedContext, &sess.SummarizedAt, &sess.LastSummarizedMsgID,
+		&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	msgRows, err := s.db.Query(`SELECT id, role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, id)
+	if err == nil {
+		for msgRows.Next() {
+			var msg ChatMessage
+			msgRows.Scan(&msg.ID, &msg.Role, &msg.Content, &msg.Time)
+			sess.Messages = append(sess.Messages, msg)
+		}
+		msgRows.Close()
+	}
+	return sess, nil
 }
 
 func (s *Store) DeleteSession(id string) error {
@@ -325,6 +433,30 @@ func (s *Store) GetProviders() (map[string]ProviderConfig, error) {
 		return nil, err
 	}
 	return providers, nil
+}
+
+// SaveDBProvider saves or updates a single provider in the DB.
+// Reads the full map, upserts the entry, and writes it back.
+func (s *Store) SaveDBProvider(name string, cfg ProviderConfig) error {
+	providers, err := s.GetProviders()
+	if err != nil {
+		return err
+	}
+	if providers == nil {
+		providers = make(map[string]ProviderConfig)
+	}
+	providers[name] = cfg
+	return s.SaveProviders(providers)
+}
+
+// DeleteDBProvider removes a single provider from the DB.
+func (s *Store) DeleteDBProvider(name string) error {
+	providers, err := s.GetProviders()
+	if err != nil {
+		return err
+	}
+	delete(providers, name)
+	return s.SaveProviders(providers)
 }
 
 // --- Utilitários de Vetor ---

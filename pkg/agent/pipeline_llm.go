@@ -17,6 +17,19 @@ import (
 	"ada-love-ai/pkg/utils"
 )
 
+// ContextLoggerFn is a callback the backend can register to receive the
+// complete LLM context (system prompt + full message list + tools) for
+// analysis/logging. Kept as a package-level var to avoid an import cycle
+// (agent is imported by backend, so backend cannot be imported here).
+type ContextLoggerFn func(sessionKey, agentID, model, mode string, messages []providers.Message, toolDefs []providers.ToolDefinition, userMessage string)
+
+var globalContextLogger ContextLoggerFn
+
+// RegisterContextLogger lets the backend inject its context logger.
+func RegisterContextLogger(fn ContextLoggerFn) {
+	globalContextLogger = fn
+}
+
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
 // It handles PreLLM setup, the actual LLM invocation with retry, and AfterLLM processing.
 // Returns Control indicating what the coordinator should do next.
@@ -163,6 +176,10 @@ func (p *Pipeline) CallLLM(
 			"messages_json": formatMessagesForLog(exec.callMessages),
 			"tools_json":    formatToolsForLog(exec.providerToolDefs),
 		})
+
+	// Log the full context being sent to this chat (for debugging/analysis)
+	// This logs the complete prompt including system message, history, and current turn
+	logFullChatContext(ctx, ts, exec.callMessages, exec.providerToolDefs, exec.llmModel, exec.llmOpts)
 
 	// LLM call closure with fallback support
 	callLLM := func(messagesForCall []providers.Message, toolDefsForCall []providers.ToolDefinition) (*providers.LLMResponse, error) {
@@ -571,5 +588,55 @@ func filterToolsByMode(ctx context.Context, defs []providers.ToolDefinition) []p
 		return filtered
 	default:
 		return defs
+	}
+}
+
+// logFullChatContext logs the complete context being sent to a chat for debugging/analysis.
+// This captures the system prompt, conversation history, and current turn.
+func logFullChatContext(ctx context.Context, ts *turnState, messages []providers.Message, toolDefs []providers.ToolDefinition, model string, llmOpts map[string]any) {
+	if ts == nil || messages == nil {
+		return
+	}
+
+	// Extract session info from context
+	sessionKey := ts.sessionKey
+	agentID := ts.agent.ID
+	
+	// Get mode from context
+	mode := bus.GetOverride(ctx, bus.OverrideModeKey)
+	if mode == "" {
+		mode = "auto"
+	}
+
+	// Build a summary of what's being sent
+	var systemContent, userContent strings.Builder
+	
+	for i, msg := range messages {
+		if i == 0 && msg.Role == "system" {
+			systemContent.WriteString(msg.Content)
+		} else if msg.Role == "user" {
+			userContent.WriteString(msg.Content)
+		}
+	}
+
+	// Log to console
+	fmt.Printf("[ChatContext] Session=%s Agent=%s Model=%s Mode=%s Messages=%d\n",
+		sessionKey, agentID, model, mode, len(messages))
+
+	// Log the COMPLETE context to the context logger (JSONL file)
+	if globalContextLogger != nil {
+		globalContextLogger(sessionKey, agentID, model, mode, messages, toolDefs, userContent.String())
+	}
+
+	// Print system prompt preview (first 1000 chars)
+	systemPreview := utils.Truncate(systemContent.String(), 1000)
+	fmt.Printf("[ChatContext] System prompt (%d chars):\n%s\n...\n",
+		systemContent.Len(), systemPreview)
+
+	// Print current user message
+	userMsg := strings.TrimSpace(userContent.String())
+	if len(userMsg) > 0 {
+		fmt.Printf("[ChatContext] Current user message: %s\n",
+			utils.Truncate(userMsg, 500))
 	}
 }

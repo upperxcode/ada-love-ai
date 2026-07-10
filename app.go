@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	gortime "runtime"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"ada-love-ai/backend"
+	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/patterns"
 	"ada-love-ai/pkg/providers"
@@ -72,6 +74,10 @@ func (a *App) startEventBridge() {
 					"stage":      payload.Message,
 				})
 			}
+		case backend.EventKindCleared:
+			runtime.EventsEmit(a.ctx, "chat:cleared", map[string]interface{}{
+				"session_id": ev.SessionID,
+			})
 		}
 	})
 }
@@ -222,6 +228,16 @@ func (a *App) ListChatProviders() []string {
 	return a.engine.GetProviders()
 }
 
+// SaveDBProvider salva um único provider no DB e na memória.
+func (a *App) SaveDBProvider(name string, cfg backend.ProviderConfig) error {
+	return a.engine.SaveDBProvider(name, cfg)
+}
+
+// DeleteDBProvider remove um provider do DB e da memória.
+func (a *App) DeleteDBProvider(name string) error {
+	return a.engine.DeleteDBProvider(name)
+}
+
 // FetchProviderModels queries a provider's /models endpoint and returns the
 // list enriched with detected capabilities (vision/embedding), keyed by
 // connectionType protocol ("openai" | "anthropic" | "gemini").
@@ -237,32 +253,68 @@ func (a *App) TestProviderConnection(name, apiKey, apiBase, connectionType strin
 
 // Sessions / Chat
 func (a *App) CreateSession(workspaceID, workerName string) *backend.ChatSession {
-	sess := a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName)
+	fmt.Printf("[App] CreateSession: workspaceID=%q workerName=%q\n", workspaceID, workerName)
+	sess := a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName, "")
+	fmt.Printf("[App] CreateSession: created sessionID=%q title=%q workspaceID=%q workerName=%q parent=%q\n",
+		sess.ID, sess.Title, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID)
 	a.engine.SaveSessionDB(sess.ID)
 	return sess
 }
 
 func (a *App) CreateSummarizedSession(workspaceID, workerName, sourceSessionID string) *backend.ChatSession {
-	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, workerName)
+	fmt.Printf("[App] CreateSummarizedSession: workspaceID=%q workerName=%q sourceSessionID=%q\n", workspaceID, workerName, sourceSessionID)
+	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, workerName, sourceSessionID)
+	fmt.Printf("[App] CreateSummarizedSession: created sessionID=%q parent=%q\n", sess.ID, sess.ParentSessionID)
 	a.engine.SaveSessionDB(sess.ID)
-	// Future: copy summary from sourceSessionID.
-	_ = sourceSessionID
 	return sess
 }
 
+// GetSessions retorna sessões de um workspace específico do banco de dados
 func (a *App) GetSessions(workspaceID string) []*backend.ChatSession {
-	return a.engine.SessionMgr.ListSessions(workspaceID)
+	fmt.Printf("[App] GetSessions: workspaceID=%q — querying DB\n", workspaceID)
+	if a.engine.DB() != nil {
+		sessions, err := a.engine.DB().GetSessions(workspaceID)
+		if err != nil {
+			fmt.Printf("[App] GetSessions: DB error: %v\n", err)
+			return nil
+		}
+		fmt.Printf("[App] GetSessions: workspaceID=%q → %d sessions from DB\n", workspaceID, len(sessions))
+		for _, s := range sessions {
+			fmt.Printf("[App]   session=%q title=%q worker=%q messages=%d parent=%q\n", s.ID, s.Title, s.WorkerName, len(s.Messages), s.ParentSessionID)
+		}
+		return sessions
+	}
+	// Fallback para SessionMgr se DB não disponível
+	sessions := a.engine.SessionMgr.ListSessions(workspaceID)
+	fmt.Printf("[App] GetSessions: fallback to SessionMgr → %d sessions\n", len(sessions))
+	return sessions
 }
 func (a *App) DeleteSession(id string) {
 	a.engine.DeleteSession(id)
 }
-func (a *App) RenameSession(id, newTitle string) {
-	a.engine.RenameSession(id, newTitle)
+func (a *App) RenameSession(id, newTitle string) *backend.ChatSession {
+	return a.engine.RenameSession(id, newTitle)
 }
-func (a *App) SendMessage(sessionID, text, modelOverride, thinkingLevel, mode string) (string, error) {
+func (a *App) SendMessage(sessionID, text, modelOverride, thinkingLevel, mode string) (result string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 16384)
+			n := gortime.Stack(buf, false)
+			log := fmt.Sprintf("[App.SendMessage] PANIC RECOVERED: %v\n%s\n", r, buf[:n])
+			fmt.Print(log)
+			writePanicLog(log)
+			result = ""
+			retErr = fmt.Errorf("internal panic: %v", r)
+		}
+	}()
 	fmt.Printf("[App.SendMessage] sessionID=%q modelOverride=%q thinkingLevel=%q mode=%q text=%q\n",
 		sessionID, modelOverride, thinkingLevel, mode, text[:min(len(text), 50)])
-	return a.engine.SendMessage(a.ctx, text, sessionID, modelOverride, thinkingLevel, mode)
+	return a.engine.SendMessage(a.ctx, text, sessionID, modelOverride, thinkingLevel, mode, false)
+}
+
+func (a *App) RetryMessage(sessionID, text string) (string, error) {
+	fmt.Printf("[App.RetryMessage] sessionID=%q text=%q\n", sessionID, text[:min(len(text), 50)])
+	return a.engine.SendMessage(a.ctx, text, sessionID, "", "", "", true)
 }
 
 func (a *App) AnswerQuestion(sessionID, answer string) {
@@ -276,6 +328,52 @@ func (a *App) StopGeneration(sessionID string) {
 }
 func (a *App) TogglePin(sessionID string) {
 	a.engine.TogglePin(sessionID)
+}
+func (a *App) SetSessionConfig(sessionID, model, provider, mode, thinking string) {
+	a.engine.SetSessionConfig(sessionID, model, provider, mode, thinking)
+}
+
+// CommandInfo mirrors commands.Definition for JSON serialization to the frontend.
+type CommandInfo struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Usage       string            `json:"usage"`
+	Aliases     []string          `json:"aliases"`
+	SubCommands []SubCommandInfo  `json:"sub_commands"`
+}
+
+// SubCommandInfo mirrors commands.SubCommand for JSON serialization.
+type SubCommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ArgsUsage   string `json:"args_usage"`
+}
+
+// ListCommands returns all registered command definitions for the frontend
+// to display in the slash command autocomplete menu.
+func (a *App) ListCommands() []CommandInfo {
+	defs := commands.BuiltinDefinitions()
+	out := make([]CommandInfo, 0, len(defs))
+	for _, def := range defs {
+		ci := CommandInfo{
+			Name:        def.Name,
+			Description: def.Description,
+			Usage:       def.EffectiveUsage(),
+			Aliases:     def.Aliases,
+		}
+		if len(def.SubCommands) > 0 {
+			ci.SubCommands = make([]SubCommandInfo, 0, len(def.SubCommands))
+			for _, sc := range def.SubCommands {
+				ci.SubCommands = append(ci.SubCommands, SubCommandInfo{
+					Name:        sc.Name,
+					Description: sc.Description,
+					ArgsUsage:   sc.ArgsUsage,
+				})
+			}
+		}
+		out = append(out, ci)
+	}
+	return out
 }
 
 func (a *App) connectQuestionRegistry() {
@@ -671,4 +769,13 @@ RULES:
 	default:
 		return fmt.Sprintf("You are an expert. Suggest a value for the field '%s'. Be concise. Max 5 lines. Write in ENGLISH.", fieldName), 5
 	}
+}
+
+func writePanicLog(log string) {
+	f, err := os.OpenFile("/tmp/ada-panic.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(log)
 }

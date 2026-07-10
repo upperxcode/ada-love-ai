@@ -267,19 +267,23 @@ func NewAgentInstance(
 		summarizeTokenPercent = 75
 	}
 
-	// Resolve fallback candidates
-	candidates := resolveModelCandidates(cfg, defaults.Provider, model, fallbacks)
+// Resolve fallback candidates - use agent's provider if specified, otherwise use defaults
+		agentProvider := defaults.Provider
+		if agentCfg != nil && agentCfg.Provider != "" {
+			agentProvider = agentCfg.Provider
+		}
+		candidates := resolveModelCandidates(cfg, agentProvider, model, fallbacks)
 
 	candidateProviders := make(map[string]providers.LLMProvider)
 	populateCandidateProvidersFromNames(cfg, workspace, fallbacks, candidateProviders)
 
-	// Model routing setup: pre-resolve light model candidates at creation time
-	// to avoid repeated model_list lookups on every incoming message.
-	var router *routing.Router
-	var lightCandidates []providers.FallbackCandidate
-	var lightProvider providers.LLMProvider
-	if rc := defaults.Routing; rc != nil && rc.Enabled && rc.LightModel != "" {
-		resolved := resolveModelCandidates(cfg, defaults.Provider, rc.LightModel, nil)
+// Model routing setup: pre-resolve light model candidates at creation time
+		// to avoid repeated model_list lookups on every incoming message.
+		var router *routing.Router
+		var lightCandidates []providers.FallbackCandidate
+		var lightProvider providers.LLMProvider
+		if rc := defaults.Routing; rc != nil && rc.Enabled && rc.LightModel != "" {
+			resolved := resolveModelCandidates(cfg, agentProvider, rc.LightModel, nil)
 		if len(resolved) > 0 {
 			lightModelCfg, err := resolvedModelConfig(cfg, rc.LightModel, workspace)
 			if err != nil {

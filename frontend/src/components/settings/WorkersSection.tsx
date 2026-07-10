@@ -17,9 +17,9 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Card, CardContent } from '../ui/card';
+import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
 import { ExpandableEditor } from '../ExpandableEditor';
-import { IconPicker } from '../IconPicker';
 import { Icon } from '../Icon';
 import * as api from '../../api';
 
@@ -77,6 +77,8 @@ function WorkersSection() {
       setEditing(null);
       setW(
         new api.backend.WorkerConfig({
+          icon: '🤖',
+          color: '#3b82f6',
           connection_type: 'ada',
           connection_name: 'Ada',
         }),
@@ -118,26 +120,20 @@ function WorkersSection() {
       </div>
 
       <div className="agents-grid">
-        {workers.map((worker) => (
-          <Card key={worker.name} className="relative group">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{worker.connection_name === 'Ada' ? '🤖' : worker.connection_name === 'Crush' ? '💎' : worker.connection_name === 'OpenCode' ? '🔓' : worker.connection_name === 'Aider' ? '🤝' : '⚡'}</span>
-                  <div>
-                    <div className="text-sm font-medium">{worker.name}</div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <span>{worker.connection_name || worker.connection_type}</span>
-                      {worker.language && (
-                        <>
-                          <span>·</span>
-                          <span className="text-primary/80">{worker.language}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {workers.map((worker) => {
+          const color = worker.color || '#3b82f6';
+          const icon = worker.icon || (worker.connection_name === 'Ada' ? '🤖' : worker.connection_name === 'Crush' ? '💎' : worker.connection_name === 'OpenCode' ? '🔓' : worker.connection_name === 'Aider' ? '🤝' : '⚡');
+          return (
+            <BaseCard
+              key={worker.name}
+              color={color}
+              headerLeft={
+                <span className="text-xs text-white opacity-90">
+                  {worker.connection_name || worker.connection_type}
+                </span>
+              }
+              headerRight={
+                <div className="flex gap-1">
                   <button
                     className="base-card-btn"
                     onClick={() => openEdit(worker)}
@@ -153,9 +149,19 @@ function WorkersSection() {
                     <Icon name="Trash2" className="w-3 h-3" />
                   </button>
                 </div>
+              }
+              icon={icon}
+              title={worker.name}
+            >
+              <div className="flex flex-wrap gap-1 justify-center">
+                {worker.language && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                    {worker.language}
+                  </span>
+                )}
               </div>
               {worker.persona && (
-                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                   {worker.persona}
                 </p>
               )}
@@ -176,9 +182,9 @@ function WorkersSection() {
                   );
                 })}
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </BaseCard>
+          );
+        })}
       </div>
 
       {workers.length === 0 && (
@@ -196,6 +202,10 @@ function WorkersSection() {
         onOpenChange={setShowEdit}
         title={editing ? 'Edit Worker' : 'New Worker'}
         onSave={handleSave}
+        color={W.color || '#3b82f6'}
+        icon={W.icon || '🤖'}
+        onColorChange={(color) => setW({ ...W, color })}
+        onIconChange={(icon) => setW({ ...W, icon })}
       >
         <div className="space-y-4">
           <div className="space-y-2">

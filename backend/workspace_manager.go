@@ -2,6 +2,7 @@ package backend
 
 import (
 	"ada-love-ai/pkg/logger"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -10,6 +11,11 @@ import (
 func (e *Engine) ListWorkspaces() []WorkspaceConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+	fmt.Printf("[Engine] ListWorkspaces: returning %d workspaces\n", len(e.adaCfg.Workspaces))
+	for i, ws := range e.adaCfg.Workspaces {
+		fmt.Printf("[Engine]   [%d] title=%q path=%q enabled=%v workers=%d\n",
+			i, ws.Title, ws.Path, ws.Enabled, len(ws.Workers))
+	}
 	return e.adaCfg.Workspaces
 }
 
@@ -26,17 +32,23 @@ func (e *Engine) AddWorkspace(w WorkspaceConfig) error {
 		return false
 	})
 
+	// Se path não foi definido, usar o título normalizado como path
+	if w.Path == "" {
+		w.Path = strings.ToLower(strings.ReplaceAll(w.Title, " ", "_"))
+	}
+
 	e.adaCfg.Workspaces = append(e.adaCfg.Workspaces, w)
 	e.mu.Unlock()
 	return e.SaveAdaConfig()
 }
 
-func (e *Engine) SetActiveWorkspace(title string) {
+func (e *Engine) SetActiveWorkspace(titleOrPath string) {
 	e.mu.Lock()
-	e.adaCfg.ActiveWorkspacePath = title
-
+	// Find the workspace by title or path
 	for i, w := range e.adaCfg.Workspaces {
-		if w.Path == title || w.Title == title {
+		if w.Path == titleOrPath || w.Title == titleOrPath {
+			// Set ActiveWorkspacePath to the PATH, not the title
+			e.adaCfg.ActiveWorkspacePath = w.Path
 			e.adaCfg.ActiveWorkspaceIndex = i
 			break
 		}
@@ -49,22 +61,23 @@ func (e *Engine) SetActiveWorkspace(title string) {
 
 	e.eventBus.Emit(Event{
 		Kind:    EventKindWorkspaceChanged,
-		Payload: title,
+		Payload: titleOrPath,
 		Time:    time.Now(),
 	})
 }
 
-func (e *Engine) DeleteWorkspace(title string) {
+func (e *Engine) DeleteWorkspace(titleOrPath string) {
 	e.mu.Lock()
 	var newList []WorkspaceConfig
 	for _, w := range e.adaCfg.Workspaces {
-		if w.Title == title {
+		// Aceita tanto title quanto path para compatibilidade
+		if w.Title == titleOrPath || w.Path == titleOrPath {
 			continue
 		}
 		newList = append(newList, w)
 	}
 	e.adaCfg.Workspaces = newList
-	if e.adaCfg.ActiveWorkspacePath == title {
+	if e.adaCfg.ActiveWorkspacePath == titleOrPath {
 		if len(newList) > 0 {
 			e.adaCfg.ActiveWorkspacePath = newList[0].Title
 		} else {
@@ -75,8 +88,8 @@ func (e *Engine) DeleteWorkspace(title string) {
 	e.SaveAdaConfig()
 
 	e.eventBus.Emit(Event{
-		Kind:    EventKindWorkspaceChanged,
-		Payload: e.adaCfg.ActiveWorkspacePath,
+		Kind:    EventKindWorkspaceDeleted,
+		Payload: titleOrPath,
 		Time:    time.Now(),
 	})
 }
@@ -238,8 +251,10 @@ func (e *Engine) ToggleWorkspace(title string) {
 
 func (e *Engine) UpdateWorkspace(originalTitle string, ws WorkspaceConfig) {
 	e.mu.Lock()
+	fmt.Printf("[Engine] UpdateWorkspace: originalTitle=%q newWorkers=%d newTitle=%q\n", originalTitle, len(ws.Workers), ws.Title)
 	for i, w := range e.adaCfg.Workspaces {
 		if w.Title == originalTitle {
+			fmt.Printf("[Engine] UpdateWorkspace: found at index %d, replacing with %d workers\n", i, len(ws.Workers))
 			e.adaCfg.Workspaces[i] = ws
 			break
 		}

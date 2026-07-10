@@ -1,0 +1,542 @@
+{
+  "active_workspace_path": "",
+  "active_workspace_index": 2,
+  "workspaces": [
+    {
+      "title": "Ada-Love-Ai",
+      "description": "Orquestrador e harness de ia",
+      "path": "",
+      "folders": [
+        "/home/data/aux/dev/projects/go/ada-love-ai"
+      ],
+      "personality": "",
+      "knowledge": [],
+      "workspace_agents": [],
+      "skills": [
+        "Development"
+      ],
+      "tools": [
+        "git_diff",
+        "write_file",
+        "git_push",
+        "list_dir",
+        "read_file",
+        "edit_file"
+      ],
+      "enabled": true,
+      "color": "#f6d32d",
+      "icon": "📂",
+      "max_prompt_send": 0,
+      "commit_changes": false,
+      "max_context_length": 0
+    }
+  ],
+  "tiny_brain": {
+    "model_name": "lfm-2.5-1.2b-thinking:free",
+    "provider": "openrouter",
+    "embedding_model": "",
+    "embedding_provider": ""
+  },
+  "agents": [
+    {
+      "name": "Gerenciador",
+      "persona": "Você é um gerenciador de projeto sênior especialista em Go e React. Suas regras de delegação são: 1) SEMPRE que for pedido para listar países e cidades, DELEGUE para o agente 'Pesquisador'. 2) SEMPRE que for tarefa em Golang, CHAME o agente 'Golang' e ESPERE a resposta. Não execute tarefas de codificação diretamente - delegue sempre que possível. Use a ferramenta 'spawn' para delegar tarefas específicas aos agentes especializados.",
+      "provider": "openrouter",
+      "model": "qwen/qwen3-coder:free",
+      "type": "delegator",
+      "delegates": ["Pesquisador", "Golang"],
+      "icon": "👔",
+      "color": "#3b82f6"
+    },
+    {
+      "name": "Pesquisador",
+      "persona": "Você é um pesquisador especializado em listar informações. Liste países e cidades de forma organizada e completa. Use dados atualizados quando possível.",
+      "provider": "openrouter",
+      "model": "google/gemma-3-27b-it:free",
+      "type": "researcher",
+      "icon": "🔍",
+      "color": "#10b981"
+    },
+    {
+      "name": "Golang",
+      "persona": "Você é um desenvolvedor Go sênior. Responda apenas a tarefas de desenvolvimento em Go. Seja conciso e direto. Use o modelo de código existente como referência.",
+      "provider": "openrouter",
+      "model": "qwen/qwen3-coder:free",
+      "type": "executor",
+      "icon": "⚙️",
+      "color": "#eab308"
+    }
+  ],
+  "agent_categories": [
+    "Development",
+    "Relatórios"
+  ],
+  "provider_keys": {},
+  "provider_bases": {},
+  "model_settings": {
+    "lmstudio:google/gemma-4-e4b": {
+      "context_size": 16384,
+      "temperature": 0.2,
+      "max_tokens": 16384,
+      "top_p": 0.9
+    },
+    "lmstudio:mistralai-mistral-nemo-instruct-2407-12b-mpoa-v1": {
+      "context_size": 8192,
+      "temperature": 0.2,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "lmstudio:qwen2.5-coder-14b-instruct-uncensored": {
+      "context_size": 16384,
+      "temperature": 0.3,
+      "max_tokens": 16384,
+      "top_p": 0.9
+    },
+    "lmstudio:qwen2.5-coder-32b-instruct-abliterated": {
+      "context_size": 16284,
+      "temperature": 0.2,
+      "max_tokens": 16284,
+      "top_p": 0.9
+    },
+    "lmstudio:qwen3.6-27b-uncensored-hauhaucs-aggressive": {
+      "context_size": 16384,
+      "temperature": 0.1,
+      "max_tokens": 16384,
+      "top_p": 0.9
+    },
+    "omni:combo-long-ctx": {
+      "context_size": 250000,
+      "temperature": 0.2,
+      "max_tokens": 128000,
+      "top_p": 0.9
+    },
+    "openrouter:cohere/north-mini-code:free": {
+      "context_size": 256000,
+      "temperature": 0.2,
+      "max_tokens": 128000,
+      "top_p": 0.9
+    },
+    "openrouter:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:gemma-4-26b-a4b-it:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:gemma-4-31b-it:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:gpt-oss-120b:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:gpt-oss-20b:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:laguna-m.1:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:laguna-xs.2:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:lfm-2.5-1.2b-thinking:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:llama-3.3-70b-instruct:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-3-nano-30b-a3b:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-3-super-120b-a12b:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-3-ultra-550b-a55b:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-nano-12b-v2-vl:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nemotron-nano-9b-v2:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:north-mini-code:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": {
+      "context_size": 1000000,
+      "temperature": 0.2,
+      "max_tokens": 128000,
+      "top_p": 0.9
+    },
+    "openrouter:nvidia/nemotron-3.5-content-safety:free": {
+      "context_size": 128000,
+      "temperature": 0.2,
+      "max_tokens": 128000,
+      "top_p": 0.9
+    },
+    "openrouter:qwen3-coder:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    },
+    "openrouter:qwen3-next-80b-a3b-instruct:free": {
+      "context_size": 128000,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "poolside/laguna-xs-2.1:free",
+      "provider": "OpenRouter",
+      "model": "poolside/laguna-xs-2.1:free",
+      "enabled": true
+    },
+    {
+      "model_name": "cohere/north-mini-code:free",
+      "provider": "OpenRouter",
+      "model": "cohere/north-mini-code:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-3.5-content-safety:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-3.5-content-safety:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "enabled": true
+    },
+    {
+      "model_name": "poolside/laguna-xs.2:free",
+      "provider": "OpenRouter",
+      "model": "poolside/laguna-xs.2:free",
+      "enabled": true
+    },
+    {
+      "model_name": "poolside/laguna-m.1:free",
+      "provider": "OpenRouter",
+      "model": "poolside/laguna-m.1:free",
+      "enabled": true
+    },
+    {
+      "model_name": "google/gemma-4-26b-a4b-it:free",
+      "provider": "OpenRouter",
+      "model": "google/gemma-4-26b-a4b-it:free",
+      "enabled": true
+    },
+    {
+      "model_name": "google/gemma-4-31b-it:free",
+      "provider": "OpenRouter",
+      "model": "google/gemma-4-31b-it:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "enabled": true
+    },
+    {
+      "model_name": "aion-labs/aion-2.0",
+      "provider": "OpenRouter",
+      "model": "aion-labs/aion-2.0",
+      "enabled": true
+    },
+    {
+      "model_name": "openrouter/free",
+      "provider": "OpenRouter",
+      "model": "openrouter/free",
+      "enabled": true
+    },
+    {
+      "model_name": "liquid/lfm-2.5-1.2b-instruct:free",
+      "provider": "OpenRouter",
+      "model": "liquid/lfm-2.5-1.2b-instruct:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-3-nano-30b-a3b:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-3-nano-30b-a3b:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-nano-12b-v2-vl:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-nano-12b-v2-vl:free",
+      "enabled": true
+    },
+    {
+      "model_name": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "provider": "OpenRouter",
+      "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nvidia/nemotron-nano-9b-v2:free",
+      "provider": "OpenRouter",
+      "model": "nvidia/nemotron-nano-9b-v2:free",
+      "enabled": true
+    },
+    {
+      "model_name": "openai/gpt-oss-120b:free",
+      "provider": "OpenRouter",
+      "model": "openai/gpt-oss-120b:free",
+      "enabled": true
+    },
+    {
+      "model_name": "openai/gpt-oss-20b:free",
+      "provider": "OpenRouter",
+      "model": "openai/gpt-oss-20b:free",
+      "enabled": true
+    },
+    {
+      "model_name": "qwen/qwen3-coder:free",
+      "provider": "OpenRouter",
+      "model": "qwen/qwen3-coder:free",
+      "enabled": true
+    },
+    {
+      "model_name": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+      "provider": "OpenRouter",
+      "model": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+      "enabled": true
+    },
+    {
+      "model_name": "aion-labs/aion-1.0",
+      "provider": "OpenRouter",
+      "model": "aion-labs/aion-1.0",
+      "enabled": true
+    },
+    {
+      "model_name": "aion-labs/aion-1.0-mini",
+      "provider": "OpenRouter",
+      "model": "aion-labs/aion-1.0-mini",
+      "enabled": true
+    },
+    {
+      "model_name": "aion-labs/aion-rp-llama-3.1-8b",
+      "provider": "OpenRouter",
+      "model": "aion-labs/aion-rp-llama-3.1-8b",
+      "enabled": true
+    },
+    {
+      "model_name": "meta-llama/llama-3.3-70b-instruct:free",
+      "provider": "OpenRouter",
+      "model": "meta-llama/llama-3.3-70b-instruct:free",
+      "enabled": true
+    },
+    {
+      "model_name": "meta-llama/llama-3.2-3b-instruct:free",
+      "provider": "OpenRouter",
+      "model": "meta-llama/llama-3.2-3b-instruct:free",
+      "enabled": true
+    },
+    {
+      "model_name": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "provider": "OpenRouter",
+      "model": "nousresearch/hermes-3-llama-3.1-405b:free",
+      "enabled": true
+    }
+  ],
+  "providers": {
+    "openrouter": {
+      "api_url": "https://openrouter.ai/api/v1",
+      "api_key": "",
+      "type_connection": "openai",
+      "models": {
+        "aion-labs/aion-rp-llama-3.1-8b": {
+          "type": "free"
+        },
+        "anthropic/claude-3-haiku": {
+          "type": "free",
+          "vision": true
+        },
+        "deepseek/deepseek-chat": {
+          "type": "free"
+        },
+        "deepseek/deepseek-chat-v3-0324": {
+          "type": "free"
+        },
+        "deepseek/deepseek-chat-v3.1": {
+          "type": "free"
+        },
+        "deepseek/deepseek-v3.1-terminus": {
+          "type": "free"
+        },
+        "deepseek/deepseek-v3.2": {
+          "type": "free"
+        },
+        "deepseek/deepseek-v3.2-exp": {
+          "type": "free"
+        },
+        "google/gemma-2-27b-it": {
+          "type": "free"
+        },
+        "google/gemma-3-12b-it": {
+          "type": "free",
+          "vision": true
+        },
+        "google/gemma-3-27b-it": {
+          "type": "free",
+          "vision": true
+        },
+        "google/gemma-3-4b-it": {
+          "type": "free",
+          "vision": true
+        },
+        "google/gemma-3n-e4b-it": {
+          "type": "free"
+        },
+        "meta-llama/llama-3-8b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.1-70b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.1-8b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.2-11b-vision-instruct": {
+          "type": "free",
+          "vision": true
+        },
+        "meta-llama/llama-3.2-1b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.2-3b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.2-3b-instruct:free": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.3-70b-instruct": {
+          "type": "free"
+        },
+        "meta-llama/llama-3.3-70b-instruct:free": {
+          "type": "free"
+        },
+        "meta-llama/llama-4-maverick": {
+          "type": "free",
+          "vision": true
+        },
+        "meta-llama/llama-4-scout": {
+          "type": "free",
+          "vision": true
+        },
+        "microsoft/phi-4": {
+          "type": "free"
+        },
+        "mistralai/mistral-small-24b-instruct-2501": {
+          "type": "free"
+        },
+        "mistralai/mistral-small-2603": {
+          "type": "free",
+          "vision": true
+        },
+        "mistralai/mistral-small-3.1-24b-instruct": {
+          "type": "free",
+          "vision": true
+        },
+        "mistralai/mistral-small-3.2-24b-instruct": {
+          "type": "free",
+          "vision": true
+        },
+        "nousresearch/hermes-3-llama-3.1-405b": {
+          "type": "free"
+        },
+        "nousresearch/hermes-3-llama-3.1-405b:free": {
+          "type": "free"
+        },
+        "nousresearch/hermes-3-llama-3.1-70b": {
+          "type": "free"
+        },
+        "nvidia/llama-3.3-nemotron-super-49b-v1.5": {
+          "type": "free"
+        },
+        "nvidia/llama-nemotron-embed-vl-1b-v2:free": {
+          "type": "free",
+          "embedding": true
+        },
+        "qwen/qwen-2.5-72b-instruct": {
+          "type": "free"
+        },
+        "qwen/qwen-2.5-7b-instruct": {
+          "type": "free"
+        },
+        "qwen/qwen-2.5-coder-32b-instruct": {
+          "type": "free"
+        },
+        "qwen/qwen2.5-vl-72b-instruct": {
+          "type": "free",
+          "vision": true
+        }
+      }
+    }
+  },
+  "tool_profiles": [
+    {
+      "id": 1,
+      "name": "Default",
+      "color": "#6b7280",
+      "icon": "🔧",
+      "tools": []
+    }
+  ]
+}

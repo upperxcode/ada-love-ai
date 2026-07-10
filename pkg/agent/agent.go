@@ -31,6 +31,12 @@ import (
 	"ada-love-ai/pkg/utils"
 )
 
+// SummarizerWorker interface for async chat summarization
+type SummarizerWorker interface {
+	TriggerSummarization(sessionID string)
+	BuildContextForLLM(sessionID string, workspaceID string) []providers.Message
+}
+
 type AgentLoop struct {
 	// Core dependencies
 	bus      interfaces.MessageBus
@@ -67,9 +73,13 @@ type AgentLoop struct {
 	turnSeq        atomic.Uint64
 	activeRequests sync.WaitGroup
 
-	reloadFunc func() error
+	// Summarization worker (set by backend)
+	summarizer SummarizerWorker
 
+	// Provider factory for creating providers from config
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
+	// Reload function for hot config reload
+	reloadFunc func() error
 }
 
 // processOptions configures how a message is processed
@@ -618,6 +628,11 @@ func (al *AgentLoop) RegisterToolForAllAgents(tool tools.Tool) {
 			agent.Tools.Register(tool)
 		}
 	}
+}
+
+// SetSummarizer sets the summarization worker for async chat summarization.
+func (al *AgentLoop) SetSummarizer(s SummarizerWorker) {
+	al.summarizer = s
 }
 
 // Helper to extract provider from registry for cleanup

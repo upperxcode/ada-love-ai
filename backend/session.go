@@ -18,23 +18,34 @@ type ToolCall struct {
 }
 
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Time       time.Time  `json:"time"`
+	ID        int64      `json:"id"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string    `json:"tool_call_id,omitempty"`
+	Time      time.Time  `json:"time"`
 }
 
 type ChatSession struct {
-	ID          string        `json:"id"`
-	WorkspaceID string        `json:"workspace_id"` // Vínculo com o Workspace
-	WorkerName  string        `json:"worker_name"`  // Worker vinculado ao chat
-	Title       string        `json:"title"`
-	Summary     string        `json:"summary"` // Memória de longo prazo (resumo)
-	Messages    []ChatMessage `json:"messages"`
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
-	Pinned      bool          `json:"pinned"`
+	ID                   string        `json:"id"`
+	WorkspaceID          string        `json:"workspace_id"`
+	WorkerName           string        `json:"worker_name"`
+	ParentSessionID      string        `json:"parent_session_id"`
+	Title                string        `json:"title"`
+	Summary              string        `json:"summary"`
+	// Config per-chat
+	Model                string        `json:"model"`
+	Provider             string        `json:"provider"`
+	Mode                 string        `json:"mode"`         // "ask"|"plan"|"auto"|"full"
+	Thinking             string        `json:"thinking"`     // "" ou "high"
+	// Summarization
+	SummarizedContext    string        `json:"summarized_context"`     // Resumo contínuo + últimas N Q&A
+	SummarizedAt         time.Time     `json:"summarized_at"`          // Quando foi sumarizado
+	LastSummarizedMsgID  int64         `json:"last_summarized_msg_id"` // ID da última msg incluída no resumo
+	Messages             []ChatMessage `json:"messages"`
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+	Pinned               bool          `json:"pinned"`
 }
 
 type SessionManager struct {
@@ -63,7 +74,7 @@ func (s *SessionManager) LoadSessions(sessions []*ChatSession) {
 	}
 }
 
-func (s *SessionManager) CreateSession(title string, workspaceID string, workerName string) *ChatSession {
+func (s *SessionManager) CreateSession(title string, workspaceID string, workerName string, parentSessionID string) *ChatSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -78,13 +89,14 @@ func (s *SessionManager) CreateSession(title string, workspaceID string, workerN
 
 	id := fmt.Sprintf("session_%d", time.Now().UnixNano())
 	session := &ChatSession{
-		ID:          id,
-		WorkspaceID: workspaceID,
-		WorkerName:  workerName,
-		Title:       uniqueTitle,
-		Messages:    []ChatMessage{},
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:              id,
+		WorkspaceID:     workspaceID,
+		WorkerName:      workerName,
+		ParentSessionID: parentSessionID,
+		Title:           uniqueTitle,
+		Messages:        []ChatMessage{},
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	s.sessions[id] = session
 	s.activeID = id
@@ -101,6 +113,16 @@ func (s *SessionManager) GetActiveSession() *ChatSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sessions[s.activeID]
+}
+
+// LoadSession inserts a session from DB into SessionMgr.
+func (s *SessionManager) LoadSession(sess *ChatSession) {
+	if sess == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[sess.ID] = sess
 }
 
 func (s *SessionManager) GetSession(id string) *ChatSession {
@@ -241,5 +263,13 @@ func (s *SessionManager) ClearMessages(id string, keepLast int) {
 		if len(sess.Messages) > keepLast {
 			sess.Messages = sess.Messages[len(sess.Messages)-keepLast:]
 		}
+	}
+}
+
+func (s *SessionManager) RemoveLastMessage(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok && len(sess.Messages) > 0 {
+		sess.Messages = sess.Messages[:len(sess.Messages)-1]
 	}
 }

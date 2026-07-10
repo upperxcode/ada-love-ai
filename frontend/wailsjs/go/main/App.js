@@ -34,6 +34,10 @@ export function CreateToolProfile(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateToolProfile'](arg1, arg2, arg3);
 }
 
+export function DeleteDBProvider(arg1) {
+  return window['go']['main']['App']['DeleteDBProvider'](arg1);
+}
+
 export function DeleteSession(arg1) {
   return window['go']['main']['App']['DeleteSession'](arg1);
 }
@@ -138,6 +142,10 @@ export function ListChatProviders() {
   return window['go']['main']['App']['ListChatProviders']();
 }
 
+export function ListCommands() {
+  return window['go']['main']['App']['ListCommands']();
+}
+
 export function OpenDirectoryDialog() {
   return window['go']['main']['App']['OpenDirectoryDialog']();
 }
@@ -162,8 +170,16 @@ export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }
 
+export function RetryMessage(arg1, arg2) {
+  return window['go']['main']['App']['RetryMessage'](arg1, arg2);
+}
+
 export function SaveCustomSkill(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SaveCustomSkill'](arg1, arg2, arg3, arg4);
+}
+
+export function SaveDBProvider(arg1, arg2) {
+  return window['go']['main']['App']['SaveDBProvider'](arg1, arg2);
 }
 
 export function SaveProvidersConfig() {
@@ -192,6 +208,10 @@ export function SetAgentCategories(arg1) {
 
 export function SetAgents(arg1) {
   return window['go']['main']['App']['SetAgents'](arg1);
+}
+
+export function SetSessionConfig(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SetSessionConfig'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SetWorkerCategories(arg1) {

@@ -30,6 +30,28 @@ func (m *legacyContextManager) Assemble(_ context.Context, req *AssembleRequest)
 	}
 	history := agent.Sessions.GetHistory(req.SessionKey)
 	summary := agent.Sessions.GetSummary(req.SessionKey)
+
+	// Use backend summarizer if available (provides summarized context + last N Q&A)
+	if m.al.summarizer != nil && req.SessionKey != "" {
+		// SessionKey format is "ada:sessionID"
+		sessionID := strings.TrimPrefix(req.SessionKey, "ada:")
+		if ctxMsgs := m.al.summarizer.BuildContextForLLM(sessionID, ""); len(ctxMsgs) > 0 {
+			// Extract summary from system messages
+			var combinedSummary strings.Builder
+			for _, m := range ctxMsgs {
+				if m.Role == "system" && strings.HasPrefix(m.Content, "Contexto da conversa (resumo):") {
+					combinedSummary.WriteString(m.Content)
+					combinedSummary.WriteString("\n\n")
+				}
+			}
+			if combinedSummary.Len() > 0 {
+				summary = combinedSummary.String()
+			}
+			// Use the full context messages as history (they include summary + recent messages)
+			history = ctxMsgs
+		}
+	}
+
 	return &AssembleResponse{
 		History: history,
 		Summary: summary,

@@ -36,13 +36,17 @@ declare global {
           ): Promise<backend.ChatSession>;
           GetSessions(workspaceID: string): Promise<backend.ChatSession[]>;
           DeleteSession(id: string): Promise<void>;
-          RenameSession(id: string, newTitle: string): Promise<void>;
+          RenameSession(id: string, newTitle: string): Promise<backend.ChatSession | null>;
           SendMessage(
             sessionID: string,
             text: string,
             modelOverride: string,
             thinkingLevel: string,
             mode: string,
+          ): Promise<string>;
+          RetryMessage(
+            sessionID: string,
+            text: string,
           ): Promise<string>;
           AnswerQuestion(sessionID: string, answer: string): Promise<void>;
           AnswerApproval(
@@ -52,6 +56,7 @@ declare global {
           ): Promise<void>;
           StopGeneration(sessionID: string): Promise<void>;
           TogglePin(sessionID: string): Promise<void>;
+          SetSessionConfig(sessionID: string, model: string, provider: string, mode: string, thinking: string): Promise<void>;
           GetToolProfiles(): Promise<backend.ToolProfile[]>;
           CreateToolProfile(
             name: string,
@@ -66,6 +71,8 @@ declare global {
           ): Promise<boolean>;
           GetProvidersConfig(): Promise<Record<string, backend.ProviderConfig>>;
           SaveProvidersConfig(): Promise<void>;
+          SaveDBProvider(name: string, cfg: backend.ProviderConfig): Promise<void>;
+          DeleteDBProvider(name: string): Promise<void>;
           GetWorkspaces(): Promise<backend.WorkspaceConfig[]>;
           SetWorkspaces(workspaces: backend.WorkspaceConfig[]): Promise<void>;
           AddWorkspace(
@@ -108,6 +115,7 @@ declare global {
           UninstallSkill(name: string): Promise<void>;
           GetSkillDetails(name: string): Promise<string>;
           GetSkillFullInfo(name: string): Promise<backend.SkillFullInfo | null>;
+          ListCommands(): Promise<backend.CommandInfo[]>;
           SaveCustomSkill(
             name: string,
             description: string,
@@ -136,6 +144,8 @@ export namespace backend {
   }
 
   export class ProviderConfig {
+    icon: string = '';
+    color: string = '';
     api_url: string = '';
     api_keys: ProviderApiKey[] = [];
     type_connection: string = '';
@@ -143,6 +153,8 @@ export namespace backend {
 
     constructor(source: any = {}) {
       if (typeof source === 'string') source = JSON.parse(source);
+      this.icon = source['icon'] ?? '';
+      this.color = source['color'] ?? '';
       this.api_url = source['api_url'] ?? '';
       // Handle both old string[] api_keys and new { key, user_key }[]
       if (source['api_keys']) {
@@ -258,8 +270,13 @@ export namespace backend {
     id: string = '';
     workspace_id: string = '';
     worker_name: string = '';
+    parent_session_id: string = '';
     title: string = '';
     summary: string = '';
+    model: string = '';
+    provider: string = '';
+    mode: string = 'ask';
+    thinking: string = '';
     messages: ChatMessage[] = [];
     created_at: string = '';
     updated_at: string = '';
@@ -270,8 +287,13 @@ export namespace backend {
       this.id = source['id'] ?? '';
       this.workspace_id = source['workspace_id'] ?? '';
       this.worker_name = source['worker_name'] ?? '';
+      this.parent_session_id = source['parent_session_id'] ?? '';
       this.title = source['title'] ?? '';
       this.summary = source['summary'] ?? '';
+      this.model = source['model'] ?? '';
+      this.provider = source['provider'] ?? '';
+      this.mode = source['mode'] ?? 'ask';
+      this.thinking = source['thinking'] ?? '';
       this.messages = (source['messages'] ?? []).map(
         (m: any) => new ChatMessage(m),
       );
@@ -369,6 +391,8 @@ export namespace backend {
     name: string = '';
     persona: string = '';
     language: string = ''; // idioma de resposta ao usuário
+    icon: string = '';
+    color: string = '';
     // Conexão (binding)
     connection_type: string = 'ada'; // "ada", "cli", "rest", "mcp"
     connection_name: string = 'Ada'; // nome do preset
@@ -385,6 +409,8 @@ export namespace backend {
       this.name = source['name'] ?? '';
       this.persona = source['persona'] ?? '';
       this.language = source['language'] ?? '';
+      this.icon = source['icon'] ?? '';
+      this.color = source['color'] ?? '';
       this.connection_type = source['connection_type'] ?? 'ada';
       this.connection_name = source['connection_name'] ?? 'Ada';
       this.connection_config = source['connection_config'] ?? '';
@@ -585,7 +611,6 @@ export namespace backend {
     worker_categories: string[] = [];
     agents: AgentConfig[] = [];
     agent_categories: string[] = [];
-    tools: any = {}; // MCP servers config (config.json tools section)
     provider_keys: Record<string, string> = {};
     provider_bases: Record<string, string> = {};
     model_settings: Record<string, any> = {};
@@ -597,6 +622,7 @@ export namespace backend {
     image_provider: string = '';
     spec_model: string = '';
     spec_provider: string = '';
+    mcp_servers: Record<string, MCPServerUI> = {};
 
     constructor(source: any = {}) {
       if (typeof source === 'string') source = JSON.parse(source);
@@ -614,7 +640,6 @@ export namespace backend {
         (a: any) => new AgentConfig(a),
       );
       this.agent_categories = source['agent_categories'] ?? [];
-      this.tools = source['tools'] ?? {};
       this.provider_keys = source['provider_keys'] ?? {};
       this.provider_bases = source['provider_bases'] ?? {};
       this.model_settings = source['model_settings'] ?? {};
@@ -626,7 +651,32 @@ export namespace backend {
       this.image_provider = source['image_provider'] ?? '';
       this.spec_model = source['spec_model'] ?? '';
       this.spec_provider = source['spec_provider'] ?? '';
+      this.mcp_servers = source['mcp_servers'] ?? {};
     }
+  }
+
+  export interface SubCommandInfo {
+    name: string;
+    description: string;
+    args_usage: string;
+  }
+
+  export interface CommandInfo {
+    name: string;
+    description: string;
+    usage: string;
+    aliases: string[];
+    sub_commands: SubCommandInfo[];
+  }
+
+  export interface MCPServerUI {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    url: string;
+    enabled: boolean;
+    icon: string;
+    color: string;
   }
 }
 
@@ -713,6 +763,22 @@ export async function saveProvidersConfig(): Promise<void> {
   if (!app) return;
   try {
     await app.SaveProvidersConfig();
+  } catch {}
+}
+
+export async function saveDBProvider(name: string, cfg: backend.ProviderConfig): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SaveDBProvider(name, cfg);
+  } catch {}
+}
+
+export async function deleteDBProvider(name: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.DeleteDBProvider(name);
   } catch {}
 }
 
@@ -945,8 +1011,11 @@ export async function updateWorkspace(
   const app = getApp();
   if (!app) return;
   try {
+    console.log(`[api] updateWorkspace: originalPath="${originalPath}" workers=${JSON.stringify((ws as any).workers ?? (ws as any).workspace_agents)?.substring(0, 100)}`);
     await app.UpdateWorkspace(originalPath, ws);
-  } catch {}
+  } catch (e) {
+    console.error('[api] updateWorkspace error:', e);
+  }
 }
 
 export async function setActiveWorkspace(path: string): Promise<void> {
@@ -1016,12 +1085,18 @@ export async function deleteSession(id: string): Promise<void> {
 export async function renameSession(
   id: string,
   newTitle: string,
-): Promise<void> {
+): Promise<backend.ChatSession | null> {
   const app = getApp();
-  if (!app) return;
+  if (!app) return null;
   try {
-    await app.RenameSession(id, newTitle);
-  } catch {}
+    const result = await app.RenameSession(id, newTitle);
+    if (result) {
+      return new backend.ChatSession(result);
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function togglePinSession(id: string): Promise<void> {
@@ -1029,6 +1104,21 @@ export async function togglePinSession(id: string): Promise<void> {
   if (!app) return;
   try {
     await app.TogglePin(id);
+  } catch {}
+}
+
+export async function setSessionConfig(
+  sessionId: string,
+  model: string,
+  provider: string,
+  mode: string,
+  thinking: string,
+): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    console.log(`[api] setSessionConfig: session=${sessionId} model=${model} provider=${provider} mode=${mode} thinking=${thinking}`);
+    await app.SetSessionConfig(sessionId, model, provider, mode, thinking);
   } catch {}
 }
 
@@ -1042,22 +1132,22 @@ export async function sendMessage(
   const app = getApp();
   if (!app) return '';
   try {
-    console.log('[api.sendMessage]', {
-      sessionID,
-      modelOverride,
-      thinkingLevel,
-      mode,
-      text: text.substring(0, 50),
-    });
-    return await app.SendMessage(
-      sessionID,
-      text,
-      modelOverride,
-      thinkingLevel,
-      mode,
-    );
-  } catch {
-    return '';
+    return await app.SendMessage(sessionID, text, modelOverride, thinkingLevel, mode);
+  } catch (e) {
+    throw e;
+  }
+}
+
+export async function retryMessage(
+  sessionID: string,
+  text: string,
+): Promise<string> {
+  const app = getApp();
+  if (!app) return '';
+  try {
+    return await app.RetryMessage(sessionID, text);
+  } catch (e) {
+    throw e;
   }
 }
 
@@ -1072,7 +1162,8 @@ export function onChatEvent(
     | 'chat:status'
     | 'chat:question'
     | 'chat:questionAnswered'
-    | 'chat:toolApproval',
+    | 'chat:toolApproval'
+    | 'chat:cleared',
   callback: (payload: any) => void,
 ): () => void {
   const runtime = (window as any).runtime;
@@ -1089,7 +1180,8 @@ export function offChatEvent(
     | 'chat:status'
     | 'chat:question'
     | 'chat:questionAnswered'
-    | 'chat:toolApproval',
+    | 'chat:toolApproval'
+    | 'chat:cleared',
 ): void {
   const runtime = (window as any).runtime;
   if (!runtime?.EventsOff) return;
@@ -1303,4 +1395,16 @@ export async function saveCustomSkill(
   try {
     await app.SaveCustomSkill(name, description, tagsCSV, content);
   } catch {}
+}
+
+// --- Slash Commands ---
+
+export async function listCommands(): Promise<backend.CommandInfo[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return (await app.ListCommands()) ?? [];
+  } catch {
+    return [];
+  }
 }

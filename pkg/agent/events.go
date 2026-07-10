@@ -247,6 +247,7 @@ type SubTurnSpawnPayload struct {
 // SubTurnEndPayload describes the completion of a child turn.
 type SubTurnEndPayload struct {
 	AgentID string
+	Label   string
 	Status  string
 }
 

@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"ada-love-ai/pkg/bus"
@@ -36,7 +37,18 @@ func (al *AgentLoop) buildContinuationTarget(msg bus.InboundMessage) (*continuat
 func (al *AgentLoop) ProcessDirect(
 	ctx context.Context,
 	content, sessionKey string,
-) (string, error) {
+) (result string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 16384)
+			n := runtime.Stack(buf, false)
+			log := fmt.Sprintf("[Agent.ProcessDirect] PANIC RECOVERED: %v\n%s\n", r, buf[:n])
+			fmt.Print(log)
+			writeAgentPanicLog(log)
+			result = ""
+			retErr = fmt.Errorf("internal panic: %v", r)
+		}
+	}()
 	// Log what overrides exist in the context
 	if overrideModel := bus.GetOverride(ctx, bus.OverrideModelKey); overrideModel != "" {
 		fmt.Printf("[Agent.ProcessDirect] Model override found in context: %q\n", overrideModel)
@@ -46,10 +58,30 @@ func (al *AgentLoop) ProcessDirect(
 	return al.ProcessDirectWithChannel(ctx, content, sessionKey, "cli", "direct")
 }
 
+// ClearSession clears the agent context manager for the given session key
+// without going through the full pipeline (no context assembly, no LLM call).
+func (al *AgentLoop) ClearSession(ctx context.Context, sessionKey string) error {
+	if al.contextManager == nil {
+		return nil
+	}
+	return al.contextManager.Clear(ctx, sessionKey)
+}
+
 func (al *AgentLoop) ProcessDirectWithChannel(
 	ctx context.Context,
 	content, sessionKey, channel, chatID string,
-) (string, error) {
+) (result string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 16384)
+			n := runtime.Stack(buf, false)
+			log := fmt.Sprintf("[Agent.ProcessDirectWithChannel] PANIC RECOVERED: %v\n%s\n", r, buf[:n])
+			fmt.Print(log)
+			writeAgentPanicLog(log)
+			result = ""
+			retErr = fmt.Errorf("internal panic: %v", r)
+		}
+	}()
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return "", err
 	}

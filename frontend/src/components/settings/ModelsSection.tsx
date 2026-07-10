@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
@@ -21,19 +21,40 @@ import { EditDialog } from '../EditDialog';
 import { Icon } from '../Icon';
 import * as api from '../../api';
 
+// Providers conhecidos com URLs padrão (usados como fallback/sugestões)
 const knownApiUrls = [
-  { name: 'OpenAI', url: 'https://api.openai.com/v1' },
+  { name: 'OpenAI', url: 'https://api.openai.com/v1', type: 'openai' },
   {
     name: 'Cloudflare',
     url: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
+    type: 'cloudflare',
   },
-  { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
-  { name: 'Anthropic', url: 'https://api.anthropic.com/v1' },
+  { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', type: 'openrouter' },
+  { name: 'Anthropic', url: 'https://api.anthropic.com/v1', type: 'anthropic' },
   {
     name: 'Google Gemini',
     url: 'https://generativelanguage.googleapis.com/v1beta',
+    type: 'gemini',
   },
-  { name: 'Ollama', url: 'http://localhost:11434/v1' },
+  { name: 'Ollama', url: 'http://localhost:11434/v1', type: 'ollama' },
+  { name: 'LM Studio', url: 'http://localhost:1234/v1', type: 'lmstudio' },
+  { name: 'DeepSeek', url: 'https://api.deepseek.com/v1', type: 'deepseek' },
+  { name: 'Groq', url: 'https://api.groq.com/v1', type: 'groq' },
+  { name: 'Together AI', url: 'https://api.together.xyz/v1', type: 'together' },
+];
+
+// Tipos de conexão disponíveis (baseado no backend)
+const knownConnectionTypes = [
+  { value: 'openai', label: 'OpenAI Compatible' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'gemini', label: 'Google Gemini' },
+  { value: 'ollama', label: 'Ollama' },
+  { value: 'lmstudio', label: 'LM Studio' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'groq', label: 'Groq' },
+  { value: 'together', label: 'Together AI' },
+  { value: 'custom', label: 'Custom' },
 ];
 
 function ModelsSection() {
@@ -60,6 +81,8 @@ function ModelsSection() {
   });
   const [providerForm, setProviderForm] = useState({
     name: '',
+    icon: '',
+    color: '',
     api_url: '',
     api_keys: [] as api.backend.ProviderApiKey[],
     type_connection: '',
@@ -146,6 +169,8 @@ function ModelsSection() {
     setEditingProvider({ name, config });
     setProviderForm({
       name,
+      icon: config.icon || '',
+      color: config.color || '',
       api_url: config.api_url,
       api_keys: config.api_keys || [],
       type_connection: config.type_connection,
@@ -270,22 +295,27 @@ function ModelsSection() {
   const handleSaveProvider = async () => {
     if (!adaConfig || !providerForm.name) return;
 
-    // Create a proper AdaConfig instance
+    const providerCfg = new api.backend.ProviderConfig({
+      icon: providerForm.icon || '',
+      color: providerForm.color || '',
+      api_url: providerForm.api_url,
+      api_keys: providerForm.api_keys.filter((k) => k.key.trim() !== ''),
+      type_connection: providerForm.type_connection,
+      models: providerForm.models,
+    });
+
+    // Update local state
     const newConfig = new api.backend.AdaConfig({
       ...adaConfig,
       providers: {
         ...(adaConfig.providers || {}),
-        [providerForm.name]: new api.backend.ProviderConfig({
-          api_url: providerForm.api_url,
-          api_keys: providerForm.api_keys.filter((k) => k.key.trim() !== ''),
-          type_connection: providerForm.type_connection,
-          models: providerForm.models,
-        }),
+        [providerForm.name]: providerCfg,
       },
     });
-
     setAdaConfig(newConfig);
-    await api.setAdaConfig(newConfig);
+
+    // Save to DB (single provider)
+    await api.saveDBProvider(providerForm.name, providerCfg);
     setShowProviderDialog(false);
     setEditingProvider(null);
   };
@@ -293,7 +323,6 @@ function ModelsSection() {
   const handleDeleteProvider = async (name: string) => {
     if (!adaConfig) return;
 
-    // Create proper AdaConfig instance
     const newProviders = { ...(adaConfig.providers || {}) };
     delete newProviders[name];
 
@@ -301,9 +330,10 @@ function ModelsSection() {
       ...adaConfig,
       providers: newProviders,
     });
-
     setAdaConfig(newConfig);
-    await api.setAdaConfig(newConfig);
+
+    // Remove from DB
+    await api.deleteDBProvider(name);
   };
 
   // Modelos disponíveis para os selects de Embedding/Image, derivados dos
@@ -582,6 +612,8 @@ function ModelsSection() {
               setEditingProvider(null);
               setProviderForm({
                 name: '',
+                icon: '🔌',
+                color: '#6b7280',
                 api_url: '',
                 api_keys: [],
                 type_connection: '',
@@ -600,7 +632,7 @@ function ModelsSection() {
             Object.entries(adaConfig.providers || {}).map(([name, config]) => (
               <BaseCard
                 key={name}
-                color="#6b7280"
+                color={config.color || '#6b7280'}
                 headerLeft={
                   <span className="text-xs text-white opacity-90">
                     Provider
@@ -622,7 +654,7 @@ function ModelsSection() {
                     </button>
                   </div>
                 }
-                icon="🔌"
+                icon={config.icon || '🔌'}
                 title={name}
                 small
               >
@@ -639,6 +671,10 @@ function ModelsSection() {
         onOpenChange={setShowProviderDialog}
         title={editingProvider ? 'Edit Provider' : 'New Provider'}
         onSave={handleSaveProvider}
+        color={providerForm.color || '#6b7280'}
+        icon={providerForm.icon || '🔌'}
+        onColorChange={(color) => setProviderForm({ ...providerForm, color })}
+        onIconChange={(icon) => setProviderForm({ ...providerForm, icon })}
       >
         <div className="space-y-4">
           <div className="space-y-2">
@@ -1045,9 +1081,11 @@ function ModelsSection() {
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="openai">OpenAI Compatible</SelectItem>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-                <SelectItem value="gemini">Google Gemini</SelectItem>
+                {knownConnectionTypes.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

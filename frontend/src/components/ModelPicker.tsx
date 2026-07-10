@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from './Icon';
 import {
@@ -28,7 +28,11 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [models, setModels] = useState<ModelEntry[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string>(
+    selectedModel ? selectedModel.split('/')[0] : '',
+  );
+  const [providerOpen, setProviderOpen] = useState(false);
+  const providerRef = useRef<HTMLDivElement>(null);
   const { getScore } = useModelHealth();
 
   useEffect(() => {
@@ -37,22 +41,42 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
       try {
         const config = await (window as any).go?.main?.App?.GetAdaConfig?.();
         if (!config) return;
+        const entries: ModelEntry[] = [];
+
+        // 1. Models from model_list
         const list: any[] = config.model_list ?? [];
-        const entries: ModelEntry[] = list
-          .filter((m: any) => m.enabled ?? true)
-          .map((m: any) => {
-            const provider = m.provider ?? 'local';
-            const modelName = m.model_name ?? m.model ?? '';
-            const key = `${provider}/${modelName}`;
-            return {
-              key,
-              provider,
-              modelName,
-              displayName: m.model_name ?? m.model ?? key,
-            };
-          })
-          .filter((e: ModelEntry) => e.modelName);
+        for (const m of list) {
+          if (m.enabled === false) continue;
+          const provider = m.provider ?? 'local';
+          const modelName = m.model_name ?? m.model ?? '';
+          if (!modelName) continue;
+          const key = `${provider}/${modelName}`;
+          entries.push({ key, provider, modelName, displayName: modelName });
+        }
+
+        // 2. Models from providers config
+        const providers: Record<string, any> = config.providers ?? {};
+        for (const [providerName, providerCfg] of Object.entries(providers)) {
+          const providerModels = providerCfg.models ?? {};
+          for (const modelName of Object.keys(providerModels)) {
+            const key = `${providerName}/${modelName}`;
+            // Avoid duplicates with model_list
+            if (!entries.some((e) => e.key === key)) {
+              entries.push({ key, provider: providerName, modelName, displayName: modelName });
+            }
+          }
+        }
+
         setModels(entries);
+
+        // Derive provider from current selection if not already set
+        const providerFromSelection = selectedModel ? selectedModel.split('/')[0] : '';
+        if (providerFromSelection) {
+          setSelectedProvider(providerFromSelection);
+        } else if (entries.length > 0) {
+          const providersSet = Array.from(new Set(entries.map((e) => e.provider))).sort();
+          setSelectedProvider(providersSet[0]);
+        }
       } catch {}
     })();
   }, [open]);
@@ -61,6 +85,18 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
     const set = new Set(models.map((m) => m.provider));
     return Array.from(set).sort();
   }, [models]);
+
+  // Close provider dropdown on outside click
+  useEffect(() => {
+    if (!providerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (providerRef.current && !providerRef.current.contains(e.target as Node)) {
+        setProviderOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [providerOpen]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -71,6 +107,17 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
     });
   }, [models, query, selectedProvider]);
 
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to the active model when list loads or provider changes
+  useEffect(() => {
+    if (!open || !selectedModel || !listRef.current || filtered.length === 0) return;
+    const activeIndex = filtered.findIndex((m) => m.key === selectedModel);
+    if (activeIndex < 0) return;
+    const el = listRef.current.children[activeIndex] as HTMLElement;
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }, [open, selectedModel, filtered]);
+
   const displayLabel = selectedModel
     ? models.find((m) => m.key === selectedModel)?.displayName ?? selectedModel
     : 'Modelo';
@@ -80,7 +127,7 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
     : '';
 
   return (
-    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setQuery(''); setSelectedProvider(null); } }}>
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setQuery(''); } }}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -107,9 +154,49 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="w-72 p-0" align="start" side="top">
+      <PopoverContent className="w-80 p-0" align="start" side="top">
+        {/* Provider select (custom dropdown to avoid Portal conflict with Popover) */}
+        <div className="p-2 border-b border-border" ref={providerRef}>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setProviderOpen(!providerOpen)}
+              className="w-full flex items-center justify-between h-8 px-2.5 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-xs font-medium"
+            >
+              <span>{selectedProvider || 'Select a provider'}</span>
+              <Icon name="ChevronDown" className={cn('w-3 h-3 transition-transform', providerOpen && 'rotate-180')} />
+            </button>
+            {providerOpen && (
+              <div className="absolute top-full left-0 right-0 z-10 mt-1 rounded-md border border-border bg-background shadow-md max-h-40 overflow-y-auto">
+                {providers.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={cn(
+                      'w-full flex items-center px-2.5 py-1.5 text-xs text-left transition-colors',
+                      selectedProvider === p
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/80 hover:bg-muted',
+                    )}
+                    onClick={() => {
+                      setSelectedProvider(p);
+                      setQuery('');
+                      setProviderOpen(false);
+                    }}
+                  >
+                    {p}
+                    {selectedProvider === p && (
+                      <Icon name="Check" className="w-3 h-3 ml-auto shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Search */}
-        <div className="p-2 border-b border-border">
+        <div className="px-2 pb-2 border-b border-border">
           <div className="relative">
             <Icon
               name="Search"
@@ -125,44 +212,11 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
           </div>
         </div>
 
-        {/* Provider filter chips */}
-        {providers.length > 1 && (
-          <div className="flex flex-wrap gap-1 p-2 border-b border-border">
-            <button
-              type="button"
-              onClick={() => setSelectedProvider(null)}
-              className={cn(
-                'px-2 py-0.5 rounded text-[10px] transition-colors',
-                selectedProvider === null
-                  ? 'bg-accent text-accent-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              Todos
-            </button>
-            {providers.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setSelectedProvider(selectedProvider === p ? null : p)}
-                className={cn(
-                  'px-2 py-0.5 rounded text-[10px] transition-colors',
-                  selectedProvider === p
-                    ? 'bg-accent text-accent-foreground'
-                    : 'bg-muted text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Model list */}
-        <div className="max-h-56 overflow-y-auto">
+        <div className="max-h-56 overflow-y-auto" ref={listRef}>
           {filtered.length === 0 ? (
             <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
-              Nenhum modelo encontrado.
+              Nenhum modelo encontrado para este provider.
             </div>
           ) : (
             filtered.map((model) => {
@@ -187,10 +241,7 @@ export function ModelPicker({ selectedModel, onSelect, disabled }: ModelPickerPr
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{ backgroundColor: getHealthColor(score) }}
                   />
-                  <span className="truncate">
-                    <span className="text-muted-foreground">{model.provider}/</span>
-                    {model.displayName}
-                  </span>
+                  <span className="truncate">{model.displayName}</span>
                   {active && (
                     <Icon name="Check" className="w-3 h-3 shrink-0 ml-auto" />
                   )}

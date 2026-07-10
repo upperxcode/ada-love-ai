@@ -31,33 +31,73 @@ func (h *FrontendApprovalHook) ApproveTool(ctx context.Context, req *agent.ToolA
 		return agent.ApprovalDecision{Approved: true}, nil
 	}
 
-	// Read-only tools pass through without approval
+	// Resolve session ID
+	sessionID := h.registry.ResolveSessionKey(req.Meta.SessionKey)
+
+	// Check if this is a read-only tool that was already approved in this session
 	if integration.IsReadOnlyTool(req.Tool) {
-		return agent.ApprovalDecision{Approved: true}, nil
+		if h.registry.IsCachedApproval(sessionID, req.Tool) {
+			return agent.ApprovalDecision{Approved: true, Reason: "Read tool previously approved"}, nil
+		}
 	}
 
+	// Check if this is a write tool and write permission was granted for this iteration
+	if integration.GetToolCategory(req.Tool) == integration.ToolCategoryWrite {
+		if h.registry.IsWriteToolApproved(sessionID) {
+			return agent.ApprovalDecision{Approved: true, Reason: "Write permission granted for this iteration"}, nil
+		}
+	}
+
+	// Read-only tools that haven't been approved yet - ask user
+	if integration.IsReadOnlyTool(req.Tool) {
+		requestID := integration.GenerateApprovalID()
+		approvalReq := integration.ApprovalRequest{
+			ID:        requestID,
+			SessionID: sessionID,
+			Tool:      req.Tool,
+			Args:      integration.FormatArgs(req.Arguments),
+		}
+
+		decision, ok := h.registry.WaitForApproval(ctx.Done(), approvalReq, h.timeout)
+		if !ok {
+			return agent.ApprovalDecision{Approved: false, Reason: "User did not respond in time"}, nil
+		}
+		
+		// Cache the approval for this read tool
+		if decision.Approved {
+			h.registry.CacheApproval(sessionID, req.Tool)
+		}
+		
+		return agent.ApprovalDecision{Approved: decision.Approved, Reason: decision.Reason}, nil
+	}
+
+	// Write tools - ask user about writing to file
 	requestID := integration.GenerateApprovalID()
-	sessionID := h.registry.ResolveSessionKey(req.Meta.SessionKey)
+	
+	// Build a more descriptive message for write tools
+	toolDesc := req.Tool
+	if req.Tool == "write_file" {
+		toolDesc = "write_file"
+	} else if req.Tool == "edit_file" {
+		toolDesc = "edit_file"
+	}
 
 	approvalReq := integration.ApprovalRequest{
 		ID:        requestID,
 		SessionID: sessionID,
-		Tool:      req.Tool,
+		Tool:      toolDesc,
 		Args:      integration.FormatArgs(req.Arguments),
 	}
 
-	// We use ctx.Done() as the interrupt channel; HardAbort cancels the turn context.
 	decision, ok := h.registry.WaitForApproval(ctx.Done(), approvalReq, h.timeout)
 	if !ok {
 		return agent.ApprovalDecision{Approved: false, Reason: "User did not respond in time"}, nil
 	}
-	return agent.ApprovalDecision{Approved: decision.Approved, Reason: decision.Reason}, nil
-}
-
-// sessionKeyToID strips the "ada:" prefix from a session key.
-func sessionKeyToID(key string) string {
-	if len(key) > 4 && key[:4] == "ada:" {
-		return key[4:]
+	
+	// If approved, cache write permission for this iteration
+	if decision.Approved {
+		h.registry.CacheWriteApproval(sessionID)
 	}
-	return key
+	
+	return agent.ApprovalDecision{Approved: decision.Approved, Reason: decision.Reason}, nil
 }

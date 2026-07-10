@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"sync"
 
 	"ada-love-ai/pkg/agent/interfaces"
@@ -87,20 +88,26 @@ func (r *AgentRegistry) ListAgentIDs() []string {
 func (r *AgentRegistry) CanSpawnSubagent(parentAgentID, targetAgentID string) bool {
 	parent, ok := r.GetAgent(parentAgentID)
 	if !ok {
+		fmt.Printf("[AgentRegistry] CanSpawnSubagent: parent %q NOT FOUND\n", parentAgentID)
 		return false
 	}
 	if parent.Subagents == nil || parent.Subagents.AllowAgents == nil {
+		fmt.Printf("[AgentRegistry] CanSpawnSubagent: parent %q has no allowed agents configured\n", parentAgentID)
 		return false
 	}
 	targetNorm := routing.NormalizeAgentID(targetAgentID)
 	for _, allowed := range parent.Subagents.AllowAgents {
 		if allowed == "*" {
+			fmt.Printf("[AgentRegistry] CanSpawnSubagent: parent %q ALLOWED to spawn %q (wildcard)\n", parentAgentID, targetAgentID)
 			return true
 		}
 		if routing.NormalizeAgentID(allowed) == targetNorm {
+			fmt.Printf("[AgentRegistry] CanSpawnSubagent: parent %q ALLOWED to spawn %q\n", parentAgentID, targetAgentID)
 			return true
 		}
 	}
+	fmt.Printf("[AgentRegistry] CanSpawnSubagent: parent %q DENIED spawning %q (allowed=%v)\n",
+		parentAgentID, targetAgentID, parent.Subagents.AllowAgents)
 	return false
 }
 

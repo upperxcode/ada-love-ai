@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -595,4 +596,13 @@ func extractProvider(registry *AgentRegistry) (providers.LLMProvider, bool) {
 		return nil, false
 	}
 	return defaultAgent.Provider, true
+}
+
+func writeAgentPanicLog(log string) {
+	f, err := os.OpenFile("/tmp/ada-panic.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.WriteString(log)
+	f.Close()
 }

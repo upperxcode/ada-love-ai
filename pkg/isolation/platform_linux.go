@@ -23,7 +23,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		hint := bwrapInstallHint()
-		disableHint := `set "isolation.enabled": false in config.json`
+		disableHint := `set "isolation.enabled": false in Settings > General`
 		logger.WarnCF("isolation", "bubblewrap is required for Linux isolation",
 			map[string]any{
 				"binary":            "bwrap",

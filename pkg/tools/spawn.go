@@ -118,34 +118,41 @@ Task: %s`,
 		)
 	}
 
-	// Use spawner if available (direct SpawnSubTurn call)
-	if t.spawner != nil {
-		// Launch async sub-turn in goroutine
-		go func() {
-			result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
-				Model:        t.defaultModel,
-				Tools:        nil, // Will inherit from parent via context
-				SystemPrompt: systemPrompt,
-				MaxTokens:    t.maxTokens,
-				Temperature:  t.temperature,
-				Async:        true, // Async execution
-			})
-			if err != nil {
-				result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
-			}
+// Use spawner if available (direct SpawnSubTurn call)
+		if t.spawner != nil {
+			// Launch async sub-turn in goroutine
+			go func() {
+				// Use target agent's model if specified
+				modelToUse := t.defaultModel
+				if agentID != "" {
+					// The spawner will resolve the correct model from the target agent
+					// We pass agentID so the spawner can look it up
+				}
+				result, err := t.spawner.SpawnSubTurn(ctx, SubTurnConfig{
+					Model:        modelToUse,
+					Tools:        nil, // Will inherit from parent via context
+					SystemPrompt: systemPrompt,
+					MaxTokens:    t.maxTokens,
+					Temperature:  t.temperature,
+					Async:        true, // Async execution
+					AgentID:      agentID, // Pass target agent ID for model resolution
+				})
+				if err != nil {
+					result = ErrorResult(fmt.Sprintf("Spawn failed: %v", err)).WithError(err)
+				}
 
-			// Call callback if provided
-			if cb != nil {
-				cb(ctx, result)
-			}
-		}()
+				// Call callback if provided
+				if cb != nil {
+					cb(ctx, result)
+				}
+			}()
 
-		// Return immediate acknowledgment
-		if label != "" {
-			return AsyncResult(fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task))
+			// Return immediate acknowledgment
+			if label != "" {
+				return AsyncResult(fmt.Sprintf("Spawned subagent '%s' for task: %s", label, task))
+			}
+			return AsyncResult(fmt.Sprintf("Spawned subagent for task: %s", task))
 		}
-		return AsyncResult(fmt.Sprintf("Spawned subagent for task: %s", task))
-	}
 
 	// Fallback: spawner not configured
 	return ErrorResult("Subagent manager not configured")

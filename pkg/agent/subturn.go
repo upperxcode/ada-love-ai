@@ -218,9 +218,18 @@ func (s *AgentLoopSpawner) SpawnSubTurn(
 		)
 	}
 
+	// Resolve model from target agent if AgentID is specified
+	modelToUse := cfg.Model
+	if cfg.AgentID != "" && s.al != nil {
+		if targetAgent, ok := s.al.GetRegistry().GetAgent(cfg.AgentID); ok {
+			modelToUse = targetAgent.Model
+			fmt.Printf("[SubTurn] Resolved model from target agent %q: %s\n", cfg.AgentID, modelToUse)
+		}
+	}
+
 	// Convert tools.SubTurnConfig to agent.SubTurnConfig
 	agentCfg := SubTurnConfig{
-		Model:              cfg.Model,
+		Model:              modelToUse,
 		Tools:              cfg.Tools,
 		SystemPrompt:       cfg.SystemPrompt,
 		ActualSystemPrompt: cfg.ActualSystemPrompt,
@@ -343,6 +352,10 @@ func spawnSubTurn(
 		return nil, errors.New("parent turnState has no agent instance")
 	}
 	ephemeralStore := newEphemeralSession(nil)
+
+	// Log delegation: who is spawning whom, and what type.
+	fmt.Printf("[SubTurn] SPAWN: parent=%q → child=%q depth=%d async=%v\n",
+		parentTS.agent.ID, baseAgent.ID, parentTS.depth+1, cfg.Async)
 	agent := *baseAgent // shallow copy
 	agent.Sessions = ephemeralStore
 	// Clone the tool registry so child turn's tool registrations
@@ -457,6 +470,7 @@ func spawnSubTurn(
 			childTS.eventMeta("spawnSubTurn", "subturn.end"),
 			SubTurnEndPayload{
 				AgentID: childTS.agentID,
+				Label:   childID,
 				Status:  status,
 			},
 		)

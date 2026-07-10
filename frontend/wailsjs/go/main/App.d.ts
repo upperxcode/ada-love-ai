@@ -20,6 +20,8 @@ export function CreateSummarizedSession(arg1:string,arg2:string,arg3:string):Pro
 
 export function CreateToolProfile(arg1:string,arg2:string,arg3:string):Promise<backend.ToolProfile>;
 
+export function DeleteDBProvider(arg1:string):Promise<void>;
+
 export function DeleteSession(arg1:string):Promise<void>;
 
 export function DeleteToolProfile(arg1:number):Promise<boolean>;
@@ -72,6 +74,8 @@ export function InstallSkill(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ListChatProviders():Promise<Array<string>>;
 
+export function ListCommands():Promise<Array<main.CommandInfo>>;
+
 export function OpenDirectoryDialog():Promise<string>;
 
 export function OpenFileDialog():Promise<string>;
@@ -82,9 +86,13 @@ export function RemoveToolFromWorkspace(arg1:string,arg2:string):Promise<boolean
 
 export function RemoveToolsFromProfile(arg1:number,arg2:Array<string>):Promise<boolean>;
 
-export function RenameSession(arg1:string,arg2:string):Promise<void>;
+export function RenameSession(arg1:string,arg2:string):Promise<backend.ChatSession>;
+
+export function RetryMessage(arg1:string,arg2:string):Promise<string>;
 
 export function SaveCustomSkill(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function SaveDBProvider(arg1:string,arg2:backend.ProviderConfig):Promise<void>;
 
 export function SaveProvidersConfig():Promise<void>;
 
@@ -99,6 +107,8 @@ export function SetAdaConfig(arg1:backend.AdaConfig):Promise<void>;
 export function SetAgentCategories(arg1:Array<string>):Promise<void>;
 
 export function SetAgents(arg1:Array<backend.AgentConfig>):Promise<void>;
+
+export function SetSessionConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function SetWorkerCategories(arg1:Array<string>):Promise<void>;
 

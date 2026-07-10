@@ -59,6 +59,10 @@ function WorkspacesSection() {
   const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
   const [knownSkills, setKnownSkills] = useState<string[]>([]);
   const [availableAgents, setAvailableAgents] = useState<string[]>([]);
+  const [availableWorkers, setAvailableWorkers] = useState<api.backend.WorkerConfig[]>([]);
+  const [agentSearch, setAgentSearch] = useState('');
+  const [skillSearch, setSkillSearch] = useState('');
+  const [workerSearch, setWorkerSearch] = useState('');
   const [E, setE] = useState({
     title: '',
     description: '',
@@ -67,9 +71,9 @@ function WorkspacesSection() {
     personality: '',
     folders: [] as string[],
     knowledge: [] as string[],
-    workers: [] as string[],
     skills: [] as string[],
     agents: [] as string[],
+    workers: [] as api.backend.WorkerConfig[],
     tools: [] as string[],
     enabled: true,
     maxPromptSend: 0,
@@ -91,10 +95,6 @@ function WorkspacesSection() {
       state: E.knowledge,
       set: (v) => setE((prev) => ({ ...prev, knowledge: v })),
     },
-    workers: {
-      state: E.workers,
-      set: (v) => setE((prev) => ({ ...prev, workers: v })),
-    },
     skills: {
       state: E.skills,
       set: (v) => setE((prev) => ({ ...prev, skills: v })),
@@ -109,22 +109,36 @@ function WorkspacesSection() {
     },
   };
 
-  const computeTokens = (ws: api.backend.WorkspaceConfig) => {
-    let t = 2000;
-    for (const f of ws.folders || []) t += f.length * 10;
-    for (const a of ws.workers || []) t += 500;
-    for (const s of ws.skills || []) t += 300;
-    return t.toLocaleString();
-  };
+  const load = async () => {
+    try {
+      const ws = await api.getWorkspaces();
+      console.log('[WorkspacesSection] load: workspaces =', ws.map((w) => ({ title: w.title, path: w.path, workers: w.workers })));
+      setWorkspaces(ws);
+    } catch { setWorkspaces([]); }
 
-  const load = () => {
-    api.getWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]));
-    api.getAvailableTools().then(setKnownTools).catch(() => setKnownTools([]));
-    api.getAgents().then((agents) => setAvailableAgents(agents.map(a => a.name))).catch(() => {});
+    try {
+      const tools = await api.getAvailableTools();
+      setKnownTools(tools);
+    } catch { setKnownTools([]); }
+
+    try {
+      const workers = await api.getWorkers();
+      console.log('[WorkspacesSection] load: global workers =', workers.map((w) => w.name));
+      setAvailableWorkers(workers);
+    } catch { setAvailableWorkers([]); }
+
+    try {
+      const agents = await api.getAgents();
+      setAvailableAgents(agents.map(a => a.name));
+    } catch {}
+
+    try {
+      const skills = await api.getInstalledSkills();
+      setKnownSkills(skills);
+    } catch {}
   };
   useEffect(() => {
     load();
-    api.getWorkerCategories().then(setKnownSkills).catch(() => {});
   }, []);
 
   const handleAdd = async () => {
@@ -142,6 +156,7 @@ function WorkspacesSection() {
     arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
 
   const openEdit = (ws: api.backend.WorkspaceConfig) => {
+    console.log('[WorkspacesSection] openEdit:', { title: ws.title, path: ws.path, workers: ws.workers });
     setEditing(ws);
     setE({
       title: ws.title,
@@ -151,9 +166,9 @@ function WorkspacesSection() {
       personality: ws.personality,
       folders: ws.folders || [],
       knowledge: ws.knowledge || [],
-      workers: (ws.workers || []).map((w) => typeof w === 'string' ? w : (w as any).name || ''),
       skills: ws.skills || [],
-      agents: [],
+      agents: ws.agents || [],
+      workers: ws.workers || [],
       tools: ws.tools || [],
       enabled: ws.enabled,
       maxPromptSend: ws.max_prompt_send || 0,
@@ -166,7 +181,13 @@ function WorkspacesSection() {
 
   const handleSaveEdit = async () => {
     if (!editing) return;
-    await api.updateWorkspace(editing.title, {
+    console.log('[WorkspacesSection] handleSaveEdit:', {
+      originalTitle: editing.title,
+      newTitle: E.title,
+      workers: E.workers,
+      workersCount: E.workers.length,
+    });
+    const payload = {
       ...editing,
       title: E.title,
       description: E.description,
@@ -175,16 +196,18 @@ function WorkspacesSection() {
       personality: E.personality,
       folders: E.folders,
       knowledge: E.knowledge,
-      workers: E.workers.map((name) => ({ name } as api.backend.WorkerConfig)),
       skills: E.skills,
       agents: E.agents,
+      workers: E.workers,
       tools: E.tools,
       enabled: E.enabled,
       max_prompt_send: E.maxPromptSend,
       commit_changes: E.commitChanges,
       max_context_length: E.maxContextLength,
       spec_wizard: E.specWizard,
-    });
+    };
+    console.log('[WorkspacesSection] payload workers:', payload.workers);
+    await api.updateWorkspace(editing.title, payload);
     setShowEdit(false);
     setEditing(null);
     load();
@@ -203,20 +226,8 @@ function WorkspacesSection() {
         const f = fieldMap[key];
         if (!f.state.includes(file)) f.set([...f.state, file]);
       }
-    } else if (key === 'skills') {
-      const val = prompt('Enter skill name:');
-      if (val && val.trim()) {
-        const f = fieldMap[key];
-        if (!f.state.includes(val.trim())) f.set([...f.state, val.trim()]);
-      }
     } else if (key === 'tools') {
       setShowAddTool(true);
-    } else if (key === 'agents') {
-      const val = prompt('Enter agent name:');
-      if (val && val.trim()) {
-        const f = fieldMap[key];
-        if (!f.state.includes(val.trim())) f.set([...f.state, val.trim()]);
-      }
     }
   };
 
@@ -277,8 +288,9 @@ function WorkspacesSection() {
               {ws.description || 'No description'}
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {ws.folders?.length || 0} folders ·{' '}
               {ws.workers?.length || 0} workers ·{' '}
+              {ws.folders?.length || 0} folders ·{' '}
+              {ws.agents?.length || 0} agents ·{' '}
               {ws.skills?.length || 0} skills
             </div>
           </BaseCard>
@@ -324,7 +336,12 @@ function WorkspacesSection() {
         open={showEdit}
         onOpenChange={setShowEdit}
         title="Edit Workspace"
-        description={editing ? `${computeTokens(editing)} tokens` : undefined}
+        description={showEdit ? `${(() => {
+          let t = 2000;
+          for (const f of E.folders || []) t += f.length * 10;
+          for (const s of E.skills || []) t += 300;
+          return t.toLocaleString();
+        })()} tokens` : undefined}
         onSave={handleSaveEdit}
         color={E.color}
         icon={E.icon}
@@ -431,7 +448,7 @@ function WorkspacesSection() {
             />
           </div>
 
-          {/* Tabs: Folders, Knowledge, Agents, Skills, Tools */}
+          {/* Tabs: Folders, Knowledge, Workers, Agents, Skills, Tools */}
           <div className="flex gap-0 min-h-[180px]">
             <div className="w-28 shrink-0 flex flex-col gap-0 pt-0">
               {[
@@ -449,7 +466,11 @@ function WorkspacesSection() {
                       ? 'bg-primary/10 text-primary font-medium'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
-                  onClick={() => setSelectedField(key)}
+                  onClick={() => {
+                    setSelectedField(key);
+                    setAgentSearch('');
+                    setSkillSearch('');
+                  }}
                 >
                   <span className="grow text-left">{label}</span>
                   {selectedField === key && (
@@ -464,9 +485,7 @@ function WorkspacesSection() {
                           ? 'Add folder'
                           : key === 'knowledge'
                             ? 'Add file'
-                            : key === 'skills'
-                              ? 'Add skill'
-                              : 'Add'
+                            : 'Add'
                       }
                     >
                       <Icon name="Plus" className="w-3 h-3" />
@@ -476,28 +495,172 @@ function WorkspacesSection() {
               ))}
             </div>
             <div className="flex-1 min-h-[28px] max-h-[160px] overflow-y-auto p-1.5 rounded border border-border">
-              <div className="flex flex-wrap gap-1">
-                {fieldMap[selectedField]?.state.map((item: string) => (
-                  <span
-                    key={item}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted text-muted-foreground whitespace-nowrap"
-                  >
-                    {item}
-                    <button
-                      onClick={() =>
-                        fieldMap[selectedField].set(
-                          fieldMap[selectedField].state.filter(
-                            (x: string) => x !== item,
-                          ),
-                        )
-                      }
-                      className="text-destructive hover:text-destructive/80"
+              {selectedField === 'workers' ? (
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    placeholder="Filter workers..."
+                    value={workerSearch}
+                    onChange={(e) => setWorkerSearch(e.target.value)}
+                    className="w-full text-xs p-1 rounded border border-border bg-background mb-1"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {availableWorkers
+                      .filter((w) =>
+                        !workerSearch || w.name.toLowerCase().includes(workerSearch.toLowerCase())
+                      )
+                      .map((worker) => {
+                        const alreadyAdded = E.workers.some((w) => w.name === worker.name);
+                        return (
+                          <span
+                            key={worker.name}
+                            className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded whitespace-nowrap cursor-pointer transition-colors ${
+                              alreadyAdded
+                                ? 'bg-primary/20 text-primary border border-primary/30'
+                                : 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary'
+                            }`}
+                            onClick={() => {
+                              console.log('[WorkspacesSection] clicked worker:', worker.name, 'alreadyAdded:', alreadyAdded);
+                              if (alreadyAdded) {
+                                setE({ ...E, workers: E.workers.filter((w) => w.name !== worker.name) });
+                              } else {
+                                setE({ ...E, workers: [...E.workers, worker] });
+                              }
+                              console.log('[WorkspacesSection] E.workers after click:', E.workers);
+                            }}
+                          >
+                            {worker.icon || '🤖'} {worker.name}
+                            {alreadyAdded && (
+                              <span className="text-destructive hover:text-destructive/80 ml-0.5">✕</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    {availableWorkers.filter((w) =>
+                      !workerSearch || w.name.toLowerCase().includes(workerSearch.toLowerCase())
+                    ).length === 0 && (
+                      <span className="text-xs text-muted-foreground p-1">No registered workers.</span>
+                    )}
+                  </div>
+                </div>
+              ) : selectedField === 'agents' ? (
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    placeholder="Filter agents..."
+                    value={agentSearch}
+                    onChange={(e) => setAgentSearch(e.target.value)}
+                    className="w-full text-xs p-1 rounded border border-border bg-background mb-1"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {availableAgents
+                      .filter((a) =>
+                        !agentSearch || a.toLowerCase().includes(agentSearch.toLowerCase())
+                      )
+                      .map((agent) => {
+                        const alreadyAdded = E.agents.includes(agent);
+                        return (
+                          <span
+                            key={agent}
+                            className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded whitespace-nowrap cursor-pointer transition-colors ${
+                              alreadyAdded
+                                ? 'bg-primary/20 text-primary border border-primary/30'
+                                : 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary'
+                            }`}
+                            onClick={() => {
+                              const f = fieldMap.agents;
+                              if (alreadyAdded) {
+                                f.set(f.state.filter((x) => x !== agent));
+                              } else {
+                                f.set([...f.state, agent]);
+                              }
+                            }}
+                          >
+                            {agent}
+                            {alreadyAdded && (
+                              <span className="text-destructive hover:text-destructive/80 ml-0.5">✕</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    {availableAgents.filter((a) =>
+                      !agentSearch || a.toLowerCase().includes(agentSearch.toLowerCase())
+                    ).length === 0 && (
+                      <span className="text-xs text-muted-foreground p-1">No registered agents.</span>
+                    )}
+                  </div>
+                </div>
+              ) : selectedField === 'skills' ? (
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    placeholder="Filter skills..."
+                    value={skillSearch}
+                    onChange={(e) => setSkillSearch(e.target.value)}
+                    className="w-full text-xs p-1 rounded border border-border bg-background mb-1"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {knownSkills
+                      .filter((s) =>
+                        !skillSearch || s.toLowerCase().includes(skillSearch.toLowerCase())
+                      )
+                      .map((skill) => {
+                        const alreadyAdded = E.skills.includes(skill);
+                        return (
+                          <span
+                            key={skill}
+                            className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded whitespace-nowrap cursor-pointer transition-colors ${
+                              alreadyAdded
+                                ? 'bg-primary/20 text-primary border border-primary/30'
+                                : 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary'
+                            }`}
+                            onClick={() => {
+                              const f = fieldMap.skills;
+                              if (alreadyAdded) {
+                                f.set(f.state.filter((x) => x !== skill));
+                              } else {
+                                f.set([...f.state, skill]);
+                              }
+                            }}
+                          >
+                            {skill}
+                            {alreadyAdded && (
+                              <span className="text-destructive hover:text-destructive/80 ml-0.5">✕</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    {knownSkills.filter((s) =>
+                      !skillSearch || s.toLowerCase().includes(skillSearch.toLowerCase())
+                    ).length === 0 && (
+                      <span className="text-xs text-muted-foreground p-1">No installed skills.</span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {fieldMap[selectedField]?.state.map((item: string) => (
+                    <span
+                      key={item}
+                      className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-muted text-muted-foreground whitespace-nowrap"
                     >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
+                      {item}
+                      <button
+                        onClick={() =>
+                          fieldMap[selectedField].set(
+                            fieldMap[selectedField].state.filter(
+                              (x: string) => x !== item,
+                            ),
+                          )
+                        }
+                        className="text-destructive hover:text-destructive/80"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

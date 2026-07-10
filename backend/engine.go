@@ -32,7 +32,6 @@ type Engine struct {
 	agentLoop  *agent.AgentLoop
 	mu         sync.RWMutex
 	adaCfg     AdaConfig
-	adaConfigPath string
 	SessionMgr *SessionManager
 	skillReg   *skills.RegistryManager
 	// sessionKeyMap tracks agent opaque session keys (sk_v1_...) back to the
@@ -50,28 +49,135 @@ type Engine struct {
 	// actual model field expected by the provider API (e.g. "nvidia/...").
 	overrideModelIDs map[string]string
 	overrideModelMu sync.RWMutex
+	// Summarization
+	summarizer *SummarizerWorker
 }
 
 func NewEngine() (*Engine, error) {
 	configDir := getOSConfigDir()
 	fmt.Printf("[Engine] Using config directory: %s\n", configDir)
 
-	// Carrega a configuração do arquivo config.json no diretório config/
-	cfg, err := config.LoadConfig("config/config.json")
+	// Initialize context logger for tracking what each chat sends as context
+	logPath := filepath.Join(configDir, "context_logs.jsonl")
+	InitContextLogger(logPath, true)
+	fmt.Printf("[Engine] Context logger initialized at: %s\n", logPath)
+
+	// Config base: defaults (zero JSON dependency)
+	cfg := config.DefaultConfig()
+
+	// Inicializa o Store (SQLite) no diretório de configuração do SO
+	dbPath := filepath.Join(configDir, "ada_love.db")
+	db, err := NewStore(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar config.json: %w", err)
+		fmt.Printf("[Engine] Aviso: Erro ao inicializar banco de dados: %v\n", err)
+		// Fallback to local path
+		db, err = NewStore("config/ada_love.db")
+		if err != nil {
+			fmt.Printf("[Engine] Erro fatal ao inicializar banco: %v\n", err)
+		}
 	}
 
-	// Carrega configuração persistente do Ada-Love
+	// Carrega tudo do DB — fonte de verdade, zero JSON
 	var adaCfg AdaConfig
-	adaConfigPath := filepath.Join(configDir, "ada_config.json")
-	if data, err := os.ReadFile(adaConfigPath); err == nil {
-		json.Unmarshal(data, &adaCfg)
-	} else {
-		// Fallback to local config/ directory
-		if data, err := os.ReadFile("config/ada_config.json"); err == nil {
-			json.Unmarshal(data, &adaCfg)
+
+	// --- Migração one-shot: se DB vazio, lê JSON antigo e semeia ---
+	if db != nil {
+		providers, _ := db.GetProviders()
+		if len(providers) == 0 {
+			// DB vazio → tenta migrar de ada_config.json
+			adaConfigPath := filepath.Join(configDir, "ada_config.json")
+			if data, err := os.ReadFile(adaConfigPath); err == nil {
+				var legacy AdaConfig
+				json.Unmarshal(data, &legacy)
+				if len(legacy.Providers) > 0 {
+					db.SaveProviders(legacy.Providers)
+					adaCfg.Providers = legacy.Providers
+					fmt.Printf("[Engine] Migrados %d providers do JSON legado para DB\n", len(legacy.Providers))
+				}
+				if len(legacy.Workspaces) > 0 {
+					for _, ws := range legacy.Workspaces {
+						db.SaveWorkspace(ws)
+					}
+					fmt.Printf("[Engine] Migrados %d workspaces do JSON legado para DB\n", len(legacy.Workspaces))
+				}
+				if len(legacy.Workers) > 0 {
+					db.SetGlobalConfig("workers", legacy.Workers)
+					fmt.Printf("[Engine] Migrados %d workers do JSON legado para DB\n", len(legacy.Workers))
+				}
+				if len(legacy.Agents) > 0 {
+					db.SetGlobalConfig("agents", legacy.Agents)
+					fmt.Printf("[Engine] Migrados %d agents do JSON legado para DB\n", len(legacy.Agents))
+				}
+				if legacy.TinyBrain.ModelName != "" || legacy.TinyBrain.Provider != "" {
+					db.SetGlobalConfig("tiny_brain", legacy.TinyBrain)
+				}
+				if legacy.EmbeddingModel != "" || legacy.EmbeddingProvider != "" {
+					db.SetGlobalConfig("embedding_model", legacy.EmbeddingModel)
+					db.SetGlobalConfig("embedding_provider", legacy.EmbeddingProvider)
+				}
+				if legacy.ImageModel != "" || legacy.ImageProvider != "" {
+					db.SetGlobalConfig("image_model", legacy.ImageModel)
+					db.SetGlobalConfig("image_provider", legacy.ImageProvider)
+				}
+				if legacy.SpecModel != "" || legacy.SpecProvider != "" {
+					db.SetGlobalConfig("spec_model", legacy.SpecModel)
+					db.SetGlobalConfig("spec_provider", legacy.SpecProvider)
+				}
+				if legacy.ToolProfiles != nil {
+					db.SetGlobalConfig("tool_profiles", legacy.ToolProfiles)
+				}
+				if len(legacy.MCPServers) > 0 {
+					db.SetGlobalConfig("mcp_servers", legacy.MCPServers)
+				}
+				if legacy.ActiveWorkspacePath != "" {
+					db.SetGlobalConfig("active_workspace_path", legacy.ActiveWorkspacePath)
+				}
+				if legacy.ActiveWorkspaceIndex > 0 {
+					db.SetGlobalConfig("active_workspace_index", legacy.ActiveWorkspaceIndex)
+				}
+			}
 		}
+	}
+
+	// --- Carrega do DB ---
+	if db != nil {
+		// Providers
+		providers, err := db.GetProviders()
+		if err != nil {
+			fmt.Printf("[Engine] Erro ao carregar providers: %v\n", err)
+		}
+		adaCfg.Providers = providers
+		fmt.Printf("[Engine] Carregados %d providers do DB\n", len(providers))
+
+		// Workspaces
+		dbWorkspaces, _ := db.GetWorkspaces()
+		if len(dbWorkspaces) > 0 {
+			adaCfg.Workspaces = dbWorkspaces
+		}
+		fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
+
+		// Workers
+		db.GetGlobalConfig("workers", &adaCfg.Workers)
+		// Agents
+		db.GetGlobalConfig("agents", &adaCfg.Agents)
+		// TinyBrain
+		db.GetGlobalConfig("tiny_brain", &adaCfg.TinyBrain)
+		// Embedding
+		db.GetGlobalConfig("embedding_model", &adaCfg.EmbeddingModel)
+		db.GetGlobalConfig("embedding_provider", &adaCfg.EmbeddingProvider)
+		// Image
+		db.GetGlobalConfig("image_model", &adaCfg.ImageModel)
+		db.GetGlobalConfig("image_provider", &adaCfg.ImageProvider)
+		// Spec
+		db.GetGlobalConfig("spec_model", &adaCfg.SpecModel)
+		db.GetGlobalConfig("spec_provider", &adaCfg.SpecProvider)
+		// ToolProfiles
+		db.GetGlobalConfig("tool_profiles", &adaCfg.ToolProfiles)
+		// MCPServers
+		db.GetGlobalConfig("mcp_servers", &adaCfg.MCPServers)
+		// Active workspace
+		db.GetGlobalConfig("active_workspace_path", &adaCfg.ActiveWorkspacePath)
+		db.GetGlobalConfig("active_workspace_index", &adaCfg.ActiveWorkspaceIndex)
 	}
 
 	// Migração e saneamento básico
@@ -108,35 +214,36 @@ func NewEngine() (*Engine, error) {
 	msgBus := bus.NewMessageBus()
 	eventBus := NewEventBus()
 
-	// Inicializa o Store (SQLite) no diretório de configuração do SO
-	dbPath := filepath.Join(configDir, "ada_love.db")
-	db, err := NewStore(dbPath)
-	if err != nil {
-		fmt.Printf("[Engine] Aviso: Erro ao inicializar banco de dados: %v\n", err)
-		// Fallback to local path
-		db, err = NewStore("config/ada_love.db")
-		if err != nil {
-			fmt.Printf("[Engine] Erro fatal ao inicializar banco: %v\n", err)
+	// Popula cfg.ModelList a partir dos providers do DB.
+	// Isso garante que CreateProvider (que busca em cfg.ModelList) encontre os modelos.
+	for provName, provCfg := range adaCfg.Providers {
+		for modelName := range provCfg.Models {
+			found := false
+			for _, existing := range cfg.ModelList {
+				if existing.ModelName == modelName && existing.Provider == provName {
+					found = true
+					break
+				}
+			}
+			if found {
+				continue
+			}
+			cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
+				ModelName: modelName,
+				Provider:  provName,
+				Model:     modelName,
+				APIBase:   provCfg.ApiUrl,
+				Enabled:   true,
+			})
 		}
 	}
-
-	// Carrega providers do SQLite
-	if db != nil {
-		providers, err := db.GetProviders()
-		if err != nil {
-			fmt.Printf("[Engine] Erro ao carregar providers: %v\n", err)
-		} else if len(providers) > 0 {
-			adaCfg.Providers = providers
-			fmt.Printf("[Engine] Carregados %d providers do SQLite\n", len(providers))
-		}
-	}
+	fmt.Printf("[Engine] ModelList populado: %d modelos de %d providers\n", len(cfg.ModelList), len(adaCfg.Providers))
 
 	e := &Engine{
 		cfg:           cfg,
 		msgBus:        msgBus,
 		eventBus:      eventBus,
 		adaCfg:        adaCfg,
-		adaConfigPath: adaConfigPath,
 		SessionMgr:    NewSessionManager(),
 		skillReg:   skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
 		db:         db,
@@ -151,14 +258,16 @@ func NewEngine() (*Engine, error) {
 	if db != nil {
 		// Tenta carregar workspaces do banco
 		dbWorkspaces, _ := db.GetWorkspaces()
+		fmt.Printf("[Engine] Init: %d workspaces loaded from DB\n", len(dbWorkspaces))
 		if len(dbWorkspaces) > 0 {
 			e.adaCfg.Workspaces = dbWorkspaces
-			// Inicializa ferramentas padrão se estiverem nulas
 			for i := range e.adaCfg.Workspaces {
 				if e.adaCfg.Workspaces[i].Tools == nil {
 					e.adaCfg.Workspaces[i].Tools = []string{"read_file", "write_file", "list_dir", "edit_file"}
 				}
 			}
+		} else {
+			fmt.Printf("[Engine] Init: no workspaces in DB, using config file (%d)\n", len(e.adaCfg.Workspaces))
 		}
 
 		// Carrega sessões para o workspace ativo
@@ -169,36 +278,83 @@ func NewEngine() (*Engine, error) {
 				workspacePath = e.adaCfg.Workspaces[e.adaCfg.ActiveWorkspaceIndex].Path
 			}
 		}
+		fmt.Printf("[Engine] Init: activeWorkspace=%q activeIndex=%d\n", e.adaCfg.ActiveWorkspacePath, e.adaCfg.ActiveWorkspaceIndex)
 		sessions, _ := db.GetSessions(workspacePath)
+		fmt.Printf("[Engine] Init: loaded %d sessions for active workspace %q\n", len(sessions), workspacePath)
+		for _, s := range sessions {
+			fmt.Printf("[Engine]   session=%q title=%q worker=%q messages=%d pinned=%v\n",
+				s.ID, s.Title, s.WorkerName, len(s.Messages), s.Pinned)
+		}
 		e.SessionMgr.LoadSessions(sessions)
 	}
 
-	// Sincroniza o workspace ativo com a configuração antes de iniciar
-	if e.adaCfg.ActiveWorkspacePath != "" {
-		e.cfg.Agents.Defaults.Workspace = e.adaCfg.ActiveWorkspacePath
+	// Migração: sessões sem workspace_path → move para o primeiro workspace
+	if e.db != nil {
+		// Corrigir workspaces com path vazio e workers nulos
+		for i := range e.adaCfg.Workspaces {
+			// Fix empty path
+			if e.adaCfg.Workspaces[i].Path == "" {
+				newPath := strings.ToLower(strings.ReplaceAll(e.adaCfg.Workspaces[i].Title, " ", "_"))
+				fmt.Printf("[Engine] Init: fixing workspace %q: path '' → %q\n", e.adaCfg.Workspaces[i].Title, newPath)
+				e.adaCfg.Workspaces[i].Path = newPath
+				e.db.db.Exec(`UPDATE workspaces SET path = ? WHERE title = ? AND (path = '' OR path IS NULL)`, newPath, e.adaCfg.Workspaces[i].Title)
+			}
+			// Fix nil workers
+			if e.adaCfg.Workspaces[i].Workers == nil {
+				e.adaCfg.Workspaces[i].Workers = []WorkerConfig{}
+			}
+			// Fix nil tools
+			if e.adaCfg.Workspaces[i].Tools == nil {
+				e.adaCfg.Workspaces[i].Tools = []string{}
+			}
+		}
 
-		// Sincroniza as pastas, personalidade e conhecimento do workspace ativo
-		if e.adaCfg.ActiveWorkspaceIndex >= 0 && e.adaCfg.ActiveWorkspaceIndex < len(e.adaCfg.Workspaces) {
-			ws := e.adaCfg.Workspaces[e.adaCfg.ActiveWorkspaceIndex]
-			e.cfg.Agents.Defaults.Folders = ws.Folders
-			e.cfg.Agents.Defaults.Personality = ws.Personality
-			e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
+		// Migrar sessões órfãs
+		var count int
+		e.db.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE workspace_path = '' OR workspace_path IS NULL`).Scan(&count)
+		if count > 0 {
+			fmt.Printf("[Engine] Init: migrating %d orphan sessions with empty workspace_path\n", count)
+			if len(e.adaCfg.Workspaces) > 0 {
+				firstWS := e.adaCfg.Workspaces[0].Path
+				if firstWS == "" {
+					firstWS = strings.ToLower(strings.ReplaceAll(e.adaCfg.Workspaces[0].Title, " ", "_"))
+				}
+				e.db.db.Exec(`UPDATE sessions SET workspace_path = ? WHERE workspace_path = '' OR workspace_path IS NULL`, firstWS)
+				fmt.Printf("[Engine] Init: migrated %d sessions to workspace %q\n", count, firstWS)
+			}
 		}
 	}
 
-	// Inicializa o AgentLoop (Ada Love)
-	rawProvider, _, err := providers.CreateProvider(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar provider: %w", err)
-	}
-	provider := e.wrapProvider(rawProvider)
-	e.questionReg = integrationtools.NewQuestionRegistry()
+	// Sincroniza o workspace ativo com a configuração antes de iniciar
+	e.syncActiveWorkspaceToAgent()
+
+// Sincroniza agentes do ada_config.json com cfg.Agents.List
+		syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
+
+		// Inicializa o AgentLoop — provider pode ser nil se nenhum modelo padrão configurado
+		rawProvider, _, err := providers.CreateProvider(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao criar provider: %w", err)
+		}
+		var provider providers.LLMProvider
+		if rawProvider != nil {
+			provider = e.wrapProvider(rawProvider)
+		}
+e.questionReg = integrationtools.NewQuestionRegistry()
 	e.approvalReg = integrationtools.NewApprovalRegistry()
-	// Wire session key resolvers so tools/hooks can map opaque keys to frontend sessionIDs
 	e.questionReg.SetResolver(e.resolveSessionID)
 	e.approvalReg.SetResolver(e.resolveSessionID)
+	// Start summarization worker
+	e.summarizer = NewSummarizerWorker(e)
+	e.summarizer.Start()
 	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
+	e.agentLoop.SetSummarizer(e.summarizer)
 
+	// Register the context logger so the agent's pipeline can push the
+	// COMPLETE LLM context (system prompt + messages + tools) to our JSONL log.
+	agent.RegisterContextLogger(func(sessionKey, agentID, model, mode string, messages []providers.Message, toolDefs []providers.ToolDefinition, userMessage string) {
+		LogFullContext(sessionKey, agentID, model, mode, messages, toolDefs, userMessage)
+	})
 	// Register ask_user tool with all agents
 	if e.agentLoop != nil {
 		e.agentLoop.RegisterToolForAllAgents(integrationtools.NewAskUserTool(e.questionReg, 0))
@@ -222,6 +378,162 @@ func (e *Engine) wrapProvider(p providers.LLMProvider) providers.LLMProvider {
 	wrapper := NewStreamingWrapper(p)
 	wrapper.SetEventBus(e.eventBus)
 	return wrapper
+}
+
+// syncActiveWorkspaceToAgent reconciles the agent defaults with the active
+// workspace from the database.
+func (e *Engine) syncActiveWorkspaceToAgent() {
+	activePath := e.adaCfg.ActiveWorkspacePath
+	if activePath == "" {
+		return
+	}
+	e.applyWorkspaceToAgent(activePath)
+}
+
+// syncActiveWorkspaceToAgentLocked is the lock-holding variant of
+// syncActiveWorkspaceToAgent, for use when the caller already holds e.mu.
+func (e *Engine) syncActiveWorkspaceToAgentLocked() {
+	activePath := e.adaCfg.ActiveWorkspacePath
+	if activePath == "" {
+		return
+	}
+	e.applyWorkspaceToAgentLocked(activePath)
+}
+
+// ensureWorkspaceSynced makes sure the agent is bound to the given workspace
+// before a turn runs. If the workspace differs from the currently active one,
+// it updates the active workspace and reloads the agent loop so the
+// ContextBuilder and file tools pick up the correct folders.
+func (e *Engine) ensureWorkspaceSynced(workspacePath string) {
+	if workspacePath == "" {
+		return
+	}
+
+	e.mu.RLock()
+	current := e.adaCfg.ActiveWorkspacePath
+	e.mu.RUnlock()
+
+	if current == workspacePath {
+		// Same workspace — nothing to do, the agent loop already uses it.
+		return
+	}
+
+	fmt.Printf("[Engine] ensureWorkspaceSynced: switching %q → %q\n", current, workspacePath)
+	e.SetActiveWorkspace(workspacePath)
+}
+
+// syncWorkspaceForTurn updates the live agent loop with the session's workspace
+// WITHOUT reloading (which would crash the app mid-turn). It patches
+// cfg.Agents.Defaults and calls UpdateWorkspace on the default agent's
+// ContextBuilder so the system prompt reflects the correct folders.
+func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
+	if workspacePath == "" {
+		return
+	}
+
+	e.mu.RLock()
+	var ws *WorkspaceConfig
+	for i := range e.adaCfg.Workspaces {
+		w := &e.adaCfg.Workspaces[i]
+		if w.Path == workspacePath || w.Title == workspacePath {
+			ws = w
+			e.adaCfg.ActiveWorkspaceIndex = i
+			e.adaCfg.ActiveWorkspacePath = w.Path
+			break
+		}
+	}
+	e.mu.RUnlock()
+
+	if ws == nil {
+		fmt.Printf("[Engine] syncWorkspaceForTurn: workspace %q not found\n", workspacePath)
+		return
+	}
+
+	// Resolve the actual filesystem path (first folder = project root).
+	fsPath := ""
+	if len(ws.Folders) > 0 {
+		fsPath = ws.Folders[0]
+	}
+	if fsPath == "" {
+		fsPath = ws.Path
+	}
+
+	fmt.Printf("[Engine] syncWorkspaceForTurn: title=%q folders=%v → fsPath=%q\n",
+		ws.Title, ws.Folders, fsPath)
+
+	// Update cfg defaults so any future agent creation uses the right workspace.
+	e.cfg.Agents.Defaults.Workspace = fsPath
+	e.cfg.Agents.Defaults.Folders = ws.Folders
+	e.cfg.Agents.Defaults.Personality = ws.Personality
+	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
+
+	// Patch the LIVE agent loop's ContextBuilder (no reload) so the system
+	// prompt is rebuilt with the new workspace on the next turn.
+	if e.agentLoop != nil {
+		registry := e.agentLoop.GetRegistry()
+		if registry != nil {
+			if agent := registry.GetDefaultAgent(); agent != nil && agent.ContextBuilder != nil {
+				agent.ContextBuilder.UpdateWorkspace(fsPath, ws.Folders, ws.Personality, ws.Knowledge)
+			}
+		}
+	}
+}
+
+// applyWorkspaceToAgent looks up a workspace by path or title and copies its
+// Folders, Personality and Knowledge into cfg.Agents.Defaults. The Workspace
+// field is set to the first real folder (the project root) so the agent's file
+// tools resolve paths correctly.
+func (e *Engine) applyWorkspaceToAgent(pathOrTitle string) {
+	if pathOrTitle == "" {
+		return
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	e.applyWorkspaceToAgentLocked(pathOrTitle)
+}
+
+// applyWorkspaceToAgentLocked is the lock-holding variant — caller must hold
+// e.mu (read or write).
+func (e *Engine) applyWorkspaceToAgentLocked(pathOrTitle string) {
+	if pathOrTitle == "" {
+		return
+	}
+
+	var ws *WorkspaceConfig
+	for i := range e.adaCfg.Workspaces {
+		w := &e.adaCfg.Workspaces[i]
+		if w.Path == pathOrTitle || w.Title == pathOrTitle {
+			ws = w
+			e.adaCfg.ActiveWorkspaceIndex = i
+			e.adaCfg.ActiveWorkspacePath = w.Path
+			break
+		}
+	}
+
+	if ws == nil {
+		fmt.Printf("[Engine] applyWorkspaceToAgent: workspace %q not found\n", pathOrTitle)
+		return
+	}
+
+	// cfg.Agents.Defaults.Workspace must be the actual filesystem path so the
+	// agent's file tools and context builder resolve paths correctly. Prefer
+	// the first real folder (the project root); fall back to the workspace slug.
+	fsPath := ""
+	if len(ws.Folders) > 0 {
+		fsPath = ws.Folders[0]
+	}
+	if fsPath == "" {
+		fsPath = ws.Path
+	}
+
+	fmt.Printf("[Engine] applyWorkspaceToAgent: title=%q slug=%q folders=%v → fsPath=%q\n",
+		ws.Title, ws.Path, ws.Folders, fsPath)
+
+	e.cfg.Agents.Defaults.Workspace = fsPath
+	e.cfg.Agents.Defaults.Folders = ws.Folders
+	e.cfg.Agents.Defaults.Personality = ws.Personality
+	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
 }
 
 func (e *Engine) connectMessageBus() {
@@ -268,6 +580,12 @@ func (e *Engine) SetAdaConfig(cfg AdaConfig) {
 	e.adaCfg = cfg
 	e.mu.Unlock()
 	e.SaveAdaConfig()
+	// Write-through: persiste providers no DB
+	if e.db != nil && len(cfg.Providers) > 0 {
+		if err := e.db.SaveProviders(cfg.Providers); err != nil {
+			fmt.Printf("[Engine] Erro ao sincronizar providers no DB: %v\n", err)
+		}
+	}
 }
 
 // GetWorkers retorna os workers configurados.
@@ -330,31 +648,56 @@ func (e *Engine) SetAgentCategories(categories []string) {
 	e.SaveAdaConfig()
 }
 
+// FixWorkspacePaths corrige workspaces com path vazio
+func (e *Engine) FixWorkspacePaths() {
+	e.mu.Lock()
+	fixed := false
+	for i := range e.adaCfg.Workspaces {
+		if e.adaCfg.Workspaces[i].Path == "" {
+			newPath := strings.ToLower(strings.ReplaceAll(e.adaCfg.Workspaces[i].Title, " ", "_"))
+			fmt.Printf("[Engine] FixWorkspacePaths: fixing %q: '' → %q\n", e.adaCfg.Workspaces[i].Title, newPath)
+			e.adaCfg.Workspaces[i].Path = newPath
+			fixed = true
+		}
+	}
+	e.mu.Unlock()
+	if fixed {
+		e.SaveAdaConfig()
+	}
+}
+
 func (e *Engine) SaveAdaConfig() error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	data, err := json.MarshalIndent(e.adaCfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	// Sempre persiste no mesmo arquivo de onde foi carregado (OS config dir),
-	// evitando que os dados sejam salvos num caminho relativo diferente.
-	path := e.adaConfigPath
-	if path == "" {
-		path = "config/ada_config.json"
-	}
-	err = os.WriteFile(path, data, 0644)
-	if err != nil {
-		return err
+	if e.db == nil {
+		return fmt.Errorf("banco de dados não disponível")
 	}
 
-	// Salva também no banco para persistência robusta de workspaces
-	if e.db != nil {
-		for _, ws := range e.adaCfg.Workspaces {
-			e.db.SaveWorkspace(ws)
-		}
+	// Salva providers no DB
+	if err := e.db.SaveProviders(e.adaCfg.Providers); err != nil {
+		fmt.Printf("[Engine] Erro ao salvar providers no DB: %v\n", err)
 	}
+
+	// Salva workspaces no DB
+	for _, ws := range e.adaCfg.Workspaces {
+		e.db.SaveWorkspace(ws)
+	}
+
+	// Salva seções restantes no DB (key-value)
+	e.db.SetGlobalConfig("workers", e.adaCfg.Workers)
+	e.db.SetGlobalConfig("agents", e.adaCfg.Agents)
+	e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
+	e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
+	e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
+	e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
+	e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
+	e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
+	e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
+	e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
+	e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
+	e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
+	e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
 
 	return nil
 }
@@ -370,6 +713,11 @@ func (e *Engine) SaveProvidersConfig() error {
 	return e.db.SaveProviders(e.adaCfg.Providers)
 }
 
+// DB retorna o Store para consultas diretas (ex: GetSessions).
+func (e *Engine) DB() *Store {
+	return e.db
+}
+
 // GetProvidersConfig returns the current providers from memory
 func (e *Engine) GetProvidersConfig() map[string]ProviderConfig {
 	e.mu.RLock()
@@ -383,17 +731,7 @@ func (e *Engine) ReloadAgentLoop() error {
 	defer e.mu.Unlock()
 
 	// Sincroniza o workspace ativo com a configuração global do agente
-	if e.adaCfg.ActiveWorkspacePath != "" {
-		e.cfg.Agents.Defaults.Workspace = e.adaCfg.ActiveWorkspacePath
-
-		// Sincroniza as pastas, personalidade e conhecimento do workspace ativo
-		if e.adaCfg.ActiveWorkspaceIndex >= 0 && e.adaCfg.ActiveWorkspaceIndex < len(e.adaCfg.Workspaces) {
-			ws := e.adaCfg.Workspaces[e.adaCfg.ActiveWorkspaceIndex]
-			e.cfg.Agents.Defaults.Folders = ws.Folders
-			e.cfg.Agents.Defaults.Personality = ws.Personality
-			e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
-		}
-	}
+	e.syncActiveWorkspaceToAgentLocked()
 
 	if e.agentLoop != nil {
 		e.agentLoop.Stop()
@@ -468,20 +806,46 @@ func (e *Engine) bridgeAgentEvents() {
 				SessionID: sessionID,
 				Payload:   StatusPayload{Message: "writing"},
 			})
-		case agent.EventKindSubTurnSpawn:
-			if p, ok := evt.Payload.(agent.SubTurnSpawnPayload); ok {
+			case agent.EventKindSubTurnSpawn:
+				if p, ok := evt.Payload.(agent.SubTurnSpawnPayload); ok {
+					// Resolve a friendly agent label from the agent registry if available.
+					label := p.Label
+					if e.agentLoop != nil {
+						if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
+							label = ag.Name
+						}
+					}
+					fmt.Printf("[Bridge] SubTurn SPAWN: session=%q agent=%q label=%q\n", sessionID, p.AgentID, label)
+					e.eventBus.Emit(Event{
+						Kind:      EventKindStatus,
+						SessionID: sessionID,
+						Payload:   StatusPayload{Message: "agent:" + label},
+					})
+				}
+			case agent.EventKindSubTurnEnd:
+				if p, ok := evt.Payload.(agent.SubTurnEndPayload); ok {
+					label := p.Label
+					if label == "" {
+						label = p.AgentID
+					}
+					if e.agentLoop != nil {
+						if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
+							label = ag.Name
+						}
+					}
+				fmt.Printf("[Bridge] SubTurn END: session=%q agent=%q label=%q status=%q\n", sessionID, p.AgentID, label, p.Status)
+				status := "writing"
+				if p.Status == "error" {
+					status = "agent_error"
+				} else if p.Status == "completed" {
+					status = "agent_done"
+				}
 				e.eventBus.Emit(Event{
 					Kind:      EventKindStatus,
 					SessionID: sessionID,
-					Payload:   StatusPayload{Message: "subagent:" + p.Label},
+					Payload:   StatusPayload{Message: status},
 				})
 			}
-		case agent.EventKindSubTurnEnd:
-			e.eventBus.Emit(Event{
-				Kind:      EventKindStatus,
-				SessionID: sessionID,
-				Payload:   StatusPayload{Message: "writing"},
-			})
 		}
 	}
 }
@@ -652,6 +1016,10 @@ func (e *Engine) Close() {
 	if e.db != nil {
 		e.db.Close()
 	}
+	// Close the context logger
+	if cl := GetContextLogger(); cl != nil {
+		cl.Close()
+	}
 }
 
 // extractProtocol extracts the protocol and model ID from a ModelConfig.
@@ -698,13 +1066,30 @@ func (e *Engine) CreateProviderFromModelConfig(mc *config.ModelConfig) (any, str
 						clone.APIKeys = config.SimpleSecureStrings(apiKey)
 					}
 				}
+				// Use type_connection as the provider protocol when it's a known
+				// factory protocol. This lets custom-named providers (e.g. "nararouter")
+				// with type_connection="openai" be routed through the OpenAI-compatible
+				// code path instead of being rejected as "unknown protocol".
+				if tc := strings.TrimSpace(provCfg.TypeConnection); tc != "" {
+					switch strings.ToLower(tc) {
+					case "openai", "anthropic", "gemini":
+						clone.Provider = strings.ToLower(tc)
+					}
+				}
 				break
 			}
 		}
 	}
 
 	// If still no API key, check environment variables.
-	if len(clone.APIKeys) == 0 && providerName != "" {
+	hasValidKey := false
+	for _, k := range clone.APIKeys {
+		if k.String() != "" {
+			hasValidKey = true
+			break
+		}
+	}
+	if !hasValidKey && providerName != "" {
 		envKey := strings.ToUpper(strings.ReplaceAll(providerName, "-", "_")) + "_API_KEY"
 		if apiKey := os.Getenv(envKey); apiKey != "" {
 			clone.APIKeys = config.SimpleSecureStrings(apiKey)
@@ -731,14 +1116,119 @@ func getOSConfigDir() string {
 	var configDir string
 	switch runtime.GOOS {
 	case "linux":
-		configDir = filepath.Join(os.Getenv("HOME"), ".config", "ada-love")
+		configDir = filepath.Join(os.Getenv("HOME"), ".config", "ada-love-ai")
 	case "darwin":
-		configDir = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "ada-love")
+		configDir = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "ada-love-ai")
 	case "windows":
-		configDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "ada-love")
+		configDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "ada-love-ai")
 	default:
 		configDir = "config"
 	}
 	os.MkdirAll(configDir, 0755)
 	return configDir
+}
+
+// syncAdaAgentsToConfig sincroniza os agentes do ada_config.json com cfg.Agents.List.
+// Converte agentes do formato backend.AgentConfig para config.AgentConfig.
+func syncAdaAgentsToConfig(adaAgents []AgentConfig, cfgAgents *[]config.AgentConfig) {
+	if len(adaAgents) == 0 {
+		return
+	}
+
+	// Cria um mapa dos agentes existentes para evitar duplicatas
+	existingIDs := make(map[string]bool)
+	for _, a := range *cfgAgents {
+		if a.ID != "" {
+			existingIDs[a.ID] = true
+		}
+	}
+
+// Adiciona agentes do ada_config.json que ainda não existem
+		for _, adaAgent := range adaAgents {
+			agentID := adaAgent.Name
+			if agentID == "" {
+				continue
+			}
+
+			// Usa ID do ada_config.json se fornecido, senão gera a partir do nome
+			normalizedID := strings.ToLower(strings.ReplaceAll(agentID, " ", "-"))
+			if adaAgent.ID != "" {
+				normalizedID = strings.ToLower(strings.ReplaceAll(adaAgent.ID, " ", "-"))
+			}
+
+			if existingIDs[normalizedID] {
+				continue // Já existe
+			}
+
+			// Converte para config.AgentConfig
+			cfgAgent := config.AgentConfig{
+				ID:         normalizedID,
+				Name:       adaAgent.Name,
+				Model: &config.AgentModelConfig{
+					Primary: adaAgent.Model,
+				},
+				Provider:  adaAgent.Provider,
+				Type:      adaAgent.Type,
+				Icon:      adaAgent.Icon,
+				Color:     adaAgent.Color,
+			}
+
+			// Converte delegates para subagents.allow_agents
+			if len(adaAgent.Delegates) > 0 {
+				cfgAgent.Subagents = &config.SubagentsConfig{
+					AllowAgents: adaAgent.Delegates,
+				}
+			}
+
+			// Usa SystemPrompt como personality se não houver personality definida
+			if adaAgent.SystemPrompt != "" {
+				cfgAgent.Personality = adaAgent.SystemPrompt
+			}
+
+			*cfgAgents = append(*cfgAgents, cfgAgent)
+			fmt.Printf("[Engine] Sincronizado agente: %s (type=%s, id=%s)\n", adaAgent.Name, adaAgent.Type, normalizedID)
+		}
+	}
+
+// filterAgentsByWorkspace filtra a lista de agentes para manter apenas os
+// selecionados no workspace. Um agente é selecionado se seu ID ou Name estiver
+// na lista ws.Agents.
+func filterAgentsByWorkspace(cfgAgents *[]config.AgentConfig, selectedAgentNames []string) {
+	if len(selectedAgentNames) == 0 {
+		return
+	}
+
+	// Cria um set de nomes/ID selecionados (case-insensitive, normalizado)
+	selectedSet := make(map[string]bool)
+	for _, name := range selectedAgentNames {
+		normalized := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		selectedSet[normalized] = true
+	}
+
+	// Filtra a lista mantendo apenas os agentes selecionados
+	var filtered []config.AgentConfig
+	for _, agent := range *cfgAgents {
+		// Verifica pelo ID normalizado
+		idNormalized := strings.ToLower(strings.ReplaceAll(agent.ID, " ", "-"))
+		nameNormalized := strings.ToLower(strings.ReplaceAll(agent.Name, " ", "-"))
+		
+		if selectedSet[idNormalized] || selectedSet[nameNormalized] {
+			filtered = append(filtered, agent)
+		}
+	}
+
+	*cfgAgents = filtered
+	fmt.Printf("[Engine] Filtrados agentes para workspace: %d selecionados de %d\n", len(filtered), len(selectedAgentNames))
+}
+
+// GetSummarizedContext retorna o contexto sumarizado da sessão do backend
+func (e *Engine) GetSummarizedContext(sessionID string) string {
+	if e.db == nil || sessionID == "" {
+		return ""
+	}
+	sess, err := e.db.GetSession(sessionID)
+	if err != nil || sess == nil {
+		return ""
+	}
+	return sess.SummarizedContext
 }

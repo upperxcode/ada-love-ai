@@ -23,7 +23,7 @@ func listCommand() Definition {
 						provider = "configured default"
 					}
 					return req.Reply(fmt.Sprintf(
-						"Configured Model: %s\nProvider: %s\n\nTo change models, update config.json",
+						"Configured Model: %s\nProvider: %s\n\nTo change models, use the Settings UI.",
 						name, provider,
 					))
 				},

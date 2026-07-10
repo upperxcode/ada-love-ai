@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"fmt"
 
 	"reflect"
 
@@ -31,14 +32,18 @@ func (w *StreamingWrapper) Chat(ctx context.Context, messages []providers.Messag
 	m := v.MethodByName("ChatStream")
 
 	if m.IsValid() {
-		lastLen := 0
-		// Detecta o tipo do callback (6º argumento)
+		// Detecta o tipo do callback (último argumento).
+		// NOTA: Para métodos, NumIn() inclui o receptor (w.base), então
+		// ChatStream(ctx, msgs, tools, model, opts, cb) tem NumIn() == 7.
 		mType := m.Type()
-		if mType.NumIn() == 6 {
-			callbackType := mType.In(5)
+		fmt.Printf("[StreamingWrapper] Chat: ChatStream method found, NumIn=%d\n", mType.NumIn())
+		if mType.NumIn() >= 6 {
+			callbackType := mType.In(mType.NumIn() - 1)
 			numArgs := callbackType.NumIn()
+			fmt.Printf("[StreamingWrapper] Chat: callback type NumIn=%d\n", numArgs)
 
 			var callbackValue reflect.Value
+			lastLen := 0 // Track the last sent length for delta calculation
 			if numArgs == 1 {
 				cb := func(accumulated string) {
 					if len(accumulated) > lastLen {
@@ -59,9 +64,11 @@ func (w *StreamingWrapper) Chat(ctx context.Context, messages []providers.Messag
 				}
 				callbackValue = reflect.ValueOf(cb)
 			} else {
+				fmt.Printf("[StreamingWrapper] Chat: callback has %d args, not 1 or 2, skipping streaming\n", numArgs)
 			}
 
 			if callbackValue.IsValid() {
+				fmt.Printf("[StreamingWrapper] Chat: callback valid, calling ChatStream via reflection\n")
 				results := m.Call([]reflect.Value{
 					reflect.ValueOf(ctx),
 					reflect.ValueOf(messages),
@@ -132,6 +139,7 @@ func (w *StreamingWrapper) emitDelta(ctx context.Context, content string) {
 	}
 	
 	sessionID, _ := ctx.Value("session_id").(string)
+	fmt.Printf("[StreamingWrapper] emitDelta: sessionID=%q content_len=%d\n", sessionID, len(content))
 	w.eventBus.Emit(Event{Kind: EventKindLLMDelta, SessionID: sessionID, Payload: StreamingDeltaPayload{Content: content}})
 }
 

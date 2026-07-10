@@ -1,53 +1,160 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChat } from './ChatContext';
+import { useSnackbar } from './Snackbar';
 import { Button } from './ui/button';
 import { Icon } from './Icon';
 import { ModelPicker } from './ModelPicker';
+import { SlashCommandMenu } from './SlashCommandMenu';
 import { Dialog, DialogContent } from './ui/dialog';
 import { cn } from '@/lib/utils';
+import * as api from '../api';
 
 const CHAT_MODES = [
-  { id: 'ask', label: 'Ask', icon: 'Search', description: 'Faz perguntas sem modificar o projeto' },
-  { id: 'plan', label: 'Plan', icon: 'Layers', description: 'Planeja mudanças sem executar' },
-  { id: 'auto', label: 'Auto', icon: 'Zap', description: 'Executa mudanças com confirmação' },
-  { id: 'full', label: 'Full Access', icon: 'Eye', description: 'Executa tudo sem confirmação' },
+  { id: 'ask', label: 'Ask', icon: 'Search', description: 'Asks questions without modifying the project' },
+  { id: 'plan', label: 'Plan', icon: 'Layers', description: 'Plans changes without executing' },
+  { id: 'auto', label: 'Auto', icon: 'Zap', description: 'Executes changes with confirmation' },
+  { id: 'full', label: 'Full Access', icon: 'Eye', description: 'Executes everything without confirmation' },
 ] as const;
 
 type ChatMode = (typeof CHAT_MODES)[number]['id'];
 
 export function ChatInput() {
-  const { sendMessage, loading, activeSessionId } = useChat();
+  const { sendMessage, loading, activeSessionId, activeSession, setSessionConfig, pendingApproval } = useChat();
+  const { showSnackbar } = useSnackbar();
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<ChatMode>('ask');
   const [expanded, setExpanded] = useState(false);
   const [thinking, setThinking] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('ada:selectedModel');
-  });
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
+  const [commands, setCommands] = useState<api.backend.CommandInfo[]>([]);
+  const [slashMenuVisible, setSlashMenuVisible] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
+  const [executingCommand, setExecutingCommand] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Restore config from active session when switching chats
   useEffect(() => {
-    if (selectedModel) {
-      localStorage.setItem('ada:selectedModel', selectedModel);
+    if (activeSession) {
+      console.log(`[ChatInput] Restoring config: model=${activeSession.model} mode=${activeSession.mode} thinking=${activeSession.thinking}`);
+      setMode((activeSession.mode as ChatMode) || 'ask');
+      setThinking(activeSession.thinking === 'high');
+      setSelectedModel(activeSession.model || null);
+      setInitialized(true);
     } else {
-      localStorage.removeItem('ada:selectedModel');
+      setInitialized(true);
     }
-  }, [selectedModel]);
+  }, [activeSession?.id]);
 
+  // Load slash commands on mount
   useEffect(() => {
-    localStorage.setItem('ada:thinking', thinking ? '1' : '0');
-  }, [thinking]);
+    api.listCommands().then(setCommands);
+  }, []);
 
-  const handleSubmit = () => {
+  // Detect slash prefix and manage menu visibility
+  const handleDraftChange = useCallback(
+    (value: string) => {
+      setDraft(value);
+      const trimmed = value.trimStart();
+      if (trimmed.startsWith('/') && !value.includes('\n')) {
+        const query = trimmed.slice(1);
+        setSlashQuery(query);
+        setSlashMenuVisible(true);
+      } else {
+        setSlashMenuVisible(false);
+        setSlashQuery('');
+      }
+    },
+    [],
+  );
+
+  // Execute a slash command directly and show result in snackbar
+  const executeSlashCommand = useCallback(
+    async (commandText: string) => {
+      if (!activeSessionId || executingCommand) return;
+      setExecutingCommand(true);
+      setSlashMenuVisible(false);
+      setSlashQuery('');
+      setDraft('');
+
+      try {
+        const result = await api.sendMessage(activeSessionId, commandText, '', '', mode);
+        if (result) {
+          showSnackbar(result, 'info');
+        }
+      } catch (e: any) {
+        showSnackbar(e?.message || 'Erro ao executar comando', 'error');
+      } finally {
+        setExecutingCommand(false);
+      }
+    },
+    [activeSessionId, executingCommand, mode, showSnackbar],
+  );
+
+  // Save config changes to backend
+  const saveConfig = (newModel: string | null, newMode: string, newThinking: boolean) => {
+    if (!activeSessionId) return;
+    setSessionConfig(
+      newModel ?? '',
+      '',
+      newMode,
+      newThinking ? 'high' : '',
+    );
+  };
+
+  const handleModeChange = (newMode: ChatMode) => {
+    setMode(newMode);
+    saveConfig(selectedModel, newMode, thinking);
+  };
+
+  const handleThinkingChange = () => {
+    const newThinking = !thinking;
+    setThinking(newThinking);
+    saveConfig(selectedModel, mode, newThinking);
+  };
+
+  const handleModelChange = (newModel: string | null) => {
+    setSelectedModel(newModel);
+    saveConfig(newModel, mode, thinking);
+  };
+
+  const handleSubmit = async () => {
     if (!draft.trim() || loading || !activeSessionId) return;
-    console.log('[ChatInput] handleSubmit', { selectedModel, thinking, mode, draft: draft.trim().substring(0, 50) });
-    sendMessage(draft.trim(), selectedModel ?? undefined, thinking ? 'high' : undefined, mode);
-    setDraft('');
-    if (expanded) setExpanded(false);
+    const text = draft.trim();
+    const success = await sendMessage(text, selectedModel ?? undefined, thinking ? 'high' : undefined, mode);
+    // Only clear input on success
+    if (success) {
+      setDraft('');
+      if (expanded) setExpanded(false);
+    }
   };
 
   const handleKeyDownInline = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMenuVisible) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Let the menu handle navigation — dispatch to the menu div
+        const menuEl = document.querySelector('[data-slash-menu]');
+        if (menuEl) {
+          menuEl.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, bubbles: true }));
+        }
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const menuEl = document.querySelector('[data-slash-menu]');
+        if (menuEl) {
+          menuEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashMenuVisible(false);
+        setSlashQuery('');
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -67,37 +174,49 @@ export function ChatInput() {
     <>
       <div className="shrink-0 border-t border-border bg-card px-3 pt-2 pb-2">
         {/* Textarea row — expand button sits left of textarea on the first line */}
-        <div className="flex items-start gap-1 mx-auto">
-          <button
-            type="button"
-            className="toolbar-btn mt-1 shrink-0"
-            title="Expandir editor"
-            onClick={() => setExpanded(true)}
-          >
-            <Icon name="Maximize2" className="w-3.5 h-3.5" />
-          </button>
-
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDownInline}
-            placeholder={
-              activeSessionId
-                ? 'Digite sua mensagem…'
-                : 'Selecione um chat para digitar'
-            }
-            disabled={!activeSessionId || loading}
-            rows={2}
-            className="flex-1 min-h-[52px] max-h-[52px] resize-none bg-transparent px-2 py-1 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-40"
-            style={{ overflow: 'hidden' }}
+        <div className="relative">
+          <SlashCommandMenu
+            visible={slashMenuVisible}
+            query={slashQuery}
+            commands={commands}
+            onSelect={executeSlashCommand}
+            onClose={() => {
+              setSlashMenuVisible(false);
+              setSlashQuery('');
+            }}
           />
+          <div className="flex items-start gap-1 mx-auto">
+            <button
+              type="button"
+              className="toolbar-btn mt-1 shrink-0"
+              title="Expand editor"
+              onClick={() => setExpanded(true)}
+            >
+              <Icon name="Maximize2" className="w-3.5 h-3.5" />
+            </button>
+
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => handleDraftChange(e.target.value)}
+              onKeyDown={handleKeyDownInline}
+              placeholder={
+                activeSessionId
+                  ? 'Type your message...'
+                  : 'Select a chat to start'
+              }
+              disabled={!activeSessionId || loading}
+              rows={2}
+              className="flex-1 min-h-[52px] max-h-[52px] resize-none bg-transparent px-2 py-1 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-40"
+              style={{ overflow: 'hidden' }}
+            />
+          </div>
         </div>
 
         {/* Bottom toolbar */}
         <div className="flex items-center gap-1 mx-auto mt-0.5">
           {/* Plus */}
-          <button type="button" className="toolbar-btn" title="Anexar arquivo">
+          <button type="button" className="toolbar-btn" title="Attach file">
             <Icon name="Plus" className="w-4 h-4" />
           </button>
 
@@ -107,7 +226,7 @@ export function ChatInput() {
               <button
                 key={m.id}
                 type="button"
-                onClick={() => setMode(m.id)}
+                onClick={() => handleModeChange(m.id)}
                 className={cn(
                   'flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
                   mode === m.id
@@ -127,7 +246,7 @@ export function ChatInput() {
           {/* Thinking toggle */}
           <button
             type="button"
-            onClick={() => setThinking(!thinking)}
+            onClick={handleThinkingChange}
             className={cn(
               'flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
               thinking
@@ -145,7 +264,7 @@ export function ChatInput() {
           {/* Model picker */}
           <ModelPicker
             selectedModel={selectedModel}
-            onSelect={setSelectedModel}
+            onSelect={handleModelChange}
             disabled={!activeSessionId}
           />
 
@@ -188,9 +307,9 @@ export function ChatInput() {
 
           <textarea
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => handleDraftChange(e.target.value)}
             onKeyDown={handleKeyDownExpanded}
-            placeholder="Escreva sua mensagem…"
+            placeholder="Write your message..."
             disabled={!activeSessionId || loading}
             autoFocus
             className="flex-1 w-full min-h-0 resize-none bg-transparent px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-40"
@@ -219,7 +338,7 @@ export function ChatInput() {
 
               <button
                 type="button"
-                onClick={() => setThinking(!thinking)}
+                onClick={handleThinkingChange}
                 className={cn(
                   'flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ml-1',
                   thinking
@@ -235,7 +354,7 @@ export function ChatInput() {
             <div className="flex items-center gap-2">
               <ModelPicker
                 selectedModel={selectedModel}
-                onSelect={setSelectedModel}
+                onSelect={handleModelChange}
                 disabled={!activeSessionId}
               />
               <Button

@@ -19,7 +19,6 @@ import { Card, CardContent } from '../ui/card';
 import { BaseCard } from '../BaseCard';
 import { EditDialog } from '../EditDialog';
 import { ExpandableEditor } from '../ExpandableEditor';
-import { IconPicker } from '../IconPicker';
 import { Icon } from '../Icon';
 import * as api from '../../api';
 
@@ -214,6 +213,10 @@ function AgentsSection() {
         onOpenChange={setShowEdit}
         title={editing ? 'Edit Agent' : 'New Agent'}
         onSave={handleSave}
+        color={A.color || '#3b82f6'}
+        icon={A.icon || '🤖'}
+        onColorChange={(color) => setA({ ...A, color })}
+        onIconChange={(icon) => setA({ ...A, icon })}
       >
         <div className="space-y-4">
           <div className="space-y-2">
@@ -347,30 +350,6 @@ function AgentsSection() {
               label="System Prompt"
               value={A.system_prompt}
               onChange={(v) => setA({ ...A, system_prompt: v })}
-            />
-          </div>
-
-          {/* Appearance */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <div
-                className="w-10 h-10 rounded border cursor-pointer"
-                style={{ backgroundColor: A.color || '#3b82f6' }}
-                onClick={() =>
-                  document.getElementById('agent-pick-color')?.click()
-                }
-              />
-              <input
-                id="agent-pick-color"
-                type="color"
-                value={A.color || '#3b82f6'}
-                onChange={(e) => setA({ ...A, color: e.target.value })}
-                className="w-0 h-0 opacity-0"
-              />
-            </div>
-            <IconPicker
-              value={A.icon || '🤖'}
-              onChange={(v) => setA({ ...A, icon: v })}
             />
           </div>
         </div>

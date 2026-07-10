@@ -326,7 +326,10 @@ func (al *AgentLoop) buildCommandsRuntime(
 			if opts == nil {
 				return fmt.Errorf("process options not available")
 			}
-			return al.contextManager.Clear(ctx, opts.SessionKey)
+			if err := al.contextManager.Clear(ctx, opts.SessionKey); err != nil {
+				return err
+			}
+			return nil
 		}
 
 		rt.AskSideQuestion = func(ctx context.Context, question string) (string, error) {

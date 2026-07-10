@@ -5,7 +5,9 @@
 package envutil
 
 import (
+	"ada-love-ai/pkg/logger"
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -52,12 +54,40 @@ func ResolveKey(raw string) string {
 // precedence and are NOT overwritten (the .env file is a fallback).
 //
 // It searches, in order: the working directory, ./config, and the OS-specific
-// config directory (e.g. ~/.config/ada-love on Linux). The first .env file that
-// exists and parses wins.
+// config directory (e.g. ~/.config/ada-love-ai on Linux). The first .env file that
+// exists and parses wins. If none exists, creates a template at the OS config dir.
 func LoadEnvFiles() {
+	found := false
 	for _, p := range envCandidatePaths() {
 		if loadEnvFile(p) {
-			return
+			logger.DebugCF("envutil", "Carregado .env",
+				map[string]any{"path": p})
+			found = true
+			break
+		}
+	}
+	if !found {
+		configDir := osConfigDir()
+		fmt.Printf("[envutil] DEBUG: configDir=%q found=%v\n", configDir, found)
+		if configDir != "" {
+			if err := os.MkdirAll(configDir, 0o755); err != nil {
+				logger.WarnCF("envutil", "Falha ao criar dir de config",
+					map[string]any{"dir": configDir, "error": err.Error()})
+			} else {
+				templatePath := filepath.Join(configDir, ".env")
+				fmt.Printf("[envutil] DEBUG: templatePath=%q\n", templatePath)
+				if err := createEnvTemplate(templatePath); err != nil {
+					logger.WarnCF("envutil", "Falha ao criar .env template",
+						map[string]any{"path": templatePath, "error": err.Error()})
+				} else {
+					logger.InfoCF("envutil", "Criado .env template - preencha suas chaves",
+						map[string]any{"path": templatePath})
+				}
+				_ = loadEnvFile(templatePath)
+			}
+		} else {
+			logger.WarnCF("envutil", "Nenhum arquivo .env encontrado e não foi possível criar template",
+				map[string]any{"searched_paths": envCandidatePaths()})
 		}
 	}
 }
@@ -79,11 +109,11 @@ func envCandidatePaths() []string {
 func osConfigDir() string {
 	switch runtime.GOOS {
 	case "linux":
-		return filepath.Join(os.Getenv("HOME"), ".config", "ada-love")
+		return filepath.Join(os.Getenv("HOME"), ".config", "ada-love-ai")
 	case "darwin":
-		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "ada-love")
+		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "ada-love-ai")
 	case "windows":
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "ada-love")
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "ada-love-ai")
 	}
 	return ""
 }
@@ -144,4 +174,25 @@ func stripQuotes(v string) string {
 		}
 	}
 	return v
+}
+
+// createEnvTemplate creates a .env file with example API keys at the given path.
+func createEnvTemplate(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	template := `# Ada Love AI - Environment Variables
+# Preencha as chaves abaixo. Variáveis de ambiente reais têm precedência sobre este arquivo.
+# Obtenha suas chaves em: https://openrouter.ai/keys, https://platform.openai.com/api-keys, etc.
+
+OPENROUTER_API_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GEMINI_API_KEY=
+GROQ_API_KEY=
+TOGETHER_API_KEY=
+DEEPSEEK_API_KEY=
+OLLAMA_HOST=
+`
+	return os.WriteFile(path, []byte(template), 0o600)
 }

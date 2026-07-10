@@ -19,6 +19,7 @@ interface WorkspaceTreeProps {
     worker: api.backend.WorkerConfig,
     summarized: boolean,
   ) => void;
+  onWorkspacesChanged: () => void;
 }
 
 function relativeTime(iso: string): string {
@@ -50,7 +51,7 @@ function ChatRow({ session }: { session: api.backend.ChatSession }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(session.title);
   const active = activeSessionId === session.id;
-  const summarized = session.title.toLowerCase().startsWith('resumo');
+  const summarized = session.parent_session_id !== '' || session.title.toLowerCase().startsWith('resumo');
 
   return (
     <div
@@ -259,6 +260,69 @@ function WorkerNode({
   );
 }
 
+function AddWorkerPopover({
+  workspace,
+  globalWorkers,
+  onSaved,
+}: {
+  workspace: api.backend.WorkspaceConfig;
+  globalWorkers: api.backend.WorkerConfig[];
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const handleAdd = async (worker: api.backend.WorkerConfig) => {
+    const currentWorkers = workspace.workers ?? [];
+    const updatedWorkers = [...currentWorkers, worker];
+    await api.updateWorkspace(workspace.title, {
+      ...workspace,
+      workers: updatedWorkers,
+    });
+    setOpen(false);
+    onSaved();
+  };
+
+  // Filtra workers que ainda não estão no workspace
+  const available = globalWorkers.filter(
+    (gw) => !(workspace.workers ?? []).some((w) => w.name === gw.name),
+  );
+
+  if (available.length === 0) return null;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="toolbar-btn"
+          title="Adicionar worker ao workspace"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Icon name="Plus" className="w-3 h-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="end" side="right">
+        <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
+          Adicionar worker
+        </div>
+        <div className="mt-1 space-y-0.5">
+          {available.map((worker) => (
+            <button
+              key={worker.name}
+              type="button"
+              onClick={() => handleAdd(worker)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <span>{worker.icon || '🤖'}</span>
+              <span className="truncate">{worker.name}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function WorkspacePlusButton({
   workspace,
   onAddChat,
@@ -270,19 +334,24 @@ function WorkspacePlusButton({
     summarized: boolean,
   ) => void;
 }) {
-  const [workers, setWorkers] = useState<api.backend.WorkerConfig[]>([]);
   const [selectedWorker, setSelectedWorker] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    api.getWorkers().then(setWorkers).catch(() => setWorkers([]));
-  }, []);
+  const workers = workspace.workers ?? [];
 
   const handleAdd = (worker: api.backend.WorkerConfig, summarized: boolean) => {
     onAddChat(workspace, worker, summarized);
     setOpen(false);
     setSelectedWorker(null);
   };
+
+  // Se não tem workers, mostra mensagem
+  if (workers.length === 0) {
+    return (
+      <span className="text-[9px] text-muted-foreground px-1" title="Adicione workers ao workspace nas configurações">
+        +Workers
+      </span>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -291,7 +360,7 @@ function WorkspacePlusButton({
           variant="ghost"
           size="icon"
           className="h-5 w-5 p-0"
-          title="Adicionar chat por worker"
+          title="Adicionar chat"
           onClick={(e) => e.stopPropagation()}
         >
           <Icon name="Plus" className="w-3.5 h-3.5" />
@@ -299,15 +368,10 @@ function WorkspacePlusButton({
       </PopoverTrigger>
       <PopoverContent className="w-60 p-2" align="end" side="right">
         <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
-          Workers
+          Workers neste workspace
         </div>
         <div className="mt-1 space-y-0.5">
-          {workers.length === 0 && (
-            <div className="px-2 py-2 text-[11px] text-muted-foreground">
-              Nenhum worker registrado.
-            </div>
-          )}
-          {workers.map((worker) => {
+          {workers.filter((w) => w.name).map((worker) => {
             const active = selectedWorker === worker.name;
             return (
               <button
@@ -321,9 +385,9 @@ function WorkspacePlusButton({
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
-                <span className="truncate">{worker.name}</span>
+                <span className="truncate">{worker.icon || '🤖'} {worker.name}</span>
                 {active && (
-                  <span className="worker-plus-actions">
+                  <span className="flex gap-0.5">
                     <button
                       type="button"
                       className="toolbar-btn"
@@ -360,6 +424,7 @@ function WorkspacePlusButton({
 function WorkspaceNode({
   workspace,
   workers,
+  globalWorkers,
   sessions,
   expanded,
   selectedWorkspace,
@@ -368,9 +433,11 @@ function WorkspaceNode({
   onSelect,
   onSelectWorker,
   onAddChat,
+  onWorkspacesChanged,
 }: {
   workspace: api.backend.WorkspaceConfig;
   workers: api.backend.WorkerConfig[];
+  globalWorkers: api.backend.WorkerConfig[];
   sessions: api.backend.ChatSession[];
   expanded: boolean;
   selectedWorkspace: string | null;
@@ -383,8 +450,9 @@ function WorkspaceNode({
     worker: api.backend.WorkerConfig,
     summarized: boolean,
   ) => void;
+  onWorkspacesChanged: () => void;
 }) {
-  const active = selectedWorkspace === workspace.path;
+  const active = selectedWorkspace === workspace.path || selectedWorkspace === (workspace.path || workspace.title);
 
   return (
     <div className="border-b border-border/40">
@@ -410,7 +478,10 @@ function WorkspaceNode({
         <span className="text-base shrink-0">{workspace.icon || '📂'}</span>
         <span className="flex-1 truncate">{workspace.title || workspace.path}</span>
         {active && (
-          <WorkspacePlusButton workspace={workspace} onAddChat={onAddChat} />
+          <div className="flex items-center gap-0.5 shrink-0">
+            <WorkspacePlusButton workspace={workspace} onAddChat={onAddChat} />
+            <AddWorkerPopover workspace={workspace} globalWorkers={globalWorkers} onSaved={onWorkspacesChanged} />
+          </div>
         )}
         {!workspace.enabled && !active && (
           <span className="text-[9px] opacity-60">off</span>
@@ -419,14 +490,14 @@ function WorkspaceNode({
 
       {expanded && (
         <div className="pb-2 space-y-0.5">
-          {workers.length === 0 && (
+          {workers.filter((w) => w.name).length === 0 && (
             <div className="px-5 py-2 text-[10px] text-muted-foreground">
-              Nenhum worker registrado.
+              Nenhum worker neste workspace.
             </div>
           )}
-          {workers.map((worker) => (
+          {workers.filter((w) => w.name).map((worker) => (
             <WorkerNode
-              key={worker.name}
+              key={`${workspace.path || workspace.title}:${worker.name}`}
               worker={worker}
               workspace={workspace}
               sessions={sessions.filter((s) => s.worker_name === worker.name)}
@@ -445,6 +516,7 @@ export function WorkspaceTree({
   workspaces,
   workers,
   onAddChat,
+  onWorkspacesChanged,
 }: WorkspaceTreeProps) {
   const {
     sessions,
@@ -478,7 +550,7 @@ export function WorkspaceTree({
   const isSearching = query.trim().length > 0;
   useEffect(() => {
     if (isSearching) {
-      workspaces.forEach((ws) => loadSessions(ws.path));
+      workspaces.forEach((ws) => loadSessions(ws.path || ws.title));
     }
   }, [isSearching, workspaces, loadSessions]);
 
@@ -510,8 +582,9 @@ export function WorkspaceTree({
     worker: api.backend.WorkerConfig,
     summarized: boolean,
   ) => {
-    setSelectedWorkspace(workspace.path);
-    setExpandedWorkspaces((prev) => new Set([...prev, workspace.path]));
+    const wsPath = workspace.path || workspace.title;
+    setSelectedWorkspace(wsPath);
+    setExpandedWorkspaces((prev) => new Set([...prev, wsPath]));
     setSelectedWorker(worker.name);
     onAddChat(workspace, worker, summarized);
   };
@@ -596,20 +669,22 @@ export function WorkspaceTree({
           )}
           {workspaces.map((ws) => (
             <WorkspaceNode
-              key={ws.path}
+              key={ws.path || ws.title}
               workspace={ws}
-              workers={workers}
-              sessions={sessions.filter((s) => s.workspace_id === ws.path)}
-              expanded={expandedWorkspaces.has(ws.path)}
+              workers={ws.workers ?? []}
+              globalWorkers={workers}
+              sessions={sessions.filter((s) => s.workspace_id === (ws.path || ws.title))}
+              expanded={expandedWorkspaces.has(ws.path || ws.title)}
               selectedWorkspace={selectedWorkspace}
               selectedWorker={selectedWorker}
               onToggle={(e) => {
                 e.stopPropagation();
-                toggleWorkspace(ws.path);
+                toggleWorkspace(ws.path || ws.title);
               }}
-              onSelect={() => handleSelectWorkspace(ws.path)}
-              onSelectWorker={(name) => handleSelectWorker(ws.path, name)}
+              onSelect={() => handleSelectWorkspace(ws.path || ws.title)}
+              onSelectWorker={(name) => handleSelectWorker(ws.path || ws.title, name)}
               onAddChat={handleAddChat}
+              onWorkspacesChanged={onWorkspacesChanged}
             />
           ))}
         </div>

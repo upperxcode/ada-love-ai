@@ -22,18 +22,34 @@ type ApprovalRequest struct {
 	Args      string `json:"args"`
 }
 
+// ToolCategory represents the category of a tool for approval purposes.
+type ToolCategory string
+
+const (
+	ToolCategoryRead ToolCategory = "read"
+	ToolCategoryWrite ToolCategory = "write"
+)
+
 // ApprovalRegistry manages pending tool approval requests and their response channels.
 type ApprovalRegistry struct {
 	mu        sync.Mutex
 	pending   map[string]chan ApprovalDecision // requestID -> response channel
 	onApprove func(req ApprovalRequest)
 	resolver  func(opaqueKey string) string
+	
+	// cachedApprovals stores previously approved tools by session and category
+	// Key: "sessionId:toolName" for read tools, "sessionId:write" for write tools in current iteration
+	cachedApprovals map[string]bool
+	// writeApprovalIteration tracks the current iteration for write approvals
+	currentWriteIteration int
+	lastApprovedToolForIteration string
 }
 
 // NewApprovalRegistry creates a new ApprovalRegistry.
 func NewApprovalRegistry() *ApprovalRegistry {
 	return &ApprovalRegistry{
-		pending: make(map[string]chan ApprovalDecision),
+		pending:         make(map[string]chan ApprovalDecision),
+		cachedApprovals: make(map[string]bool),
 	}
 }
 
@@ -122,6 +138,76 @@ func IsReadOnlyTool(tool string) bool {
 	default:
 		return false
 	}
+}
+
+// GetToolCategory returns the category of a tool (read or write).
+func GetToolCategory(tool string) ToolCategory {
+	if IsReadOnlyTool(tool) {
+		return ToolCategoryRead
+	}
+	// Write tools: write_file, edit_file, etc.
+	return ToolCategoryWrite
+}
+
+// IsCachedApproval checks if a tool was previously approved in this session.
+// For read tools: checks if the specific tool was approved
+// For write tools: checks if write permission was granted for this iteration
+func (ar *ApprovalRegistry) IsCachedApproval(sessionID, tool string) bool {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	key := fmt.Sprintf("%s:%s", sessionID, tool)
+	return ar.cachedApprovals[key]
+}
+
+// CacheApproval stores an approval decision for a tool in this session.
+func (ar *ApprovalRegistry) CacheApproval(sessionID, tool string) {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	key := fmt.Sprintf("%s:%s", sessionID, tool)
+	ar.cachedApprovals[key] = true
+}
+
+// StartNewWriteIteration resets write approvals for a new question/iteration.
+// Read tool approvals are cached for the entire session.
+func (ar *ApprovalRegistry) StartNewWriteIteration(sessionID string) {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	// Clear write tool approvals for this session (they expire per iteration)
+	ar.currentWriteIteration++
+	ar.lastApprovedToolForIteration = ""
+}
+
+// IsWriteToolApproved checks if write permission was granted for this iteration.
+// Returns true if any write tool was approved in the current iteration.
+func (ar *ApprovalRegistry) IsWriteToolApproved(sessionID string) bool {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	// If we have a cached approval for a write tool in this iteration
+	if ar.lastApprovedToolForIteration != "" {
+		return true
+	}
+	return false
+}
+
+// CacheWriteApproval marks that write permission was granted for this iteration.
+func (ar *ApprovalRegistry) CacheWriteApproval(sessionID string) {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	ar.currentWriteIteration++
+	ar.lastApprovedToolForIteration = sessionID + ":write"
+}
+
+// ClearCachedApprovals clears all cached approvals for a session.
+func (ar *ApprovalRegistry) ClearCachedApprovals(sessionID string) {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	
+	ar.cachedApprovals = make(map[string]bool)
 }
 
 // FormatArgs converts the tool arguments map to a compact string representation.

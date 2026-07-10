@@ -30,6 +30,9 @@ type SubTurnConfig struct {
 	ActualSystemPrompt string
 	InitialMessages    []providers.Message
 	InitialTokenBudget *atomic.Int64 // Shared token budget for team members; nil if no budget
+	// AgentID is the optional target agent ID for delegation.
+	// When set, the spawner will use this agent's model and configuration.
+	AgentID string
 }
 
 type SubagentTask struct {

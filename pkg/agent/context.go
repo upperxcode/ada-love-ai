@@ -70,6 +70,24 @@ func (cb *ContextBuilder) WithFolders(folders []string) *ContextBuilder {
 	return cb
 }
 
+// UpdateWorkspace updates the workspace path, folders, personality and knowledge
+// at runtime (without recreating the ContextBuilder) and invalidates the system
+// prompt cache so the next BuildSystemPromptWithCache call reflects the new
+// workspace. This is used when the active workspace changes between turns.
+func (cb *ContextBuilder) UpdateWorkspace(workspace string, folders []string, personality string, knowledge []string) {
+	cb.systemPromptMutex.Lock()
+	defer cb.systemPromptMutex.Unlock()
+
+	cb.workspace = workspace
+	cb.folders = folders
+	cb.personality = personality
+	cb.knowledge = knowledge
+
+	// Invalidate cache so the system prompt is rebuilt with the new workspace.
+	cb.cachedSystemPrompt = ""
+	cb.cachedAt = time.Time{}
+}
+
 func (cb *ContextBuilder) WithPersonality(p string) *ContextBuilder {
 	cb.personality = p
 	return cb

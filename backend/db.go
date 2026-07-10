@@ -13,6 +13,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"ada-love-ai/pkg/agent/interfaces"
 )
 
 type Memory struct {
@@ -41,6 +43,11 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, err
 	}
 
+	// Configurações de pool para SQLite (vários leitores, um escritor típico)
+	db.SetMaxOpenConns(5)        // SQLite lida bem com poucas conexões
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	s := &Store{db: db}
 	if err := s.init(); err != nil {
 		return nil, err
@@ -48,8 +55,19 @@ func NewStore(dbPath string) (*Store, error) {
 
 	return s, nil
 }
-
 func (s *Store) init() error {
+	// PRAGMAs de performance (aplicados uma vez por conexão)
+	if _, err := s.db.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA synchronous=NORMAL;
+		PRAGMA cache_size=-32768;
+		PRAGMA mmap_size=268435456;
+		PRAGMA foreign_keys=ON;
+		PRAGMA temp_store=MEMORY;
+	`); err != nil {
+		return fmt.Errorf("erro ao aplicar pragmas: %v", err)
+	}
+
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS config (
 			key TEXT PRIMARY KEY,
@@ -84,7 +102,7 @@ func (s *Store) init() error {
 			session_id TEXT,
 			role TEXT,
 			content TEXT,
-			time DATETIME,
+			time DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS memories (
@@ -104,44 +122,68 @@ func (s *Store) init() error {
 		}
 	}
 
-// Migrações manuais para colunas novas
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN embedding BLOB") // Ignora erro se já existir
-		s.db.Exec("ALTER TABLE memories ADD COLUMN embedding BLOB") // Ignora erro se já existir
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")   // Ignora erro se já existir
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT") // Migração para novo campo manual
-		s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers") // Migração agents → workers
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN worker_name TEXT DEFAULT ''") // Migração worker vinculado ao chat
-		// Migrações para novos campos de workspace
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN enabled INTEGER DEFAULT 0")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN color TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN icon TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_prompt_send INTEGER DEFAULT 0")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN commit_changes INTEGER DEFAULT 1")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER DEFAULT 0")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN spec_wizard TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN agents TEXT DEFAULT '[]'") // JSON array of agent names
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''")
+	// Índices (idempotentes)
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON workspaces(slug)`,
+		`CREATE INDEX IF NOT EXISTS idx_workspaces_enabled ON workspaces(enabled)`,
+		`CREATE INDEX IF NOT EXISTS idx_workspaces_path ON workspaces(path)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_workspace_updated ON sessions(workspace_path, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_worker ON sessions(worker_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, time)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(time)`,
+		`CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_path, importance DESC, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_config_key ON config(key)`,
+		`CREATE INDEX IF NOT EXISTS idx_providers_name ON providers(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_skill_tags ON skill_tags(tag)`,
+	}
+	for _, idx := range indexes {
+		if _, err := s.db.Exec(idx); err != nil {
+			return fmt.Errorf("erro ao criar índice %q: %v", idx, err)
+		}
+	}
 
-		// Migração para hierarquia de sessões
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT DEFAULT ''") // Sessão pai (se resumo)
+	// Migrações de esquema (idempotentes / seguras)
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN embedding BLOB")                // ignora se já existir
+	s.db.Exec("ALTER TABLE memories ADD COLUMN embedding BLOB")                 // ignora se já existir
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN tools TEXT")                   // ignora se já existir
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN description TEXT")             // novo campo
+	s.db.Exec("ALTER TABLE workspaces RENAME COLUMN agents TO workers")         // rename
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN worker_name TEXT DEFAULT ''")    // novo campo
 
-		// Migração para config per-chat
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN provider TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT 'ask'")
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN thinking TEXT DEFAULT ''")
+	// Campos de workspace
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN enabled INTEGER DEFAULT 0")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN color TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN icon TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_prompt_send INTEGER DEFAULT 0")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN commit_changes INTEGER DEFAULT 1")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER DEFAULT 0")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN spec_wizard TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN agents TEXT DEFAULT '[]'")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''")
 
-		// Migração para sumarização de contexto
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_context TEXT DEFAULT ''")
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_at DATETIME")
-		s.db.Exec("ALTER TABLE sessions ADD COLUMN last_summarized_msg_id INTEGER DEFAULT 0")
+	// Hierarquia de sessões
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT DEFAULT ''")
+
+	// Config per-chat
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN provider TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN mode TEXT DEFAULT 'ask'")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN thinking TEXT DEFAULT ''")
+
+	// Sumarização
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_context TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN summarized_at DATETIME")
+	s.db.Exec("ALTER TABLE sessions ADD COLUMN last_summarized_msg_id INTEGER DEFAULT 0")
 
 	// Migração: sessões sem workspace_path → move para o workspace ativo
 	s.db.Exec(`
 		UPDATE sessions SET workspace_path = (
 			SELECT path FROM workspaces ORDER BY id LIMIT 1
-		) WHERE workspace_path = '' OR workspace_path IS NULL
+		)
+		WHERE workspace_path = '' OR workspace_path IS NULL
 	`)
 	fmt.Printf("[DB] Init: migrated orphan sessions with empty workspace_path\n")
 
@@ -150,6 +192,16 @@ func (s *Store) init() error {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// Exec executes a query without returning rows.
+func (s *Store) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return s.db.Exec(query, args...)
+}
+
+// Query executes a query and returns rows.
+func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return s.db.Query(query, args...)
 }
 
 // --- Operações de Configuração ---
@@ -319,12 +371,16 @@ func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 	var sessions []*ChatSession
 	for rows.Next() {
 		sess := &ChatSession{}
+		var summarizedAt sql.NullTime
 		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
 			&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
-			&sess.SummarizedContext, &sess.SummarizedAt, &sess.LastSummarizedMsgID,
+			&sess.SummarizedContext, &summarizedAt, &sess.LastSummarizedMsgID,
 			&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
 		if err != nil {
 			return nil, err
+		}
+		if summarizedAt.Valid {
+			sess.SummarizedAt = summarizedAt.Time
 		}
 		
 		// Carrega mensagens para esta sessão
@@ -345,15 +401,19 @@ func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 
 func (s *Store) GetSession(id string) (*ChatSession, error) {
 	sess := &ChatSession{}
+	var summarizedAt sql.NullTime
 	err := s.db.QueryRow(`
 		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at 
 		FROM sessions WHERE id = ?`, id).Scan(
 		&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
 		&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
-		&sess.SummarizedContext, &sess.SummarizedAt, &sess.LastSummarizedMsgID,
+		&sess.SummarizedContext, &summarizedAt, &sess.LastSummarizedMsgID,
 		&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if summarizedAt.Valid {
+		sess.SummarizedAt = summarizedAt.Time
 	}
 	msgRows, err := s.db.Query(`SELECT id, role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, id)
 	if err == nil {
@@ -374,31 +434,40 @@ func (s *Store) DeleteSession(id string) error {
 
 // --- Operações de Memória ---
 
-func (s *Store) SaveMemory(m Memory) error {
+func (s *Store) SaveMemory(workspacePath string, content string, importance int) error {
 	now := time.Now()
-	emb := Float32ToByte(m.Embedding)
+	emb := Float32ToByte(nil) // placeholder - mantido compatível; a engine preenche embedding separadamente
 	_, err := s.db.Exec(`
 		INSERT INTO memories (workspace_path, content, importance, embedding, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		m.WorkspacePath, m.Content, m.Importance, emb, now, now)
+		workspacePath, content, importance, emb, now, now)
 	return err
 }
 
-func (s *Store) GetMemories(workspacePath string) ([]Memory, error) {
-	rows, err := s.db.Query(`SELECT id, content, importance, embedding, created_at FROM memories WHERE workspace_path = ? ORDER BY importance DESC, created_at DESC`, workspacePath)
+func (s *Store) GetMemories(workspacePath string) ([]interfaces.MemoryEntry, error) {
+	rows, err := s.db.Query(`
+		SELECT id, content, importance, created_at
+		FROM memories
+		WHERE workspace_path = ?
+		ORDER BY importance DESC, created_at DESC`, workspacePath)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var memories []Memory
+	var memories []interfaces.MemoryEntry
 	for rows.Next() {
-		var m Memory
-		var emb []byte
-		if err := rows.Scan(&m.ID, &m.Content, &m.Importance, &emb, &m.CreatedAt); err == nil {
-			m.Embedding = ByteToFloat32(emb)
-			memories = append(memories, m)
+		var m interfaces.MemoryEntry
+		var id, importance int
+		var content string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &content, &importance, &createdAt); err != nil {
+			continue
 		}
+		m.Content = content
+		m.Importance = importance
+		m.CreatedAt = createdAt
+		memories = append(memories, m)
 	}
 	return memories, nil
 }

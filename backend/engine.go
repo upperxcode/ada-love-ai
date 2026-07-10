@@ -244,7 +244,7 @@ func NewEngine() (*Engine, error) {
 		msgBus:        msgBus,
 		eventBus:      eventBus,
 		adaCfg:        adaCfg,
-		SessionMgr:    NewSessionManager(),
+		SessionMgr:    NewSessionManager(db),
 		skillReg:   skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
 		db:         db,
 		providerCache: make(map[string]any),
@@ -988,28 +988,11 @@ func (e *Engine) resolveOpaqueKey(sessionID string) string {
 // Implementação de interfaces.MemoryStore para o agente
 
 func (e *Engine) SaveMemory(workspacePath string, content string, importance int) error {
-	return e.db.SaveMemory(Memory{
-		WorkspacePath: workspacePath,
-		Content:       content,
-		Importance:    importance,
-	})
+	return e.db.SaveMemory(workspacePath, content, importance)
 }
 
 func (e *Engine) GetMemories(workspacePath string) ([]interfaces.MemoryEntry, error) {
-	memories, err := e.db.GetMemories(workspacePath)
-	if err != nil {
-		return nil, err
-	}
-
-	var entries []interfaces.MemoryEntry
-	for _, m := range memories {
-		entries = append(entries, interfaces.MemoryEntry{
-			Content:    m.Content,
-			Importance: m.Importance,
-			CreatedAt:  m.CreatedAt,
-		})
-	}
-	return entries, nil
+	return e.db.GetMemories(workspacePath)
 }
 
 func (e *Engine) Close() {

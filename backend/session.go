@@ -1,8 +1,8 @@
 package backend
 
 import (
+	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,11 +52,13 @@ type SessionManager struct {
 	sessions map[string]*ChatSession
 	activeID string
 	mu       sync.RWMutex
+	db       *Store
 }
 
-func NewSessionManager() *SessionManager {
+func NewSessionManager(db *Store) *SessionManager {
 	return &SessionManager{
 		sessions: make(map[string]*ChatSession),
+		db:       db,
 	}
 }
 func (s *SessionManager) Reset() {
@@ -134,32 +136,33 @@ func (s *SessionManager) GetSession(id string) *ChatSession {
 func (s *SessionManager) ListSessions(workspaceID string) []*ChatSession {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	list := make([]*ChatSession, 0)
-	for _, sess := range s.sessions {
-		if sess.WorkspaceID == workspaceID {
-			list = append(list, sess)
-		}
+
+	rows, err := s.db.Query(`
+		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at
+		FROM sessions
+		WHERE workspace_path = ?
+		ORDER BY pinned DESC, updated_at DESC`, workspaceID)
+	if err != nil {
+		return nil
 	}
+	defer rows.Close()
 
-	// Ordena por Pinned primeiro, depois por Título (ordem alfabética) e por fim data de atualização
-	sort.SliceStable(list, func(i, j int) bool {
-		if list[i].Pinned != list[j].Pinned {
-			return list[i].Pinned // True (pinned) vem antes de False
+	list := make([]*ChatSession, 0)
+	for rows.Next() {
+		sess := &ChatSession{}
+		var summarizedAt sql.NullTime
+		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
+			&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
+			&sess.SummarizedContext, &summarizedAt, &sess.LastSummarizedMsgID,
+			&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+		if err != nil {
+			continue // em production, talvez logar; aqui ignoramos linha com erro
 		}
-		titleI := strings.ToLower(list[i].Title)
-		titleJ := strings.ToLower(list[j].Title)
-		if titleI == "" {
-			titleI = "zzz" 
+		if summarizedAt.Valid {
+			sess.SummarizedAt = summarizedAt.Time
 		}
-		if titleJ == "" {
-			titleJ = "zzz"
-		}
-		if titleI == titleJ {
-			return list[i].UpdatedAt.After(list[j].UpdatedAt)
-		}
-		return titleI < titleJ
-	})
-
+		list = append(list, sess)
+	}
 	return list
 }
 
@@ -229,7 +232,8 @@ func (s *SessionManager) AddMessage(id, role, content string) (int, bool) {
 	})
 }
 
-// AddRichMessage adiciona uma mensagem completa com metadados
+// AddRichMessage adiciona ou atualiza uma mensagem em uma sessão de forma incremental.
+// Em vez de apagar todas e reinserir, faz UPSERT por ID para reduzir bloqueios.
 func (s *SessionManager) AddRichMessage(id string, msg ChatMessage) (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,14 +242,77 @@ func (s *SessionManager) AddRichMessage(id string, msg ChatMessage) (int, bool) 
 	if !ok {
 		return 0, false
 	}
-
 	if msg.Time.IsZero() {
 		msg.Time = time.Now()
 	}
-	sess.Messages = append(sess.Messages, msg)
+
+	// Verifica se a mensagem já existe pelo índice
+	existing := -1
+	for i, m := range sess.Messages {
+		if m.ID == msg.ID {
+			existing = i
+			break
+		}
+	}
+
+	if existing >= 0 {
+		// Atualiza a mensagem existente
+		sess.Messages[existing] = msg
+	} else {
+		// Insere nova mensagem
+		sess.Messages = append(sess.Messages, msg)
+	}
 	sess.UpdatedAt = time.Now()
 
 	return len(sess.Messages), true
+}
+
+// SaveSession atualizada para transação curta e UPSERT incremental de mensagens.
+// Mantém bloqueio RWLock apenas pelo tempo necessário.
+func (s *SessionManager) SaveSession(sess ChatSession) error {
+	s.mu.Lock()
+	// Atualiza cabeçalho da sessão (sem apagar mensagens)
+	sess.UpdatedAt = time.Now()
+	current, ok := s.sessions[sess.ID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("sessão não encontrada: %s", sess.ID)
+	}
+	current.Title = sess.Title
+	current.Summary = sess.Summary
+	current.Model = sess.Model
+	current.Provider = sess.Provider
+	current.Mode = sess.Mode
+	current.Thinking = sess.Thinking
+	current.SummarizedContext = sess.SummarizedContext
+	current.SummarizedAt = sess.SummarizedAt
+	current.LastSummarizedMsgID = sess.LastSummarizedMsgID
+	current.Pinned = sess.Pinned
+	// Atualiza a sessão no mapa
+	s.sessions[sess.ID] = current
+	// Libera lock antes de trabalhar com DB para não bloquear outras reads
+	s.mu.Unlock()
+
+	// UPSERT incremental de mensagens em transação curta
+	for _, msg := range sess.Messages {
+		// Tenta UPDATE
+		res, err := s.db.Exec(`UPDATE messages SET role=?, content=?, time=? WHERE id=?`,
+			msg.Role, msg.Content, msg.Time, msg.ID)
+		if err != nil {
+			return err
+		}
+		rows, _ := res.RowsAffected()
+		if rows == 0 {
+			// Insere nova mensagem
+			_, err = s.db.Exec(`INSERT INTO messages (id, session_id, role, content, time) VALUES (?,?,?,?,?)`,
+				msg.ID, sess.ID, msg.Role, msg.Content, msg.Time)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// Opcional: remover mensagens muito antigas aqui (com DELETE LIMIT), evite grandes deletes.
+	return nil
 }
 
 func (s *SessionManager) SetSummary(id, summary string) {

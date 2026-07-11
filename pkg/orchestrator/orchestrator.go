@@ -90,6 +90,19 @@ func (o *Orchestrator) SetSubAgentProviders(provider providers.LLMProvider) {
 	}
 }
 
+// SetSubAgentModel propaga o modelo para todos os sub-agentes registrados.
+func (o *Orchestrator) SetSubAgentModel(model string) {
+	if model == "" {
+		return
+	}
+	for _, agentType := range o.registry.List() {
+		if agent, ok := o.registry.Get(agentType); ok {
+			agent.SetModel(model)
+		}
+	}
+	o.orchestratorModel = model
+}
+
 // BuildPromptLayers builds the 4-layer prompt architecture
 func (o *Orchestrator) BuildPromptLayers(agentType AgentType, task string, state string, relatedFiles []string) PromptLayers {
 	agent, ok := o.registry.Get(agentType)
@@ -494,6 +507,7 @@ func (o *Orchestrator) SetProvider(provider providers.LLMProvider) {
 // SetModel sets the model name used for LLM routing and sub-agents.
 func (o *Orchestrator) SetModel(model string) {
 	o.orchestratorModel = model
+	o.SetSubAgentModel(model)
 }
 
 // Config returns the orchestrator configuration

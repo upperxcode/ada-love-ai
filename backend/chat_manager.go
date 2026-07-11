@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/providers"
-	)
+)
 
 func (e *Engine) TogglePin(sessionID string) {
 	e.SessionMgr.TogglePin(sessionID)
@@ -87,6 +88,15 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 
 	// Injeta o sessionID no contexto
 	ctx = context.WithValue(ctx, "session_id", sessionID)
+
+// Interceptação do orquestrador: ativa apenas para tarefas de desenvolvimento
+		if e.orchestrator != nil && !isRetry {
+			personality := e.resolveWorkspacePersonality(sessionID)
+			if personality != "" && isDevTask(text) {
+				fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q\n", sessionID)
+				return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride)
+			}
+		}
 
 	// Obtem informações da sessão para logging
 	var sess *ChatSession
@@ -284,11 +294,10 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Log do contexto sendo enviado (antes de ProcessDirect)
 	// Obtem o histórico da sessão para logging
 	historyForLog := []ChatMessage{}
-	var logWorkspaceID, logWorkerName string
+	var logWorkspaceID, logAgentName string
 	if sess != nil {
 		historyForLog = sess.Messages
 		logWorkspaceID = sess.WorkspaceID
-		logWorkerName = sess.WorkerName
 	}
 	
 	// Determina o modelo e provider finais para logging
@@ -308,7 +317,7 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	LogChatContextWithHistory(
 		sessionID,
 		logWorkspaceID,
-		logWorkerName,
+		logAgentName,
 		logModel,
 		logProvider,
 		mode,
@@ -466,4 +475,12 @@ func (e *Engine) RefreshSessions() {
 	fmt.Printf("[Engine] RefreshSessions: loaded %d sessions for %q\n", len(sessions), workspacePath)
 	e.SessionMgr.Reset()
 	e.SessionMgr.LoadSessions(sessions)
+}
+
+// devTaskRe detects messages that are development-related tasks.
+var devTaskRe = regexp.MustCompile(`(?i)(criar|crie|implemente|implementar|faca|fazer|desenvolva|codifique|adicione|adicionar|altere|modifique|corrija|consertar|crie\s+.*(api|rota|handler|servico|service|banco|tabela|query|migration|teste|test|componente|hook|pagina|tela|interface|formulario|form|modal|botao|layout|estilo|css|rota|middleware|model|struct|funcao|function|arquivo|cli|comando|endpoint|controller|use.?case|repositorio|repository|provider|config|docker|deploy|pipeline|action|workflow))|backend|frontend|api\s+rest|graphql|grpc|sql|banco\s+de\s+dados|teste\s+unitario|teste\s+de\s+integracao|e2e|test\s|bdd|tdd|refatorar|refatoracao|refactor|migrate|migracao|deploy|docker|kubernetes|k8s|ci/cd|pipeline|github\s+actions|gitlab\s+ci`)
+
+// isDevTask returns true if the message appears to be a development task.
+func isDevTask(text string) bool {
+	return devTaskRe.MatchString(text)
 }

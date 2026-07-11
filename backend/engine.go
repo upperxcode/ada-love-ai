@@ -532,11 +532,11 @@ func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
 	fmt.Printf("[Engine] syncWorkspaceForTurn: title=%q folders=%v → fsPath=%q\n",
 		ws.Title, ws.Folders, fsPath)
 
-	// Update cfg defaults so any future agent creation uses the right workspace.
-	e.cfg.Agents.Defaults.Workspace = fsPath
-	e.cfg.Agents.Defaults.Folders = ws.Folders
-	e.cfg.Agents.Defaults.Personality = ws.Personality
-	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
+// Update cfg defaults so any future agent creation uses the right workspace.
+		e.cfg.Agents.Defaults.Workspace = fsPath
+		e.cfg.Agents.Defaults.Folders = ws.Folders
+		e.cfg.Agents.Defaults.Personality = ws.Personality
+		e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
 
 	// Patch the LIVE agent loop's ContextBuilder (no reload) so the system
 	// prompt is rebuilt with the new workspace on the next turn.
@@ -1292,6 +1292,15 @@ func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
 	if sess == nil || e.db == nil {
 		return ""
 	}
+
+	// Primeiro tenta a persona do worker associado à sessão
+	if sess.WorkerName != "" {
+		if worker, err := e.db.GetWorkerByName(sess.WorkerName); err == nil && worker != nil && worker.Persona != "" {
+			return worker.Persona
+		}
+	}
+
+	// Fallback: personality do workspace
 	for _, ws := range e.adaCfg.Workspaces {
 		if ws.Path == sess.WorkspaceID || ws.Title == sess.WorkspaceID {
 			return ws.Personality

@@ -68,7 +68,7 @@ export function ChatInput() {
     [],
   );
 
-  // Execute a slash command directly and show result in snackbar
+  // Execute a slash command and show result in the chat
   const executeSlashCommand = useCallback(
     async (commandText: string) => {
       if (!activeSessionId || executingCommand) return;
@@ -78,17 +78,14 @@ export function ChatInput() {
       setDraft('');
 
       try {
-        const result = await api.sendMessage(activeSessionId, commandText, '', '', mode);
-        if (result) {
-          showSnackbar(result, 'info');
-        }
+        await sendMessage(commandText, selectedModel ?? undefined, thinking ? 'high' : undefined, mode);
       } catch (e: any) {
         showSnackbar(e?.message || 'Erro ao executar comando', 'error');
       } finally {
         setExecutingCommand(false);
       }
     },
-    [activeSessionId, executingCommand, mode, showSnackbar],
+    [activeSessionId, executingCommand, mode, sendMessage, selectedModel, thinking, showSnackbar],
   );
 
   // Save config changes to backend

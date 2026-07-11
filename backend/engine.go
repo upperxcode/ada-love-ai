@@ -1302,22 +1302,29 @@ func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
 
 // ProcessOrchestrated processa uma requisição através do orquestrador multi-agent.
 func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string) (string, error) {
+	fmt.Printf("[ProcessOrchestrated] step=start sessionID=%q modelOverride=%q\n", sessionID, modelOverride)
+
 	// 0. Extrai o nome do modelo do override (formato "Provider/ModelName")
 	modelName := modelOverride
 	if idx := strings.Index(modelOverride, "/"); idx != -1 {
 		modelName = modelOverride[idx+1:]
 	}
+	fmt.Printf("[ProcessOrchestrated] modelName=%q\n", modelName)
 
 	// 1. Resolve provider do chat ativo (modelOverride do frontend)
 	provider := e.resolveProviderForSession(modelOverride)
 	if provider != nil {
+		fmt.Printf("[ProcessOrchestrated] provider resolved OK\n")
 		e.orchestrator.SetProvider(provider)
 		e.orchestrator.SetModel(modelName)
 		e.orchestrator.SetSubAgentProviders(provider)
+	} else {
+		fmt.Printf("[ProcessOrchestrated] provider is NIL - using heuristic routing\n")
 	}
 
 	// 2. Resolve personality do workspace
 	personality := e.resolveWorkspacePersonality(sessionID)
+	fmt.Printf("[ProcessOrchestrated] personality=%q\n", personality)
 
 	// 3. Aplica timeout do config
 	timeout := e.orchestrator.Config().Timeout
@@ -1331,12 +1338,14 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 	state := e.buildOrchestratorState(sessionID)
 
 	// 5. Roteamento via LLM (personality como prompt de roteamento)
-	decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
-	if err != nil {
-		fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
-	}
+		decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
+		if err != nil {
+			fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
+		}
+		fmt.Printf("[ProcessOrchestrated] decision: nextAgent=%q task=%q subTasks=%d reasoning=%q\n",
+			decision.NextAgent, decision.Task, len(decision.SubTasks), decision.Reasoning)
 
-	// 6. Emite decisão de roteamento
+		// 6. Emite decisão de roteamento
 	e.eventBus.Emit(Event{
 		Kind:      EventKindOrchestratorDecision,
 		SessionID: sessionID,
@@ -1394,11 +1403,14 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		}
 	}
 
-	// 8. Execução (concorrente para sub-tasks)
-	output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
-	if err != nil {
-		return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
-	}
+// 8. Execução (concorrente para sub-tasks)
+		fmt.Printf("[ProcessOrchestrated] calling ExecuteRouting: decision={NextAgent=%s Task=%q SubTasks=%d}\n",
+			decision.NextAgent, decision.Task, len(decision.SubTasks))
+		output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
+		fmt.Printf("[ProcessOrchestrated] ExecuteRouting returned: outputLen=%d err=%v\n", len(output), err)
+		if err != nil {
+			return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
+		}
 
 	// 9. Salva na sessão
 	e.SessionMgr.AddMessage(sessionID, "user", text)
@@ -1420,9 +1432,12 @@ func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMPr
 	e.providerMu.RUnlock()
 	if ok {
 		if lp, ok := cached.(providers.LLMProvider); ok {
+			fmt.Printf("[resolveProviderForSession] cache HIT for %q\n", modelOverride)
 			return lp
 		}
 	}
+
+	fmt.Printf("[resolveProviderForSession] cache MISS for %q — creating provider\n", modelOverride)
 
 	// Not in cache — try to create provider from model_list or providers config
 	adaCfg := e.GetAdaConfig()
@@ -1438,7 +1453,9 @@ func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMPr
 		modelName := strings.TrimSpace(mc.ModelName)
 		modelField := strings.TrimSpace(mc.Model)
 		fullKey := provider + "/" + modelName
+		fmt.Printf("[resolveProviderForSession] checking: provider=%q modelName=%q fullKey=%q\n", provider, modelName, fullKey)
 		if modelName == modelOverride || modelField == modelOverride || fullKey == modelOverride {
+			fmt.Printf("[resolveProviderForSession] MATCH found! Provider=%q Model=%q Keys=%d\n", mc.Provider, mc.Model, len(mc.APIKeys))
 			p, _, err := e.CreateProviderFromModelConfig(mc)
 			if err == nil && p != nil {
 				cachedProvider = p
@@ -1451,36 +1468,48 @@ func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMPr
 
 	// Step 2: if not found in model_list, search providers config
 	if cachedProvider == nil {
+		fmt.Printf("[resolveProviderForSession] not found in model_list, trying providers config\n")
 		parts := strings.SplitN(modelOverride, "/", 2)
 		if len(parts) == 2 {
 			providerName := parts[0]
 			modelName := parts[1]
+			fmt.Printf("[resolveProviderForSession] looking for providerName=%q modelName=%q\n", providerName, modelName)
 			if provCfg, ok := adaCfg.Providers[providerName]; ok {
+				fmt.Printf("[resolveProviderForSession] found provider %q with %d models and %d keys\n", providerName, len(provCfg.Models), len(provCfg.ApiKeys))
 				if _, exists := provCfg.Models[modelName]; exists {
 					apiBase := provCfg.ApiUrl
 					if apiBase == "" {
 						apiBase = defaultAPIBaseFor(providerName, provCfg.TypeConnection)
 					}
+					allKeys := provCfg.GetAllAPIKeys()
+					fmt.Printf("[resolveProviderForSession] building synthetic ModelConfig: apiBase=%q keys=%v\n", apiBase, allKeys)
 					synthetic := &config.ModelConfig{
 						Provider:  providerName,
 						ModelName: modelName,
 						Model:     modelName,
 						APIBase:   apiBase,
-						APIKeys:   config.SimpleSecureStrings(provCfg.GetAllAPIKeys()...),
+						APIKeys:   config.SimpleSecureStrings(allKeys...),
 						Enabled:   true,
 					}
 					p, _, err := e.CreateProviderFromModelConfig(synthetic)
 					if err == nil && p != nil {
 						cachedProvider = p
 						resolvedModelID = modelName
+					} else {
+						fmt.Printf("[resolveProviderForSession] FAILED to create from providers config: %v\n", err)
 					}
+				} else {
+					fmt.Printf("[resolveProviderForSession] model %q not found in provider %q models (available: %v)\n", modelName, providerName, getMapKeys(provCfg.Models))
 				}
+			} else {
+				fmt.Printf("[resolveProviderForSession] provider %q NOT found in adaCfg.Providers (keys: %v)\n", providerName, getMapKeys(adaCfg.Providers))
 			}
 		}
 	}
 
 	// Cache the provider if found
 	if cachedProvider != nil {
+		fmt.Printf("[resolveProviderForSession] caching provider for %q\n", modelOverride)
 		e.providerMu.Lock()
 		e.providerCache[modelOverride] = cachedProvider
 		e.providerMu.Unlock()
@@ -1489,11 +1518,22 @@ func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMPr
 		e.overrideModelMu.Unlock()
 
 		if lp, ok := cachedProvider.(providers.LLMProvider); ok {
+			fmt.Printf("[resolveProviderForSession] returning LLMProvider OK\n")
 			return lp
 		}
 	}
 
+	fmt.Printf("[resolveProviderForSession] FAILED to resolve any provider for %q\n", modelOverride)
 	return nil
+}
+
+// getMapKeys returns the keys of a map as a slice for debug logging.
+func getMapKeys[K comparable, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // buildOrchestratorState monta o estado do histórico para o orquestrador.

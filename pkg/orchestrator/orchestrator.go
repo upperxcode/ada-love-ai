@@ -408,12 +408,30 @@ func (o *Orchestrator) LLMRoute(ctx context.Context, userInput string, personali
 		raw = strings.TrimSpace(raw)
 	}
 
-	var decision RoutingDecision
-	if err := json.Unmarshal([]byte(raw), &decision); err != nil {
-		return o.heuristicRoute(userInput), fmt.Errorf("falha ao parsear JSON do LLM: %w (resposta: %s)", err, raw)
-	}
+var decision RoutingDecision
+		if err := json.Unmarshal([]byte(raw), &decision); err != nil {
+			return o.heuristicRoute(userInput), fmt.Errorf("falha ao parsear JSON do LLM: %w (resposta: %s)", err, raw)
+		}
 
-	return decision, nil
+		// Se o JSON foi parseado mas os campos estão vazios, tenta com nomes de campos em português
+		if decision.NextAgent == "" && decision.Task == "" {
+			ptBR := strings.NewReplacer(
+				"pensamento", "reasoning",
+				"proximo_agente", "next_agent",
+				"tarefa_extraida", "task",
+				"arquivos_relacionados", "related_files",
+				"requer_testes", "requires_test",
+				"sub_tarefas", "sub_tasks",
+			)
+			translated := ptBR.Replace(raw)
+			if translated != raw {
+				if err := json.Unmarshal([]byte(translated), &decision); err == nil && decision.NextAgent != "" {
+					return decision, nil
+				}
+			}
+		}
+
+		return decision, nil
 }
 
 // heuristicRoute uses simple keyword heuristics to route when LLM is unavailable.

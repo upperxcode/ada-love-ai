@@ -60,6 +60,10 @@ func (al *AgentLoop) SetReloadFunc(fn func() error) {
 	al.reloadFunc = fn
 }
 
+func (al *AgentLoop) SetHealthFunc(fn func() (string, error)) {
+	al.healthFunc = fn
+}
+
 func (al *AgentLoop) RecordLastChannel(channel string) error {
 	if al.state == nil {
 		return nil

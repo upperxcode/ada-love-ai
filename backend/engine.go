@@ -418,8 +418,9 @@ Regras de orquestração:
 			fmt.Printf("[Engine] %d workspace templates seedados\n", len(defaultTemplates))
 		}
 	}
-	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
-	e.agentLoop.SetSummarizer(e.summarizer)
+e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
+		e.agentLoop.SetSummarizer(e.summarizer)
+		e.agentLoop.SetHealthFunc(e.workspaceHealth)
 
 	// Register the context logger so the agent's pipeline can push the
 	// COMPLETE LLM context (system prompt + messages + tools) to our JSONL log.
@@ -1713,4 +1714,100 @@ func (e *Engine) GetSummarizedContext(sessionID string) string {
 		return ""
 	}
 	return sess.SummarizedContext
+}
+
+// workspaceHealth checks the active workspace configuration and returns a health report.
+func (e *Engine) workspaceHealth() (string, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	activePath := e.adaCfg.ActiveWorkspacePath
+	if activePath == "" {
+		return "", fmt.Errorf("no active workspace")
+	}
+
+	var ws *WorkspaceConfig
+	for i := range e.adaCfg.Workspaces {
+		if e.adaCfg.Workspaces[i].Path == activePath || e.adaCfg.Workspaces[i].Title == activePath {
+			ws = &e.adaCfg.Workspaces[i]
+			break
+		}
+	}
+	if ws == nil {
+		return "", fmt.Errorf("workspace %q not found", activePath)
+	}
+
+	var report strings.Builder
+	report.WriteString(fmt.Sprintf("🔍 Workspace Health: %s\n", ws.Title))
+	report.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	critical := 0
+	warnings := 0
+	ok := 0
+
+	// 1. Workspace path
+	if ws.Path != "" {
+		report.WriteString(fmt.Sprintf("✅ Path: %s\n", ws.Path))
+		ok++
+	} else {
+		report.WriteString("❌ Path: NENHUM — workspace sem path\n")
+		critical++
+	}
+
+	// 2. Folders
+	if len(ws.Folders) > 0 {
+		report.WriteString(fmt.Sprintf("✅ Folders: %s\n", strings.Join(ws.Folders, ", ")))
+		ok++
+	} else {
+		report.WriteString("❌ Folders: NENHUM — chat sessions, skills e file tools não funcionarão corretamente\n")
+		critical++
+	}
+
+	// 3. Workers
+	if len(ws.WorkerNames) > 0 {
+		report.WriteString(fmt.Sprintf("✅ Workers: %s (%d configurados)\n", strings.Join(ws.WorkerNames, ", "), len(ws.WorkerNames)))
+		ok++
+	} else {
+		report.WriteString("⚠️  Workers: NENHUM — orquestrador desativado, apenas chat direto\n")
+		warnings++
+	}
+
+	// 4. Personality
+	if ws.Personality != "" {
+		report.WriteString("✅ Personality: Configurada\n")
+		ok++
+	} else {
+		report.WriteString("⚠️  Personality: Não configurada — agente sem personalidade\n")
+		warnings++
+	}
+
+	// 5. Providers
+	if len(e.adaCfg.Providers) > 0 {
+		provNames := getMapKeys(e.adaCfg.Providers)
+		totalKeys := 0
+		for _, name := range provNames {
+			if p, ok := e.adaCfg.Providers[name]; ok {
+				totalKeys += len(p.ApiKeys)
+			}
+		}
+		report.WriteString(fmt.Sprintf("✅ Providers: %d configurados, %d API keys no total\n", len(provNames), totalKeys))
+		ok++
+	} else {
+		report.WriteString("❌ Providers: NENHUM — nenhum modelo disponível para chat\n")
+		critical++
+	}
+
+	// 6. Model list
+	if len(e.adaCfg.ModelList) > 0 {
+		report.WriteString(fmt.Sprintf("✅ Modelos: %d disponíveis\n", len(e.adaCfg.ModelList)))
+		ok++
+	} else {
+		report.WriteString("⚠️  Modelos: NENHUM no model_list — use override de modelo no chat\n")
+		warnings++
+	}
+
+	report.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	report.WriteString(fmt.Sprintf("%d ❌ critical | %d ⚠️  warning | %d ✅ ok\n", critical, warnings, ok))
+
+	return report.String(), nil
 }

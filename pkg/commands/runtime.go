@@ -55,4 +55,5 @@ type Runtime struct {
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
 	ReloadConfig       func() error
+	WorkspaceHealth    func() (string, error) // Returns workspace health report
 }

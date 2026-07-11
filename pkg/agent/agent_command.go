@@ -283,6 +283,12 @@ func (al *AgentLoop) buildCommandsRuntime(
 		}
 		return al.reloadFunc()
 	}
+	rt.WorkspaceHealth = func() (string, error) {
+		if al.healthFunc == nil {
+			return "", fmt.Errorf("health check not configured")
+		}
+		return al.healthFunc()
+	}
 	if agent != nil {
 		if agent.ContextBuilder != nil {
 			rt.ListSkillNames = agent.ContextBuilder.ListSkillNames

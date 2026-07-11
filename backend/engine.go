@@ -1416,6 +1416,76 @@ func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMPr
 			return lp
 		}
 	}
+
+	// Not in cache — try to create provider from model_list or providers config
+	adaCfg := e.GetAdaConfig()
+	var cachedProvider any
+	var resolvedModelID string
+
+	// Step 1: search model_list
+	for _, mc := range adaCfg.ModelList {
+		if mc == nil {
+			continue
+		}
+		provider := strings.TrimSpace(mc.Provider)
+		modelName := strings.TrimSpace(mc.ModelName)
+		modelField := strings.TrimSpace(mc.Model)
+		fullKey := provider + "/" + modelName
+		if modelName == modelOverride || modelField == modelOverride || fullKey == modelOverride {
+			p, _, err := e.CreateProviderFromModelConfig(mc)
+			if err == nil && p != nil {
+				cachedProvider = p
+				resolvedModelID = modelField
+				break
+			}
+			fmt.Printf("[resolveProviderForSession] Provider creation FAILED for %q: %v\n", modelOverride, err)
+		}
+	}
+
+	// Step 2: if not found in model_list, search providers config
+	if cachedProvider == nil {
+		parts := strings.SplitN(modelOverride, "/", 2)
+		if len(parts) == 2 {
+			providerName := parts[0]
+			modelName := parts[1]
+			if provCfg, ok := adaCfg.Providers[providerName]; ok {
+				if _, exists := provCfg.Models[modelName]; exists {
+					apiBase := provCfg.ApiUrl
+					if apiBase == "" {
+						apiBase = defaultAPIBaseFor(providerName, provCfg.TypeConnection)
+					}
+					synthetic := &config.ModelConfig{
+						Provider:  providerName,
+						ModelName: modelName,
+						Model:     modelName,
+						APIBase:   apiBase,
+						APIKeys:   config.SimpleSecureStrings(provCfg.GetAllAPIKeys()...),
+						Enabled:   true,
+					}
+					p, _, err := e.CreateProviderFromModelConfig(synthetic)
+					if err == nil && p != nil {
+						cachedProvider = p
+						resolvedModelID = modelName
+					}
+				}
+			}
+		}
+	}
+
+	// Cache the provider if found
+	if cachedProvider != nil {
+		e.providerMu.Lock()
+		e.providerCache[modelOverride] = cachedProvider
+		e.providerMu.Unlock()
+		e.overrideModelMu.Lock()
+		e.overrideModelIDs[modelOverride] = resolvedModelID
+		e.overrideModelMu.Unlock()
+
+		if lp, ok := cachedProvider.(providers.LLMProvider); ok {
+			return lp
+		}
+	}
+
 	return nil
 }
 

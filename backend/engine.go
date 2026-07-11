@@ -893,8 +893,11 @@ func (e *Engine) ReloadAgentLoop() error {
 		e.cfg.Agents.Defaults.ModelName = modelID
 	}
 
-	provider := e.wrapProvider(rawProvider)
-	e.agentLoop = agent.NewAgentLoop(e.cfg, e.msgBus, provider, e)
+provider := e.wrapProvider(rawProvider)
+		e.agentLoop = agent.NewAgentLoop(e.cfg, e.msgBus, provider, e)
+
+		// Re-register health function on the new agent loop
+		e.agentLoop.SetHealthFunc(e.workspaceHealth)
 
 	// Re-register ask_user tool and frontend approval hook on the new loop
 	if e.agentLoop != nil {

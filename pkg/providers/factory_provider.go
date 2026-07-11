@@ -15,6 +15,7 @@ import (
 	anthropicmessages "ada-love-ai/pkg/providers/anthropic_messages"
 	"ada-love-ai/pkg/providers/azure"
 	"ada-love-ai/pkg/providers/bedrock"
+	openai_compat "ada-love-ai/pkg/providers/openai_compat"
 )
 
 type protocolMeta struct {
@@ -161,35 +162,67 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	}
 
 	switch protocol {
-	case "openai":
-		// OpenAI with OAuth/token auth (Codex-style)
-		if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
-			provider, err := createCodexAuthProvider()
-			if err != nil {
-				return nil, "", err
+case "openai":
+			// OpenAI with OAuth/token auth (Codex-style)
+			if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
+				provider, err := createCodexAuthProvider()
+				if err != nil {
+					return nil, "", err
+				}
+				return provider, modelID, nil
 			}
+			// OpenAI with API key
+			if cfg.APIKey() == "" && cfg.APIBase == "" {
+				return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
+			}
+			apiBase := cfg.APIBase
+			if apiBase == "" {
+				apiBase = getDefaultAPIBase(protocol)
+			}
+
+			// Collect all API keys
+			allKeys := cfg.APIKeys.Values()
+			if len(allKeys) == 0 && cfg.APIKey() != "" {
+				allKeys = []string{cfg.APIKey()}
+			}
+
+			if len(allKeys) <= 1 {
+				// Single key — direct provider (existing behavior)
+				provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
+					cfg.APIKey(),
+					apiBase,
+					cfg.Proxy,
+					cfg.MaxTokensField,
+					userAgent,
+					cfg.RequestTimeout,
+					cfg.ExtraBody,
+					cfg.CustomHeaders,
+				)
+				provider.SetProviderName(protocol)
+				return provider, modelID, nil
+			}
+
+			// Multiple keys — wrap in FailoverProvider
+			var opts []openai_compat.Option
+			if cfg.MaxTokensField != "" {
+				opts = append(opts, openai_compat.WithMaxTokensField(cfg.MaxTokensField))
+			}
+			if userAgent != "" {
+				opts = append(opts, openai_compat.WithUserAgent(userAgent))
+			}
+			if cfg.RequestTimeout > 0 {
+				opts = append(opts, openai_compat.WithRequestTimeout(time.Duration(cfg.RequestTimeout)*time.Second))
+			}
+			if cfg.ExtraBody != nil {
+				opts = append(opts, openai_compat.WithExtraBody(cfg.ExtraBody))
+			}
+			if cfg.CustomHeaders != nil {
+				opts = append(opts, openai_compat.WithCustomHeaders(cfg.CustomHeaders))
+			}
+
+			provider := NewFailoverProvider(allKeys, apiBase, cfg.Proxy, opts...)
+			provider.SetProviderName(protocol)
 			return provider, modelID, nil
-		}
-		// OpenAI with API key
-		if cfg.APIKey() == "" && cfg.APIBase == "" {
-			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)
-		}
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = getDefaultAPIBase(protocol)
-		}
-		provider := NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
-			cfg.APIKey(),
-			apiBase,
-			cfg.Proxy,
-			cfg.MaxTokensField,
-			userAgent,
-			cfg.RequestTimeout,
-			cfg.ExtraBody,
-			cfg.CustomHeaders,
-		)
-		provider.SetProviderName(protocol)
-		return provider, modelID, nil
 
 	case "azure", "azure-openai":
 		// Azure OpenAI uses deployment-based URLs, api-key header auth,

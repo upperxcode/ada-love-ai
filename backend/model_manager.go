@@ -114,7 +114,7 @@ func (e *Engine) RemoveProvider(name string) {
 	e.SaveAdaConfig()
 	// Write-through: remove do DB
 	if e.db != nil {
-		if err := e.db.DeleteDBProvider(name); err != nil {
+		if err := e.db.DeleteProviderFull(name); err != nil {
 			fmt.Printf("[Engine] Erro ao remover provider %s do DB: %v\n", name, err)
 		}
 	}
@@ -525,9 +525,25 @@ func (e *Engine) syncProviderToDB(name string) {
 	if !ok || e.db == nil {
 		return
 	}
-	if err := e.db.SaveDBProvider(name, cfg); err != nil {
+	cfg.ApiKeys = resolveAPIKeys(cfg.ApiKeys)
+	if err := e.db.SaveProviderFull(adaptProviderConfig(name, cfg)); err != nil {
 		fmt.Printf("[Engine] Erro ao sincronizar provider %s no DB: %v\n", name, err)
 	}
+}
+
+// resolveAPIKeys resolves environment variable references in API keys to their
+// literal values. The original env var name is preserved in UserKey.
+func resolveAPIKeys(keys []ProviderApiKey) []ProviderApiKey {
+	for i, k := range keys {
+		if k.Key == "" {
+			continue
+		}
+		if resolved := envutil.ResolveKey(k.Key); resolved != k.Key {
+			keys[i].Key = resolved
+			keys[i].UserKey = k.Key // store original env var name
+		}
+	}
+	return keys
 }
 
 // SaveDBProvider saves a single provider to DB and updates in-memory config.
@@ -536,10 +552,11 @@ func (e *Engine) SaveDBProvider(name string, cfg ProviderConfig) error {
 	if e.adaCfg.Providers == nil {
 		e.adaCfg.Providers = make(map[string]ProviderConfig)
 	}
+	cfg.ApiKeys = resolveAPIKeys(cfg.ApiKeys)
 	e.adaCfg.Providers[name] = cfg
 	e.mu.Unlock()
 	if e.db != nil {
-		if err := e.db.SaveDBProvider(name, cfg); err != nil {
+		if err := e.db.SaveProviderFull(adaptProviderConfig(name, cfg)); err != nil {
 			return fmt.Errorf("erro ao salvar provider %s no DB: %w", name, err)
 		}
 	}
@@ -552,7 +569,7 @@ func (e *Engine) DeleteDBProvider(name string) error {
 	delete(e.adaCfg.Providers, name)
 	e.mu.Unlock()
 	if e.db != nil {
-		if err := e.db.DeleteDBProvider(name); err != nil {
+		if err := e.db.DeleteProviderFull(name); err != nil {
 			return fmt.Errorf("erro ao remover provider %s do DB: %w", name, err)
 		}
 	}

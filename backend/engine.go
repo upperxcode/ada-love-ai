@@ -1302,10 +1302,17 @@ func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
 
 // ProcessOrchestrated processa uma requisição através do orquestrador multi-agent.
 func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string) (string, error) {
+	// 0. Extrai o nome do modelo do override (formato "Provider/ModelName")
+	modelName := modelOverride
+	if idx := strings.Index(modelOverride, "/"); idx != -1 {
+		modelName = modelOverride[idx+1:]
+	}
+
 	// 1. Resolve provider do chat ativo (modelOverride do frontend)
 	provider := e.resolveProviderForSession(modelOverride)
 	if provider != nil {
 		e.orchestrator.SetProvider(provider)
+		e.orchestrator.SetModel(modelName)
 		e.orchestrator.SetSubAgentProviders(provider)
 	}
 

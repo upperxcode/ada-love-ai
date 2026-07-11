@@ -1,10 +1,12 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"ada-love-ai/pkg/agent/interfaces"
 	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/config"
+	"ada-love-ai/pkg/orchestrator"
 	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/skills"
 	adatools "ada-love-ai/pkg/tools"
@@ -51,6 +54,8 @@ type Engine struct {
 	overrideModelMu sync.RWMutex
 	// Summarization
 	summarizer *SummarizerWorker
+	// Orchestrator for multi-agent routing
+	orchestrator *orchestrator.Orchestrator
 }
 
 func NewEngine() (*Engine, error) {
@@ -80,47 +85,42 @@ func NewEngine() (*Engine, error) {
 	// Carrega tudo do DB — fonte de verdade, zero JSON
 	var adaCfg AdaConfig
 
-	// --- Migração one-shot: se DB vazio, lê JSON antigo e semeia ---
+	// --- Migração one-shot: se DB vazio, lê JSON antigo e semeia tabelas normalizadas ---
 	if db != nil {
-		providers, _ := db.GetProviders()
+		providers, _ := db.GetProvidersFull()
 		if len(providers) == 0 {
-			// DB vazio → tenta migrar de ada_config.json
 			adaConfigPath := filepath.Join(configDir, "ada_config.json")
 			if data, err := os.ReadFile(adaConfigPath); err == nil {
 				var legacy AdaConfig
 				json.Unmarshal(data, &legacy)
-				if len(legacy.Providers) > 0 {
-					db.SaveProviders(legacy.Providers)
-					adaCfg.Providers = legacy.Providers
-					fmt.Printf("[Engine] Migrados %d providers do JSON legado para DB\n", len(legacy.Providers))
+				for k, p := range legacy.Providers {
+					db.SaveProviderFull(adaptProviderConfig(k, p))
 				}
-				if len(legacy.Workspaces) > 0 {
-					for _, ws := range legacy.Workspaces {
-						db.SaveWorkspace(ws)
-					}
-					fmt.Printf("[Engine] Migrados %d workspaces do JSON legado para DB\n", len(legacy.Workspaces))
+				for _, ws := range legacy.Workspaces {
+					db.SaveWorkspace(ws)
 				}
-				if len(legacy.Workers) > 0 {
-					db.SetGlobalConfig("workers", legacy.Workers)
-					fmt.Printf("[Engine] Migrados %d workers do JSON legado para DB\n", len(legacy.Workers))
+				for _, w := range legacy.Workers {
+					db.SaveWorker(w)
 				}
-				if len(legacy.Agents) > 0 {
-					db.SetGlobalConfig("agents", legacy.Agents)
-					fmt.Printf("[Engine] Migrados %d agents do JSON legado para DB\n", len(legacy.Agents))
+				for _, a := range legacy.Agents {
+					db.SaveAgent(a)
 				}
-				if legacy.TinyBrain.ModelName != "" || legacy.TinyBrain.Provider != "" {
-					db.SetGlobalConfig("tiny_brain", legacy.TinyBrain)
-				}
-				if legacy.EmbeddingModel != "" || legacy.EmbeddingProvider != "" {
+				if legacy.EmbeddingModel != "" {
 					db.SetGlobalConfig("embedding_model", legacy.EmbeddingModel)
+				}
+				if legacy.EmbeddingProvider != "" {
 					db.SetGlobalConfig("embedding_provider", legacy.EmbeddingProvider)
 				}
-				if legacy.ImageModel != "" || legacy.ImageProvider != "" {
+				if legacy.ImageModel != "" {
 					db.SetGlobalConfig("image_model", legacy.ImageModel)
+				}
+				if legacy.ImageProvider != "" {
 					db.SetGlobalConfig("image_provider", legacy.ImageProvider)
 				}
-				if legacy.SpecModel != "" || legacy.SpecProvider != "" {
+				if legacy.SpecModel != "" {
 					db.SetGlobalConfig("spec_model", legacy.SpecModel)
+				}
+				if legacy.SpecProvider != "" {
 					db.SetGlobalConfig("spec_provider", legacy.SpecProvider)
 				}
 				if legacy.ToolProfiles != nil {
@@ -135,40 +135,48 @@ func NewEngine() (*Engine, error) {
 				if legacy.ActiveWorkspaceIndex > 0 {
 					db.SetGlobalConfig("active_workspace_index", legacy.ActiveWorkspaceIndex)
 				}
+				fmt.Printf("[Engine] Migração one-shot do JSON legado concluída\n")
 			}
 		}
 	}
 
-	// --- Carrega do DB ---
+	// --- Carrega do DB (tabelas normalizadas) ---
 	if db != nil {
-		// Providers
-		providers, err := db.GetProviders()
+		// Providers (converte StoredProvider → ProviderConfig)
+		stored, err := db.GetProvidersFull()
 		if err != nil {
 			fmt.Printf("[Engine] Erro ao carregar providers: %v\n", err)
 		}
-		adaCfg.Providers = providers
-		fmt.Printf("[Engine] Carregados %d providers do DB\n", len(providers))
+		adaCfg.Providers = make(map[string]ProviderConfig)
+		for _, sp := range stored {
+			adaCfg.Providers[sp.Name] = deadaptProviderConfig(sp)
+		}
+		fmt.Printf("[Engine] Carregados %d providers do DB\n", len(adaCfg.Providers))
 
 		// Workspaces
 		dbWorkspaces, _ := db.GetWorkspaces()
 		if len(dbWorkspaces) > 0 {
 			adaCfg.Workspaces = dbWorkspaces
 		}
-		fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
+fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 
 		// Workers
-		db.GetGlobalConfig("workers", &adaCfg.Workers)
+		if ws, err := db.GetWorkers(); err == nil {
+			adaCfg.Workers = ws
+		}
 		// Agents
-		db.GetGlobalConfig("agents", &adaCfg.Agents)
-		// TinyBrain
-		db.GetGlobalConfig("tiny_brain", &adaCfg.TinyBrain)
-		// Embedding
+		if ag, err := db.GetAgents(); err == nil {
+			adaCfg.Agents = ag
+		}
+		// SpecWizards
+		if sw, err := db.GetSpecWizards(); err == nil {
+			adaCfg.SpecWizards = sw
+		}
+		// Embedding / Image / Spec (ainda em config KV)
 		db.GetGlobalConfig("embedding_model", &adaCfg.EmbeddingModel)
 		db.GetGlobalConfig("embedding_provider", &adaCfg.EmbeddingProvider)
-		// Image
 		db.GetGlobalConfig("image_model", &adaCfg.ImageModel)
 		db.GetGlobalConfig("image_provider", &adaCfg.ImageProvider)
-		// Spec
 		db.GetGlobalConfig("spec_model", &adaCfg.SpecModel)
 		db.GetGlobalConfig("spec_provider", &adaCfg.SpecProvider)
 		// ToolProfiles
@@ -229,12 +237,13 @@ func NewEngine() (*Engine, error) {
 				continue
 			}
 			cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
-				ModelName: modelName,
-				Provider:  provName,
-				Model:     modelName,
-				APIBase:   provCfg.ApiUrl,
-				Enabled:   true,
-			})
+					ModelName: modelName,
+					Provider:  provName,
+					Model:     modelName,
+					APIBase:   provCfg.ApiUrl,
+					APIKeys:   config.SimpleSecureStrings(provCfg.GetAllAPIKeys()...),
+					Enabled:   true,
+				})
 		}
 	}
 	fmt.Printf("[Engine] ModelList populado: %d modelos de %d providers\n", len(cfg.ModelList), len(adaCfg.Providers))
@@ -282,28 +291,27 @@ func NewEngine() (*Engine, error) {
 		sessions, _ := db.GetSessions(workspacePath)
 		fmt.Printf("[Engine] Init: loaded %d sessions for active workspace %q\n", len(sessions), workspacePath)
 		for _, s := range sessions {
-			fmt.Printf("[Engine]   session=%q title=%q worker=%q messages=%d pinned=%v\n",
-				s.ID, s.Title, s.WorkerName, len(s.Messages), s.Pinned)
+			fmt.Printf("[Engine]   session=%q title=%q messages=%d pinned=%v\n",
+				s.ID, s.Title, len(s.Messages), s.Pinned)
 		}
 		e.SessionMgr.LoadSessions(sessions)
 	}
 
 	// Migração: sessões sem workspace_path → move para o primeiro workspace
 	if e.db != nil {
-		// Corrigir workspaces com path vazio e workers nulos
+		// Corrigir workspaces com path vazio
 		for i := range e.adaCfg.Workspaces {
 			// Fix empty path
 			if e.adaCfg.Workspaces[i].Path == "" {
 				newPath := strings.ToLower(strings.ReplaceAll(e.adaCfg.Workspaces[i].Title, " ", "_"))
 				fmt.Printf("[Engine] Init: fixing workspace %q: path '' → %q\n", e.adaCfg.Workspaces[i].Title, newPath)
 				e.adaCfg.Workspaces[i].Path = newPath
-				e.db.db.Exec(`UPDATE workspaces SET path = ? WHERE title = ? AND (path = '' OR path IS NULL)`, newPath, e.adaCfg.Workspaces[i].Title)
+				e.db.db.Exec(`UPDATE workspaces SET path = ? WHERE nome = ? AND (path = '' OR path IS NULL)`, newPath, e.adaCfg.Workspaces[i].Title)
 			}
-			// Fix nil workers
-			if e.adaCfg.Workspaces[i].Workers == nil {
-				e.adaCfg.Workspaces[i].Workers = []WorkerConfig{}
+			// Fix nil slices
+			if e.adaCfg.Workspaces[i].WorkerNames == nil {
+				e.adaCfg.Workspaces[i].WorkerNames = []string{}
 			}
-			// Fix nil tools
 			if e.adaCfg.Workspaces[i].Tools == nil {
 				e.adaCfg.Workspaces[i].Tools = []string{}
 			}
@@ -347,6 +355,69 @@ e.questionReg = integrationtools.NewQuestionRegistry()
 	// Start summarization worker
 	e.summarizer = NewSummarizerWorker(e)
 	e.summarizer.Start()
+
+	// Inicializa o Orchestrator (usa personality do workspace + provider do chat)
+	orchCfg := orchestrator.DefaultOrchestratorConfig()
+	orchCfg.WorkspaceRoot = e.GetActiveWorkspace()
+	e.orchestrator = orchestrator.NewOrchestrator(
+		orchCfg, "", orchCfg.WorkspaceRoot,
+	)
+	fmt.Println("[Engine] Orchestrator inicializado (personality-based)")
+
+	// Seed workspace templates se a tabela estiver vazia
+	if e.db != nil {
+		templates, _ := e.db.GetWorkspaceTemplates()
+		if len(templates) == 0 {
+			defaultTemplates := []WorkspaceTemplate{
+				{
+					Name:        "fullstack",
+					Description: "Fullstack Go + React + Testes",
+					Personality: `Você é o Orquestrador deste workspace fullstack.
+Agentes disponíveis: GOLANG_AGENT (backend Go), REACT_AGENT (frontend React), TESTER_AGENT (testes).
+
+Regras de orquestração:
+1. Se o pedido envolver backend E frontend, quebre em sub-tasks dependentes (backend primeiro, frontend depois).
+2. Após qualquer implementação, gere automaticamente a sub-task de teste.
+3. Use o modelo e provider do chat ativo para todas as chamadas LLM.
+4. Responda APENAS em JSON com o formato obrigatório do orquestrador.
+5. Priorize GOLANG_AGENT para APIs, banco de dados, regras de negócio, concorrência.
+6. Priorize REACT_AGENT para interfaces, componentes, hooks, estado, estilos.`,
+				},
+				{
+					Name:        "backend",
+					Description: "Backend Go + Testes",
+					Personality: `Você é o Orquestrador deste workspace backend (Go).
+Agentes disponíveis: GOLANG_AGENT (backend Go), TESTER_AGENT (testes).
+
+Regras de orquestração:
+1. Roteie tudo para GOLANG_AGENT, exceto pedidos de teste/debug/validação.
+2. Após qualquer implementação, injete sub-task de teste automaticamente.
+3. Use o modelo e provider do chat ativo para todas as chamadas LLM.
+4. Responda APENAS em JSON com o formato obrigatório do orquestrador.
+5. Foque em: APIs REST/gRPC, banco de dados, regras de negócio, concorrência, segurança.`,
+				},
+				{
+					Name:        "frontend",
+					Description: "Frontend React + Testes",
+					Personality: `Você é o Orquestrador deste workspace frontend (React).
+Agentes disponíveis: REACT_AGENT (frontend React), TESTER_AGENT (testes).
+
+Regras de orquestração:
+1. Roteie tudo para REACT_AGENT, exceto pedidos de teste/debug/validação.
+2. Após qualquer implementação, injete sub-task de teste automaticamente.
+3. Use o modelo e provider do chat ativo para todas as chamadas LLM.
+4. Responda APENAS em JSON com o formato obrigatório do orquestrador.
+5. Foque em: componentes, hooks, estado, estilos, acessibilidade, performance.`,
+				},
+			}
+			for _, t := range defaultTemplates {
+				if err := e.db.SaveWorkspaceTemplate(t); err != nil {
+					fmt.Printf("[Engine] Aviso: falha ao seed template %q: %v\n", t.Name, err)
+				}
+			}
+			fmt.Printf("[Engine] %d workspace templates seedados\n", len(defaultTemplates))
+		}
+	}
 	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
 	e.agentLoop.SetSummarizer(e.summarizer)
 
@@ -580,10 +651,12 @@ func (e *Engine) SetAdaConfig(cfg AdaConfig) {
 	e.adaCfg = cfg
 	e.mu.Unlock()
 	e.SaveAdaConfig()
-	// Write-through: persiste providers no DB
+	// Write-through: persiste providers no DB (tabelas normalizadas)
 	if e.db != nil && len(cfg.Providers) > 0 {
-		if err := e.db.SaveProviders(cfg.Providers); err != nil {
-			fmt.Printf("[Engine] Erro ao sincronizar providers no DB: %v\n", err)
+		for name, pc := range cfg.Providers {
+			if err := e.db.SaveProviderFull(adaptProviderConfig(name, pc)); err != nil {
+				fmt.Printf("[Engine] Erro ao sincronizar provider %q no DB: %v\n", name, err)
+			}
 		}
 	}
 }
@@ -595,12 +668,39 @@ func (e *Engine) GetWorkers() []WorkerConfig {
 	return e.adaCfg.Workers
 }
 
-// SetWorkers substitui a lista de workers e persiste.
+// --- Workspace Templates ---
+
+func (e *Engine) GetWorkspaceTemplates() ([]WorkspaceTemplate, error) {
+	if e.db == nil {
+		return nil, fmt.Errorf("banco de dados não inicializado")
+	}
+	return e.db.GetWorkspaceTemplates()
+}
+
+func (e *Engine) SaveWorkspaceTemplate(t WorkspaceTemplate) error {
+	if e.db == nil {
+		return fmt.Errorf("banco de dados não inicializado")
+	}
+	return e.db.SaveWorkspaceTemplate(t)
+}
+
+func (e *Engine) DeleteWorkspaceTemplate(id int64) error {
+	if e.db == nil {
+		return fmt.Errorf("banco de dados não inicializado")
+	}
+	return e.db.DeleteWorkspaceTemplate(id)
+}
+
+// SetWorkers substitui a lista de workers e persiste na tabela workers.
 func (e *Engine) SetWorkers(workers []WorkerConfig) {
 	e.mu.Lock()
 	e.adaCfg.Workers = workers
 	e.mu.Unlock()
-	e.SaveAdaConfig()
+	for _, w := range workers {
+		if _, err := e.db.SaveWorker(w); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
+		}
+	}
 }
 
 // GetWorkerCategories retorna as categorias de workers.
@@ -625,12 +725,16 @@ func (e *Engine) GetAgents() []AgentConfig {
 	return e.adaCfg.Agents
 }
 
-// SetAgents substitui a lista de agentes e persiste.
+// SetAgents substitui a lista de agentes e persiste na tabela agents.
 func (e *Engine) SetAgents(agents []AgentConfig) {
 	e.mu.Lock()
 	e.adaCfg.Agents = agents
 	e.mu.Unlock()
-	e.SaveAdaConfig()
+	for _, a := range agents {
+		if _, err := e.db.SaveAgent(a); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
+		}
+	}
 }
 
 // GetAgentCategories retorna as categorias de agentes.
@@ -674,19 +778,50 @@ func (e *Engine) SaveAdaConfig() error {
 		return fmt.Errorf("banco de dados não disponível")
 	}
 
-	// Salva providers no DB
-	if err := e.db.SaveProviders(e.adaCfg.Providers); err != nil {
-		fmt.Printf("[Engine] Erro ao salvar providers no DB: %v\n", err)
+	// Salva providers no DB (tabelas normalizadas)
+	for name, pc := range e.adaCfg.Providers {
+		if err := e.db.SaveProviderFull(adaptProviderConfig(name, pc)); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar provider %q no DB: %v\n", name, err)
+		}
 	}
 
-	// Salva workspaces no DB
+	// Salva workspaces no DB e sincroniza junctions
 	for _, ws := range e.adaCfg.Workspaces {
-		e.db.SaveWorkspace(ws)
+		id, err := e.db.SaveWorkspace(ws)
+		if err != nil {
+			fmt.Printf("[Engine] Erro ao salvar workspace %q: %v\n", ws.Title, err)
+			continue
+		}
+		// Resolve IDs de workers/agents pelos nomes e grava junctions
+		var wids []int64
+		for _, wn := range ws.WorkerNames {
+			if w, err := e.db.GetWorkerByName(wn); err == nil && w != nil {
+				wids = append(wids, w.ID)
+			}
+		}
+		e.db.SetWorkspaceWorkers(id, wids)
+		var aids []int64
+		for _, an := range ws.Agents {
+			if a, err := e.db.GetAgentByName(an); err == nil && a != nil {
+				aids = append(aids, a.ID)
+			}
+		}
+		e.db.SetWorkspaceAgents(id, aids)
+	}
+
+	// Salva workers/agents nas tabelas próprias
+	for _, w := range e.adaCfg.Workers {
+		if _, err := e.db.SaveWorker(w); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
+		}
+	}
+	for _, a := range e.adaCfg.Agents {
+		if _, err := e.db.SaveAgent(a); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
+		}
 	}
 
 	// Salva seções restantes no DB (key-value)
-	e.db.SetGlobalConfig("workers", e.adaCfg.Workers)
-	e.db.SetGlobalConfig("agents", e.adaCfg.Agents)
 	e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
 	e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
 	e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
@@ -695,11 +830,18 @@ func (e *Engine) SaveAdaConfig() error {
 	e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
 	e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
 	e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
-	e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
-	e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
-	e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
+e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
+		e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
+		e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
 
-	return nil
+		// Salva spec-wizards nas tabelas próprias
+		for _, sw := range e.adaCfg.SpecWizards {
+			if err := e.db.SaveSpecWizard(sw); err != nil {
+				fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
+			}
+		}
+
+		return nil
 }
 
 // SaveProvidersConfig saves providers to SQLite (providers table in config.db)
@@ -710,7 +852,12 @@ func (e *Engine) SaveProvidersConfig() error {
 	if e.db == nil {
 		return fmt.Errorf("banco de dados não disponível")
 	}
-	return e.db.SaveProviders(e.adaCfg.Providers)
+	for name, pc := range e.adaCfg.Providers {
+		if err := e.db.SaveProviderFull(adaptProviderConfig(name, pc)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DB retorna o Store para consultas diretas (ex: GetSessions).
@@ -853,7 +1000,9 @@ func (e *Engine) bridgeAgentEvents() {
 // SaveSessionDB persiste a sessão atual no SQLite.
 func (e *Engine) SaveSessionDB(sessionID string) {
 	if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
-		e.db.SaveSession(*sess)
+		if err := e.db.SaveSession(*sess); err != nil {
+			fmt.Printf("[Engine] SaveSessionDB: error saving session %q: %v\n", sessionID, err)
+		}
 	}
 }
 
@@ -1094,6 +1243,224 @@ func (e *Engine) CreateProviderFromModelConfig(mc *config.ModelConfig) (any, str
 	return providers.CreateProviderFromConfig(&clone)
 }
 
+// Orchestrator retorna a instância do orquestrador (pode ser nil se desabilitado).
+func (e *Engine) Orchestrator() *orchestrator.Orchestrator {
+	return e.orchestrator
+}
+
+// resolveProviderFromModel resolve um LLMProvider a partir do nome do provider e modelo.
+func (e *Engine) resolveProviderFromModel(providerName, modelName string) providers.LLMProvider {
+	if providerName == "" || modelName == "" {
+		return nil
+	}
+	// Procura no ModelList
+	for _, mc := range e.adaCfg.ModelList {
+		if mc == nil {
+			continue
+		}
+		if strings.EqualFold(mc.Provider, providerName) && strings.EqualFold(mc.ModelName, modelName) {
+			p, _, err := e.CreateProviderFromModelConfig(mc)
+			if err == nil {
+				if lp, ok := p.(providers.LLMProvider); ok {
+					return lp
+				}
+			}
+		}
+	}
+	// Fallback: cria ModelConfig sintético
+	synthetic := &config.ModelConfig{
+		Provider:  providerName,
+		ModelName: modelName,
+		Model:     modelName,
+		Enabled:   true,
+	}
+	if apiKey := e.adaCfg.GetProviderAPIKey(providerName); apiKey != "" {
+		synthetic.APIKeys = config.SimpleSecureStrings(apiKey)
+	}
+	p, _, err := e.CreateProviderFromModelConfig(synthetic)
+	if err == nil {
+		if lp, ok := p.(providers.LLMProvider); ok {
+			return lp
+		}
+	}
+	return nil
+}
+
+// resolveWorkspacePersonality retorna a personality do workspace associado à sessão.
+func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
+	sess := e.SessionMgr.GetSession(sessionID)
+	if sess == nil || e.db == nil {
+		return ""
+	}
+	for _, ws := range e.adaCfg.Workspaces {
+		if ws.Path == sess.WorkspaceID || ws.Title == sess.WorkspaceID {
+			return ws.Personality
+		}
+	}
+	return ""
+}
+
+// ProcessOrchestrated processa uma requisição através do orquestrador multi-agent.
+func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string) (string, error) {
+	// 1. Resolve provider do chat ativo (modelOverride do frontend)
+	provider := e.resolveProviderForSession(modelOverride)
+	if provider != nil {
+		e.orchestrator.SetProvider(provider)
+		e.orchestrator.SetSubAgentProviders(provider)
+	}
+
+	// 2. Resolve personality do workspace
+	personality := e.resolveWorkspacePersonality(sessionID)
+
+	// 3. Aplica timeout do config
+	timeout := e.orchestrator.Config().Timeout
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	// 4. Monta estado do histórico da sessão
+	state := e.buildOrchestratorState(sessionID)
+
+	// 5. Roteamento via LLM (personality como prompt de roteamento)
+	decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
+	if err != nil {
+		fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
+	}
+
+	// 6. Emite decisão de roteamento
+	e.eventBus.Emit(Event{
+		Kind:      EventKindOrchestratorDecision,
+		SessionID: sessionID,
+		Payload: OrchestratorDecisionPayload{
+			Reasoning:    decision.Reasoning,
+			NextAgent:    string(decision.NextAgent),
+			Task:         decision.Task,
+			SubTasks:     len(decision.SubTasks),
+			AgentCount:   len(decision.SubTasks),
+			RelatedFiles: decision.RelatedFiles,
+		},
+	})
+
+	// 7. Callback para emitir eventos de progresso das sub-tasks
+	onEvent := func(kind string, st orchestrator.SubTask, err error) {
+		switch kind {
+		case "start":
+			e.eventBus.Emit(Event{
+				Kind:      EventKindSubTaskStart,
+				SessionID: sessionID,
+				Payload: SubTaskPayload{
+					ID:     st.ID,
+					Agent:  string(st.Agent),
+					Task:   st.Task,
+					Status: "started",
+				},
+			})
+		case "complete":
+			e.eventBus.Emit(Event{
+				Kind:      EventKindSubTaskComplete,
+				SessionID: sessionID,
+				Payload: SubTaskPayload{
+					ID:     st.ID,
+					Agent:  string(st.Agent),
+					Task:   st.Task,
+					Status: "completed",
+				},
+			})
+		case "error":
+			errMsg := ""
+			if err != nil {
+				errMsg = err.Error()
+			}
+			e.eventBus.Emit(Event{
+				Kind:      EventKindSubTaskError,
+				SessionID: sessionID,
+				Payload: SubTaskPayload{
+					ID:     st.ID,
+					Agent:  string(st.Agent),
+					Task:   st.Task,
+					Status: "error",
+					Error:  errMsg,
+				},
+			})
+		}
+	}
+
+	// 8. Execução (concorrente para sub-tasks)
+	output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
+	if err != nil {
+		return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
+	}
+
+	// 9. Salva na sessão
+	e.SessionMgr.AddMessage(sessionID, "user", text)
+	e.SessionMgr.AddMessage(sessionID, "assistant", output)
+	if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
+		e.db.SaveSession(*sess)
+	}
+
+	return output, nil
+}
+
+// resolveProviderForSession resolve o LLMProvider a partir do modelOverride do frontend.
+func (e *Engine) resolveProviderForSession(modelOverride string) providers.LLMProvider {
+	if modelOverride == "" {
+		return nil
+	}
+	e.providerMu.RLock()
+	cached, ok := e.providerCache[modelOverride]
+	e.providerMu.RUnlock()
+	if ok {
+		if lp, ok := cached.(providers.LLMProvider); ok {
+			return lp
+		}
+	}
+	return nil
+}
+
+// buildOrchestratorState monta o estado do histórico para o orquestrador.
+func (e *Engine) buildOrchestratorState(sessionID string) string {
+	sess := e.SessionMgr.GetSession(sessionID)
+	if sess == nil || len(sess.Messages) == 0 {
+		return ""
+	}
+
+	// Pega as últimas 6 mensagens como contexto
+	var parts []string
+	start := 0
+	if len(sess.Messages) > 6 {
+		start = len(sess.Messages) - 6
+	}
+	for _, msg := range sess.Messages[start:] {
+		role := msg.Role
+		if role == "assistant" {
+			role = "Agente"
+		} else if role == "user" {
+			role = "Usuário"
+		}
+		content := msg.Content
+		if len(content) > 200 {
+			content = content[:200] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("[%s]: %s", role, content))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// isOrchestratorRequest detecta se uma mensagem deve ser roteada pelo orquestrador.
+var (
+	orchestratorMultiStepRe  = regexp.MustCompile(`(?i)(crie\s+.*\s+e\s+(depois|faça|adicione|implemente)|implemente\s+.*\s+e\s+(depois|faça|adicione|test)|faça\s+.*\s+e\s+(depois|adicione|crie)|backend\s+.*\s+e\s+.*frontend|frontend\s+.*\s+e\s+.*backend|go\s+.*\s+e\s+.*react|react\s+.*\s+e\s+.*go|api\s+.*\s+e\s+.*tela|tela\s+.*\s+e\s+.*api)`)
+	orchestratorPrefixRe    = regexp.MustCompile(`(?i)^/(orchestrate|multi)\b`)
+	orchestratorExplicitRe  = regexp.MustCompile(`(?i)(golang\s+agent|react\s+agent|tester\s+agent|orquestrador|orquest)`)
+)
+
+func isOrchestratorRequest(text string) bool {
+	return orchestratorMultiStepRe.MatchString(text) ||
+		orchestratorPrefixRe.MatchString(text) ||
+		orchestratorExplicitRe.MatchString(text)
+}
+
 // getOSConfigDir returns the OS-specific config directory
 func getOSConfigDir() string {
 	var configDir string
@@ -1133,10 +1500,10 @@ func syncAdaAgentsToConfig(adaAgents []AgentConfig, cfgAgents *[]config.AgentCon
 				continue
 			}
 
-			// Usa ID do ada_config.json se fornecido, senão gera a partir do nome
+			// Usa ID numérico do agente se fornecido, senão gera a partir do nome
 			normalizedID := strings.ToLower(strings.ReplaceAll(agentID, " ", "-"))
-			if adaAgent.ID != "" {
-				normalizedID = strings.ToLower(strings.ReplaceAll(adaAgent.ID, " ", "-"))
+			if adaAgent.ID > 0 {
+				normalizedID = fmt.Sprintf("agent-%d", adaAgent.ID)
 			}
 
 			if existingIDs[normalizedID] {

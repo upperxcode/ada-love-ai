@@ -1409,7 +1409,13 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
 		fmt.Printf("[ProcessOrchestrated] ExecuteRouting returned: outputLen=%d err=%v\n", len(output), err)
 		if err != nil {
-			return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
+			// Se o erro for de "agent not found" (NextAgent vazio), trata como resposta educada
+			if decision.NextAgent == "" {
+				output = "Olá! Como posso ajudar você hoje? Posso desenvolver backend em Go, criar interfaces em React ou escrever testes automatizados."
+				err = nil
+			} else {
+				return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
+			}
 		}
 
 	// 9. Salva na sessão

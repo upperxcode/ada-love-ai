@@ -1548,7 +1548,29 @@ func (s *Store) GetWorkspaceKnowledge(workspaceID int64) []string {
 	return items
 }
 
-// --- Operações de Providers (normalizado) ---
+	// --- Operações de Providers (normalizado) ---
+
+	// Router configs: persistable configurations for the internal/local router
+	// name is a logical identifier (e.g. 'default'). labels_json stores the
+	// candidate labels as JSON array.
+	func (s *Store) SaveRouterConfig(name, endpoint string, labelsJSON string) error {
+		_, err := s.db.Exec(`INSERT INTO router_configs (name, endpoint, labels_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET endpoint=excluded.endpoint, labels_json=excluded.labels_json, updated_at=CURRENT_TIMESTAMP`, name, endpoint, labelsJSON)
+		return err
+	}
+
+	func (s *Store) GetRouterConfig(name string) (endpoint string, labelsJSON string, found bool, err error) {
+		row := s.db.QueryRow(`SELECT endpoint, labels_json FROM router_configs WHERE name = ?`, name)
+		var ep sql.NullString
+		var lj sql.NullString
+		if err = row.Scan(&ep, &lj); err != nil {
+			if err == sql.ErrNoRows {
+				return "", "", false, nil
+			}
+			return "", "", false, err
+		}
+		return ep.String, lj.String, true, nil
+	}
+
 
 type StoredProvider struct {
 	ID              int64

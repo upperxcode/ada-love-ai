@@ -465,6 +465,24 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		}
 	}
 
+	// If GENERAL intent, temporarily swap the default agent persona to a lightweight
+	// general-purpose assistant instead of the heavy golang_agent system prompt.
+	// This avoids wasting tokens on code-focused context when the user asks a
+	// general knowledge question. The persona is applied just for this turn via
+	// ContextBuilder, so subsequent turns restore the workspace personality.
+	if tinybrainIntent == tinybrain.IntentGeneral && e.agentLoop != nil {
+		if reg := e.agentLoop.GetRegistry(); reg != nil {
+			if defAgent := reg.GetDefaultAgent(); defAgent != nil && defAgent.ContextBuilder != nil {
+				generalPersona := `Você é uma assistente de IA amigável e prestativa.
+Responda perguntas de forma clara e direta. Você pode falar sobre qualquer assunto: cultura, geografia, história, tecnologia, programação ou entretenimento.
+Seja educada, natural e use português brasileiro.`
+				defAgent.ContextBuilder.WithPersonality(generalPersona)
+				defAgent.ContextBuilder.InvalidateCache()
+				fmt.Printf("[SendMessage] GENERAL intent: swapped to lightweight general persona\n")
+			}
+		}
+	}
+
 	fmt.Printf("[SendMessage] step=pre-ProcessDirect sessionID=%q agentLoop=%v\n", sessionID, e.agentLoop != nil)
 	resp, err := e.agentLoop.ProcessDirect(ctx, finalPrompt, sessionKey)
 	fmt.Printf("[SendMessage] step=post-ProcessDirect sessionID=%q err=%v resp_len=%d\n", sessionID, err, len(resp))

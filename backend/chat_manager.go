@@ -370,7 +370,13 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		if e.agentLoop != nil {
 			if reg := e.agentLoop.GetRegistry(); reg != nil {
 				if defAgent := reg.GetDefaultAgent(); defAgent != nil {
-					defAgent.SystemPrompt = enhancedSystemPrompt
+					// legacy field SystemPrompt no longer exists on AgentInstance; set via ContextBuilder instead
+						// defAgent.SystemPrompt = enhancedSystemPrompt
+						// Use ContextBuilder to update runtime personality for the default agent
+						if defAgent.ContextBuilder != nil {
+							defAgent.ContextBuilder.WithPersonality(enhancedSystemPrompt)
+							defAgent.ContextBuilder.InvalidateCache()
+						}
 				}
 			}
 		}

@@ -1024,9 +1024,11 @@ func (e *Engine) SaveAdaConfig() error {
 			fmt.Printf("[Engine] Warn: failed to persist MCP %s: %v\n", name, err)
 		}
 	}
-	// Keep active workspace keys in config table (still in DB key/value)
-	e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
-	e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
+		// Persist active workspace into normalized app_state table
+		if err := e.db.SaveAppState(e.adaCfg.ActiveWorkspacePath, e.adaCfg.ActiveWorkspaceIndex); err != nil {
+			fmt.Printf("[Engine] Warn: failed to persist app state: %v\n", err)
+		}
+
 
 	// Also persist fixed_models rows for embedding, image, spec and tinybrain
 	if e.db != nil {

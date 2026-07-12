@@ -15,7 +15,10 @@ import (
 	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/config"
+	"ada-love-ai/pkg/contextloader"
+	"ada-love-ai/pkg/profiles"
 	"ada-love-ai/pkg/providers"
+	"ada-love-ai/pkg/tinybrain"
 )
 
 func (e *Engine) TogglePin(sessionID string) {
@@ -304,6 +307,78 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// cfg.Agents.Defaults and the live ContextBuilder in-place.
 	if sess != nil && sess.WorkspaceID != "" {
 		e.syncWorkspaceForTurn(sess.WorkspaceID, sessionID)
+	}
+
+	// --- Greeting System (Zero-Token SQLite-based responses) ---
+	if e.greetingSystem != nil && !isRetry && !isCommand {
+		if response, isGreeting := e.greetingSystem.CheckGreeting(text); isGreeting {
+			fmt.Printf("[SendMessage] Saudação detectada — respondendo via Greeting System (0 tokens)\n")
+			// Add assistant response to history
+			if !isCommand {
+				e.SessionMgr.AddMessage(sessionID, "assistant", response)
+				if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
+					e.db.SaveSession(*sess)
+				}
+			}
+			return response, nil
+		}
+	}
+
+	// --- TinyBrain Intent Classification & Context Injection ---
+	var injectedContext string
+	var activeProfile string
+	if e.tinyBrainRouter != nil && !isRetry && !isCommand {
+		intent, err := e.tinyBrainRouter.DetectIntent(ctx, text)
+		if err != nil {
+			fmt.Printf("[SendMessage] Aviso: falha na classificação de intenção: %v\n", err)
+		} else {
+			fmt.Printf("[SendMessage] Intenção detectada: %s\n", intent)
+
+			// Load specialist profile based on intent
+			switch intent {
+			case tinybrain.IntentGoProgramming:
+				activeProfile = profiles.GoSpecialistPrompt
+				// Try to inject active file context
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentCodeReview:
+				activeProfile = profiles.GoSpecialistPrompt
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentDebugging:
+				activeProfile = profiles.GoSpecialistPrompt
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentArchitecture:
+				activeProfile = profiles.GoSpecialistPrompt
+			}
+		}
+	}
+
+	// If we have a specialist profile or injected context, update the system prompt and user message
+	if activeProfile != "" || injectedContext != "" {
+		// Build enhanced system prompt
+		enhancedSystemPrompt := activeProfile
+		if injectedContext != "" {
+			enhancedSystemPrompt += "\n\n[Contexto do Arquivo Ativo]:\n" + injectedContext
+		}
+
+		// Update the agent's default system prompt temporarily
+		if e.agentLoop != nil {
+			if reg := e.agentLoop.GetRegistry(); reg != nil {
+				if defAgent := reg.GetDefaultAgent(); defAgent != nil {
+					defAgent.SystemPrompt = enhancedSystemPrompt
+				}
+			}
+		}
+
+		// Prepend context to user message if we have file context
+		if injectedContext != "" {
+			text = fmt.Sprintf("%s\n\n[Contexto do Arquivo Ativo]:\n%s", text, injectedContext)
+		}
 	}
 
 	// Take a snapshot of the session context now that we have folder/personality sync

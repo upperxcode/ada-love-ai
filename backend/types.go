@@ -177,6 +177,7 @@ type AdaConfig struct {
 		Provider          string `json:"provider"`
 		EmbeddingModel    string `json:"embedding_model"`
 		EmbeddingProvider string `json:"embedding_provider"`
+		Tools             []string `json:"tools"`
 	} `json:"tiny_brain"`
 	EmbeddingModel    string `json:"embedding_model"`
 	EmbeddingProvider string `json:"embedding_provider"`
@@ -184,6 +185,7 @@ type AdaConfig struct {
 	ImageProvider     string `json:"image_provider"`
 	SpecModel           string `json:"spec_model"`
 	SpecProvider        string `json:"spec_provider"`
+	SpecTools           []string `json:"spec_tools"`
 	Workers              []WorkerConfig     `json:"workers"`
 	WorkerCategories     []string          `json:"worker_categories"`
 	Agents               []AgentConfig     `json:"agents"`
@@ -350,6 +352,7 @@ const (
 	EventKindSubTaskStart
 	EventKindSubTaskComplete
 	EventKindSubTaskError
+	EventKindCommandResult
 )
 
 type Event struct {
@@ -391,4 +394,12 @@ type SubTaskPayload struct {
 	Task   string `json:"task"`
 	Status string `json:"status,omitempty"` // "started", "completed", "error"
 	Error  string `json:"error,omitempty"`
+}
+
+// CommandResultPayload carries the structured output of a handled slash
+// command so the frontend can render it in a dedicated panel instead of the
+// chat bubble stream.
+type CommandResultPayload struct {
+	Command string `json:"command"`
+	Output  string `json:"output"`
 }

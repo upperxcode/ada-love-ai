@@ -1,5 +1,115 @@
 export namespace backend {
 	
+	export class WorkspaceTemplate {
+	    id: number;
+	    name: string;
+	    description: string;
+	    personality: string;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceTemplate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.personality = source["personality"];
+	        this.created_at = source["created_at"];
+	    }
+	}
+	export class StackItem {
+	    name: string;
+	    example?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StackItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.example = source["example"];
+	    }
+	}
+	export class SpecWizardConfig {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    expert_language_plugin?: string;
+	    prd?: string;
+	    functional_requirements?: string[];
+	    non_functional_requirements?: string[];
+	    persistence?: string;
+	    architecture?: string;
+	    engineering_philosophies?: string[];
+	    design_patterns?: string[];
+	    data_patterns?: string[];
+	    stack_config?: StackItem[];
+	    business_state_management?: string;
+	    business_api_contract?: string;
+	    business_customization_details?: string;
+	    business_final_adjustments?: string;
+	    business_architecture_recommendations?: string;
+	    color: string;
+	    icon: string;
+	    architecture_health: number;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    updated_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpecWizardConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.expert_language_plugin = source["expert_language_plugin"];
+	        this.prd = source["prd"];
+	        this.functional_requirements = source["functional_requirements"];
+	        this.non_functional_requirements = source["non_functional_requirements"];
+	        this.persistence = source["persistence"];
+	        this.architecture = source["architecture"];
+	        this.engineering_philosophies = source["engineering_philosophies"];
+	        this.design_patterns = source["design_patterns"];
+	        this.data_patterns = source["data_patterns"];
+	        this.stack_config = this.convertValues(source["stack_config"], StackItem);
+	        this.business_state_management = source["business_state_management"];
+	        this.business_api_contract = source["business_api_contract"];
+	        this.business_customization_details = source["business_customization_details"];
+	        this.business_final_adjustments = source["business_final_adjustments"];
+	        this.business_architecture_recommendations = source["business_architecture_recommendations"];
+	        this.color = source["color"];
+	        this.icon = source["icon"];
+	        this.architecture_health = source["architecture_health"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MCPServerUI {
 	    command: string;
 	    args?: string[];
@@ -161,11 +271,13 @@ export namespace backend {
 	    }
 	}
 	export class AgentConfig {
-	    id: string;
+	    id: number;
 	    name: string;
 	    description: string;
 	    provider: string;
 	    model: string;
+	    provider_id?: number;
+	    model_id?: number;
 	    type: string;
 	    icon: string;
 	    color: string;
@@ -186,6 +298,8 @@ export namespace backend {
 	        this.description = source["description"];
 	        this.provider = source["provider"];
 	        this.model = source["model"];
+	        this.provider_id = source["provider_id"];
+	        this.model_id = source["model_id"];
 	        this.type = source["type"];
 	        this.icon = source["icon"];
 	        this.color = source["color"];
@@ -215,14 +329,19 @@ export namespace backend {
 		}
 	}
 	export class WorkerConfig {
+	    id: number;
 	    name: string;
 	    persona: string;
-	    language: string;
+	    response_language: string;
 	    icon: string;
 	    color: string;
 	    connection_type: string;
-	    connection_name: string;
-	    connection_config: string;
+	    command: string;
+	    arguments: string;
+	    environment: string;
+	    connection_name?: string;
+	    connection_config?: string;
+	    language?: string;
 	    inherit_folders: boolean;
 	    inherit_knowledge: boolean;
 	    inherit_skills: boolean;
@@ -235,14 +354,19 @@ export namespace backend {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.persona = source["persona"];
-	        this.language = source["language"];
+	        this.response_language = source["response_language"];
 	        this.icon = source["icon"];
 	        this.color = source["color"];
 	        this.connection_type = source["connection_type"];
+	        this.command = source["command"];
+	        this.arguments = source["arguments"];
+	        this.environment = source["environment"];
 	        this.connection_name = source["connection_name"];
 	        this.connection_config = source["connection_config"];
+	        this.language = source["language"];
 	        this.inherit_folders = source["inherit_folders"];
 	        this.inherit_knowledge = source["inherit_knowledge"];
 	        this.inherit_skills = source["inherit_skills"];
@@ -251,19 +375,27 @@ export namespace backend {
 	    }
 	}
 	export class WorkspaceConfig {
-	    title: string;
+	    id: number;
+	    nome: string;
 	    description: string;
+	    max_prompt: number;
+	    max_content: number;
+	    commit: boolean;
+	    spec_provider: string;
+	    spec_wizard_id: string;
+	    personality: string;
+	    color: string;
+	    icon: string;
+	    title: string;
+	    summary: string;
 	    path: string;
 	    folders: string[];
-	    personality: string;
 	    knowledge: string[];
-	    workers: WorkerConfig[];
+	    worker_names: string[];
 	    agents: string[];
 	    skills: string[];
 	    tools: string[];
 	    enabled: boolean;
-	    color: string;
-	    icon: string;
 	    max_prompt_send: number;
 	    commit_changes: boolean;
 	    max_context_length: number;
@@ -277,19 +409,27 @@ export namespace backend {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.title = source["title"];
+	        this.id = source["id"];
+	        this.nome = source["nome"];
 	        this.description = source["description"];
+	        this.max_prompt = source["max_prompt"];
+	        this.max_content = source["max_content"];
+	        this.commit = source["commit"];
+	        this.spec_provider = source["spec_provider"];
+	        this.spec_wizard_id = source["spec_wizard_id"];
+	        this.personality = source["personality"];
+	        this.color = source["color"];
+	        this.icon = source["icon"];
+	        this.title = source["title"];
+	        this.summary = source["summary"];
 	        this.path = source["path"];
 	        this.folders = source["folders"];
-	        this.personality = source["personality"];
 	        this.knowledge = source["knowledge"];
-	        this.workers = this.convertValues(source["workers"], WorkerConfig);
+	        this.worker_names = source["worker_names"];
 	        this.agents = source["agents"];
 	        this.skills = source["skills"];
 	        this.tools = source["tools"];
 	        this.enabled = source["enabled"];
-	        this.color = source["color"];
-	        this.icon = source["icon"];
 	        this.max_prompt_send = source["max_prompt_send"];
 	        this.commit_changes = source["commit_changes"];
 	        this.max_context_length = source["max_context_length"];
@@ -297,30 +437,12 @@ export namespace backend {
 	        this.embedding_model = source["embedding_model"];
 	        this.embedding_provider = source["embedding_provider"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class AdaConfig {
 	    active_workspace_path: string;
 	    active_workspace_index: number;
 	    workspaces: WorkspaceConfig[];
-	    // Go type: struct { ModelName string "json:\"model_name\""; Provider string "json:\"provider\""; EmbeddingModel string "json:\"embedding_model\""; EmbeddingProvider string "json:\"embedding_provider\"" }
+	    // Go type: struct { ModelName string "json:\"model_name\""; Provider string "json:\"provider\""; EmbeddingModel string "json:\"embedding_model\""; EmbeddingProvider string "json:\"embedding_provider\""; Tools []string "json:\"tools\"" }
 	    tiny_brain: any;
 	    embedding_model: string;
 	    embedding_provider: string;
@@ -328,6 +450,7 @@ export namespace backend {
 	    image_provider: string;
 	    spec_model: string;
 	    spec_provider: string;
+	    spec_tools: string[];
 	    workers: WorkerConfig[];
 	    worker_categories: string[];
 	    agents: AgentConfig[];
@@ -339,6 +462,8 @@ export namespace backend {
 	    providers?: Record<string, ProviderConfig>;
 	    tool_profiles?: ToolProfile[];
 	    mcp_servers?: Record<string, MCPServerUI>;
+	    spec_wizards: SpecWizardConfig[];
+	    templates: WorkspaceTemplate[];
 	
 	    static createFrom(source: any = {}) {
 	        return new AdaConfig(source);
@@ -356,6 +481,7 @@ export namespace backend {
 	        this.image_provider = source["image_provider"];
 	        this.spec_model = source["spec_model"];
 	        this.spec_provider = source["spec_provider"];
+	        this.spec_tools = source["spec_tools"];
 	        this.workers = this.convertValues(source["workers"], WorkerConfig);
 	        this.worker_categories = source["worker_categories"];
 	        this.agents = this.convertValues(source["agents"], AgentConfig);
@@ -367,6 +493,8 @@ export namespace backend {
 	        this.providers = this.convertValues(source["providers"], ProviderConfig, true);
 	        this.tool_profiles = this.convertValues(source["tool_profiles"], ToolProfile);
 	        this.mcp_servers = this.convertValues(source["mcp_servers"], MCPServerUI, true);
+	        this.spec_wizards = this.convertValues(source["spec_wizards"], SpecWizardConfig);
+	        this.templates = this.convertValues(source["templates"], WorkspaceTemplate);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -566,6 +694,24 @@ export namespace backend {
 	    }
 	}
 	
+	export class FixedModel {
+	    id: number;
+	    name: string;
+	    provider: string;
+	    model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FixedModel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	    }
+	}
 	
 	
 	
@@ -669,6 +815,8 @@ export namespace backend {
 	
 	
 	
+	
+	
 	export class ToolUIInfo {
 	    name: string;
 	    description: string;
@@ -687,6 +835,7 @@ export namespace backend {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	
 	
 
 }

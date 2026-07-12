@@ -14,7 +14,7 @@ func (e *Engine) ListWorkspaces() []WorkspaceConfig {
 	fmt.Printf("[Engine] ListWorkspaces: returning %d workspaces\n", len(e.adaCfg.Workspaces))
 	for i, ws := range e.adaCfg.Workspaces {
 		fmt.Printf("[Engine]   [%d] title=%q path=%q enabled=%v workers=%d\n",
-			i, ws.Title, ws.Path, ws.Enabled, len(ws.Workers))
+			i, ws.Title, ws.Path, ws.Enabled, len(ws.WorkerNames))
 	}
 	return e.adaCfg.Workspaces
 }
@@ -251,10 +251,10 @@ func (e *Engine) ToggleWorkspace(title string) {
 
 func (e *Engine) UpdateWorkspace(originalTitle string, ws WorkspaceConfig) {
 	e.mu.Lock()
-	fmt.Printf("[Engine] UpdateWorkspace: originalTitle=%q newWorkers=%d newTitle=%q\n", originalTitle, len(ws.Workers), ws.Title)
+	fmt.Printf("[Engine] UpdateWorkspace: originalTitle=%q newWorkers=%d newTitle=%q\n", originalTitle, len(ws.WorkerNames), ws.Title)
 	for i, w := range e.adaCfg.Workspaces {
 		if w.Title == originalTitle {
-			fmt.Printf("[Engine] UpdateWorkspace: found at index %d, replacing with %d workers\n", i, len(ws.Workers))
+			fmt.Printf("[Engine] UpdateWorkspace: found at index %d, replacing with %d worker names\n", i, len(ws.WorkerNames))
 			e.adaCfg.Workspaces[i] = ws
 			break
 		}

@@ -56,4 +56,5 @@ type Runtime struct {
 	ClearHistory       func() error
 	ReloadConfig       func() error
 	WorkspaceHealth    func() (string, error) // Returns workspace health report
+	TestConnections    func() (string, error) // Tests real provider API connections
 }

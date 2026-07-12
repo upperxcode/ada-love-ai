@@ -76,7 +76,7 @@ func (s *SessionManager) LoadSessions(sessions []*ChatSession) {
 	}
 }
 
-func (s *SessionManager) CreateSession(title string, workspaceID string, workerName string, parentSessionID string) *ChatSession {
+func (s *SessionManager) CreateSession(title string, workspaceID string, parentSessionID string) *ChatSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +93,6 @@ func (s *SessionManager) CreateSession(title string, workspaceID string, workerN
 	session := &ChatSession{
 		ID:              id,
 		WorkspaceID:     workspaceID,
-		WorkerName:      workerName,
 		ParentSessionID: parentSessionID,
 		Title:           uniqueTitle,
 		Messages:        []ChatMessage{},

@@ -41,17 +41,17 @@ type Engine struct {
 	// original sessionID used by the frontend. Keyed by the opaque session key.
 	sessionKeyMap   map[string]string
 	sessionKeyMapMu sync.RWMutex
-	eventBus   *EventBus
-	db         *Store
-	toolReg    *adatools.ToolRegistry
-	questionReg *integrationtools.QuestionRegistry
-	approvalReg *integrationtools.ApprovalRegistry
-	providerCache map[string]any
-	providerMu    sync.RWMutex
+	eventBus        *EventBus
+	db              *Store
+	toolReg         *adatools.ToolRegistry
+	questionReg     *integrationtools.QuestionRegistry
+	approvalReg     *integrationtools.ApprovalRegistry
+	providerCache   map[string]any
+	providerMu      sync.RWMutex
 	// overrideModelIDs maps frontend model key (e.g. "OpenRouter/nvidia/...") to the
 	// actual model field expected by the provider API (e.g. "nvidia/...").
 	overrideModelIDs map[string]string
-	overrideModelMu sync.RWMutex
+	overrideModelMu  sync.RWMutex
 	// Summarization
 	summarizer *SummarizerWorker
 	// Orchestrator for multi-agent routing
@@ -158,7 +158,7 @@ func NewEngine() (*Engine, error) {
 		if len(dbWorkspaces) > 0 {
 			adaCfg.Workspaces = dbWorkspaces
 		}
-fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
+		fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 
 		// Workers
 		if ws, err := db.GetWorkers(); err == nil {
@@ -172,13 +172,40 @@ fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 		if sw, err := db.GetSpecWizards(); err == nil {
 			adaCfg.SpecWizards = sw
 		}
-		// Embedding / Image / Spec (ainda em config KV)
-		db.GetGlobalConfig("embedding_model", &adaCfg.EmbeddingModel)
-		db.GetGlobalConfig("embedding_provider", &adaCfg.EmbeddingProvider)
-		db.GetGlobalConfig("image_model", &adaCfg.ImageModel)
-		db.GetGlobalConfig("image_provider", &adaCfg.ImageProvider)
-		db.GetGlobalConfig("spec_model", &adaCfg.SpecModel)
-		db.GetGlobalConfig("spec_provider", &adaCfg.SpecProvider)
+		// Embedding / Image / Spec / TinyBrain loaded from fixed_models rows (row-based storage)
+		if rows, err := db.ListFixedModelRows(); err == nil {
+			for _, r := range rows {
+				switch strings.ToLower(r.Name) {
+				case "embedding":
+					adaCfg.EmbeddingModel = r.Model
+					adaCfg.EmbeddingProvider = r.Provider
+				case "image":
+					adaCfg.ImageModel = r.Model
+					adaCfg.ImageProvider = r.Provider
+				case "spec":
+					adaCfg.SpecModel = r.Model
+					adaCfg.SpecProvider = r.Provider
+					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
+						adaCfg.SpecTools = tools
+					}
+				case "tinybrain":
+					adaCfg.TinyBrain.ModelName = r.Model
+					adaCfg.TinyBrain.Provider = r.Provider
+					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
+						adaCfg.TinyBrain.Tools = tools
+					}
+				}
+			}
+		} else {
+			// fallback: keep legacy global_config if fixed_models query fails
+			db.GetGlobalConfig("embedding_model", &adaCfg.EmbeddingModel)
+			db.GetGlobalConfig("embedding_provider", &adaCfg.EmbeddingProvider)
+			db.GetGlobalConfig("image_model", &adaCfg.ImageModel)
+			db.GetGlobalConfig("image_provider", &adaCfg.ImageProvider)
+			db.GetGlobalConfig("spec_model", &adaCfg.SpecModel)
+			db.GetGlobalConfig("spec_provider", &adaCfg.SpecProvider)
+			db.GetGlobalConfig("spec_tools", &adaCfg.SpecTools)
+		}
 		// ToolProfiles
 		db.GetGlobalConfig("tool_profiles", &adaCfg.ToolProfiles)
 		// MCPServers
@@ -186,7 +213,8 @@ fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 		// Active workspace
 		db.GetGlobalConfig("active_workspace_path", &adaCfg.ActiveWorkspacePath)
 		db.GetGlobalConfig("active_workspace_index", &adaCfg.ActiveWorkspaceIndex)
-	}
+		}
+
 
 	// Migração e saneamento básico
 	if adaCfg.ProviderBases == nil {
@@ -222,12 +250,15 @@ fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 	msgBus := bus.NewMessageBus()
 	eventBus := NewEventBus()
 
-	// Popula cfg.ModelList a partir dos providers do DB.
-	// Isso garante que CreateProvider (que busca em cfg.ModelList) encontre os modelos.
+	// Popula adaCfg.ModelList a partir dos providers do DB (tabela provider_models).
+	// adaCfg é a fonte de verdade consultada por workspaceHealth, chat_manager,
+	// resolveProviderForSession e model_manager — por isso o ModelList deve ser
+	// derivado para cá, não apenas para o cfg em memória.
 	for provName, provCfg := range adaCfg.Providers {
+		keys := config.SimpleSecureStrings(provCfg.GetAllAPIKeys()...)
 		for modelName := range provCfg.Models {
 			found := false
-			for _, existing := range cfg.ModelList {
+			for _, existing := range adaCfg.ModelList {
 				if existing.ModelName == modelName && existing.Provider == provName {
 					found = true
 					break
@@ -236,29 +267,31 @@ fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 			if found {
 				continue
 			}
-			cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
-					ModelName: modelName,
-					Provider:  provName,
-					Model:     modelName,
-					APIBase:   provCfg.ApiUrl,
-					APIKeys:   config.SimpleSecureStrings(provCfg.GetAllAPIKeys()...),
-					Enabled:   true,
-				})
+			adaCfg.ModelList = append(adaCfg.ModelList, &config.ModelConfig{
+				ModelName: modelName,
+				Provider:  provName,
+				Model:     modelName,
+				APIBase:   provCfg.ApiUrl,
+				APIKeys:   keys,
+				Enabled:   true,
+			})
 		}
 	}
-	fmt.Printf("[Engine] ModelList populado: %d modelos de %d providers\n", len(cfg.ModelList), len(adaCfg.Providers))
+	// Espelha para o cfg em memória (usado por CreateProvider em runtime).
+	cfg.ModelList = adaCfg.ModelList
+	fmt.Printf("[Engine] ModelList populado: %d modelos de %d providers (do DB)\n", len(adaCfg.ModelList), len(adaCfg.Providers))
 
 	e := &Engine{
-		cfg:           cfg,
-		msgBus:        msgBus,
-		eventBus:      eventBus,
-		adaCfg:        adaCfg,
-		SessionMgr:    NewSessionManager(db),
-		skillReg:   skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
-		db:         db,
-		providerCache: make(map[string]any),
+		cfg:              cfg,
+		msgBus:           msgBus,
+		eventBus:         eventBus,
+		adaCfg:           adaCfg,
+		SessionMgr:       NewSessionManager(db),
+		skillReg:         skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills),
+		db:               db,
+		providerCache:    make(map[string]any),
 		overrideModelIDs: make(map[string]string),
-		sessionKeyMap:   make(map[string]string),
+		sessionKeyMap:    make(map[string]string),
 	}
 
 	e.connectMessageBus()
@@ -336,19 +369,19 @@ fmt.Printf("[Engine] Carregados %d workspaces do DB\n", adaCfg.WorkspaceCount())
 	// Sincroniza o workspace ativo com a configuração antes de iniciar
 	e.syncActiveWorkspaceToAgent()
 
-// Sincroniza agentes do ada_config.json com cfg.Agents.List
-		syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
+	// Sincroniza agentes do ada_config.json com cfg.Agents.List
+	syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
 
-		// Inicializa o AgentLoop — provider pode ser nil se nenhum modelo padrão configurado
-		rawProvider, _, err := providers.CreateProvider(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao criar provider: %w", err)
-		}
-		var provider providers.LLMProvider
-		if rawProvider != nil {
-			provider = e.wrapProvider(rawProvider)
-		}
-e.questionReg = integrationtools.NewQuestionRegistry()
+	// Inicializa o AgentLoop — provider pode ser nil se nenhum modelo padrão configurado
+	rawProvider, _, err := providers.CreateProvider(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar provider: %w", err)
+	}
+	var provider providers.LLMProvider
+	if rawProvider != nil {
+		provider = e.wrapProvider(rawProvider)
+	}
+	e.questionReg = integrationtools.NewQuestionRegistry()
 	e.approvalReg = integrationtools.NewApprovalRegistry()
 	e.questionReg.SetResolver(e.resolveSessionID)
 	e.approvalReg.SetResolver(e.resolveSessionID)
@@ -418,9 +451,10 @@ Regras de orquestração:
 			fmt.Printf("[Engine] %d workspace templates seedados\n", len(defaultTemplates))
 		}
 	}
-e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
-		e.agentLoop.SetSummarizer(e.summarizer)
-		e.agentLoop.SetHealthFunc(e.workspaceHealth)
+	e.agentLoop = agent.NewAgentLoop(cfg, msgBus, provider, e)
+	e.agentLoop.SetSummarizer(e.summarizer)
+	e.agentLoop.SetHealthFunc(e.workspaceHealth)
+	e.agentLoop.SetTestConnFunc(e.testConnections)
 
 	// Register the context logger so the agent's pipeline can push the
 	// COMPLETE LLM context (system prompt + messages + tools) to our JSONL log.
@@ -530,14 +564,29 @@ func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
 		fsPath = ws.Path
 	}
 
+	// Valida que fsPath é um diretório real
+	if info, err := os.Stat(fsPath); err != nil || !info.IsDir() {
+		fsPath = ""
+		for _, f := range ws.Folders {
+			if info, err := os.Stat(f); err == nil && info.IsDir() {
+				fsPath = f
+				break
+			}
+		}
+		if fsPath == "" {
+			fmt.Printf("[Engine] syncWorkspaceForTurn: NENHUM folder válido para %q\n", ws.Title)
+			return
+		}
+	}
+
 	fmt.Printf("[Engine] syncWorkspaceForTurn: title=%q folders=%v → fsPath=%q\n",
 		ws.Title, ws.Folders, fsPath)
 
-// Update cfg defaults so any future agent creation uses the right workspace.
-		e.cfg.Agents.Defaults.Workspace = fsPath
-		e.cfg.Agents.Defaults.Folders = ws.Folders
-		e.cfg.Agents.Defaults.Personality = ws.Personality
-		e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
+	// Update cfg defaults so any future agent creation uses the right workspace.
+	e.cfg.Agents.Defaults.Workspace = fsPath
+	e.cfg.Agents.Defaults.Folders = ws.Folders
+	e.cfg.Agents.Defaults.Personality = ws.Personality
+	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
 
 	// Patch the LIVE agent loop's ContextBuilder (no reload) so the system
 	// prompt is rebuilt with the new workspace on the next turn.
@@ -597,6 +646,23 @@ func (e *Engine) applyWorkspaceToAgentLocked(pathOrTitle string) {
 	}
 	if fsPath == "" {
 		fsPath = ws.Path
+	}
+
+	// Valida que fsPath é um diretório real no filesystem
+	if info, err := os.Stat(fsPath); err != nil || !info.IsDir() {
+		// Se o path não é um diretório válido, tenta cada folder individualmente
+		fsPath = ""
+		for _, f := range ws.Folders {
+			if info, err := os.Stat(f); err == nil && info.IsDir() {
+				fsPath = f
+				break
+			}
+		}
+		if fsPath == "" {
+			fmt.Printf("[Engine] applyWorkspaceToAgent: NENHUM folder válido encontrado para workspace %q (slug=%q, folders=%v)\n",
+				ws.Title, ws.Path, ws.Folders)
+			return
+		}
 	}
 
 	fmt.Printf("[Engine] applyWorkspaceToAgent: title=%q slug=%q folders=%v → fsPath=%q\n",
@@ -786,54 +852,107 @@ func (e *Engine) SaveAdaConfig() error {
 		}
 	}
 
-	// Salva workspaces no DB e sincroniza junctions
-	for _, ws := range e.adaCfg.Workspaces {
-		id, err := e.db.SaveWorkspace(ws)
-		if err != nil {
-			fmt.Printf("[Engine] Erro ao salvar workspace %q: %v\n", ws.Title, err)
-			continue
-		}
-		// Resolve IDs de workers/agents pelos nomes e grava junctions
-		var wids []int64
-		for _, wn := range ws.WorkerNames {
-			if w, err := e.db.GetWorkerByName(wn); err == nil && w != nil {
-				wids = append(wids, w.ID)
+		// Salva spec-wizards nas tabelas próprias (fazer antes de gravar workspaces que referenciam spec_wizard_id)
+		for _, sw := range e.adaCfg.SpecWizards {
+			if err := e.db.SaveSpecWizard(sw); err != nil {
+				fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
 			}
 		}
-		e.db.SetWorkspaceWorkers(id, wids)
-		var aids []int64
-		for _, an := range ws.Agents {
-			if a, err := e.db.GetAgentByName(an); err == nil && a != nil {
-				aids = append(aids, a.ID)
+
+		// Salva workspaces no DB e sincroniza junctions
+		for _, ws := range e.adaCfg.Workspaces {
+			id, err := e.db.SaveWorkspace(ws)
+			if err != nil {
+				fmt.Printf("[Engine] Erro ao salvar workspace %q: %v\n", ws.Title, err)
+				continue
+			}
+			// Resolve IDs de workers/agents pelos nomes e grava junctions
+			var wids []int64
+			for _, wn := range ws.WorkerNames {
+				if w, err := e.db.GetWorkerByName(wn); err == nil && w != nil {
+					wids = append(wids, w.ID)
+				}
+			}
+			e.db.SetWorkspaceWorkers(id, wids)
+			var aids []int64
+			for _, an := range ws.Agents {
+				if a, err := e.db.GetAgentByName(an); err == nil && a != nil {
+					aids = append(aids, a.ID)
+				}
+			}
+			e.db.SetWorkspaceAgents(id, aids)
+			// Persiste folders e knowledge via junction tables
+			e.db.SetWorkspaceFolders(id, ws.Folders)
+			e.db.SetWorkspaceKnowledge(id, ws.Knowledge)
+		}
+
+		// Salva workers/agents nas tabelas próprias
+		for _, w := range e.adaCfg.Workers {
+			if _, err := e.db.SaveWorker(w); err != nil {
+				fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
 			}
 		}
-		e.db.SetWorkspaceAgents(id, aids)
-	}
-
-	// Salva workers/agents nas tabelas próprias
-	for _, w := range e.adaCfg.Workers {
-		if _, err := e.db.SaveWorker(w); err != nil {
-			fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
+		for _, a := range e.adaCfg.Agents {
+			if _, err := e.db.SaveAgent(a); err != nil {
+				fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
+			}
 		}
-	}
-	for _, a := range e.adaCfg.Agents {
-		if _, err := e.db.SaveAgent(a); err != nil {
-			fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
-		}
-	}
 
-	// Salva seções restantes no DB (key-value)
-	e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
-	e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
-	e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
-	e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
-	e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
-	e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
-	e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
-	e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
-e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
+		// Salva seções restantes no DB (key-value)
+
+		e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
+		e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
+		e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
+		e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
+		e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
+		e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
+		e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
+		e.db.SetGlobalConfig("spec_tools", e.adaCfg.SpecTools)
+		e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
+		e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
 		e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
 		e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
+
+		// Also persist fixed_models rows for embedding, image, spec and tinybrain
+		if e.db != nil {
+			// embedding
+			if e.adaCfg.EmbeddingModel != "" {
+				if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "embedding", Provider: e.adaCfg.EmbeddingProvider, Model: e.adaCfg.EmbeddingModel}); err != nil {
+					fmt.Printf("[Engine] Warn: failed to persist embedding fixed model: %v\n", err)
+				}
+			}
+			// image
+			if e.adaCfg.ImageModel != "" {
+				if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "image", Provider: e.adaCfg.ImageProvider, Model: e.adaCfg.ImageModel}); err != nil {
+					fmt.Printf("[Engine] Warn: failed to persist image fixed model: %v\n", err)
+				}
+			}
+			// spec
+			if e.adaCfg.SpecModel != "" || e.adaCfg.SpecProvider != "" {
+				if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "spec", Provider: e.adaCfg.SpecProvider, Model: e.adaCfg.SpecModel}); err == nil {
+					// set tools if present
+					if len(e.adaCfg.SpecTools) > 0 {
+						if err := e.db.SetFixedModelRowTools(id, e.adaCfg.SpecTools); err != nil {
+							fmt.Printf("[Engine] Warn: failed to persist spec tools: %v\n", err)
+						}
+					}
+				} else {
+					fmt.Printf("[Engine] Warn: failed to persist spec fixed model: %v\n", err)
+				}
+			}
+			// tinybrain
+			if e.adaCfg.TinyBrain.ModelName != "" || e.adaCfg.TinyBrain.Provider != "" {
+				if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "tinybrain", Provider: e.adaCfg.TinyBrain.Provider, Model: e.adaCfg.TinyBrain.ModelName}); err == nil {
+					if len(e.adaCfg.TinyBrain.Tools) > 0 {
+						if err := e.db.SetFixedModelRowTools(id, e.adaCfg.TinyBrain.Tools); err != nil {
+							fmt.Printf("[Engine] Warn: failed to persist tinybrain tools: %v\n", err)
+						}
+					}
+				} else {
+					fmt.Printf("[Engine] Warn: failed to persist tinybrain fixed model: %v\n", err)
+				}
+			}
+		}
 
 		// Salva spec-wizards nas tabelas próprias
 		for _, sw := range e.adaCfg.SpecWizards {
@@ -842,7 +961,8 @@ e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
 			}
 		}
 
-		return nil
+
+	return nil
 }
 
 // SaveProvidersConfig saves providers to SQLite (providers table in config.db)
@@ -893,11 +1013,13 @@ func (e *Engine) ReloadAgentLoop() error {
 		e.cfg.Agents.Defaults.ModelName = modelID
 	}
 
-provider := e.wrapProvider(rawProvider)
-		e.agentLoop = agent.NewAgentLoop(e.cfg, e.msgBus, provider, e)
+	provider := e.wrapProvider(rawProvider)
+	e.agentLoop = agent.NewAgentLoop(e.cfg, e.msgBus, provider, e)
 
-		// Re-register health function on the new agent loop
-		e.agentLoop.SetHealthFunc(e.workspaceHealth)
+	// Re-register health function on the reloaded agent loop
+	e.agentLoop.SetHealthFunc(e.workspaceHealth)
+	e.agentLoop.SetTestConnFunc(e.testConnections)
+	e.agentLoop.SetTestConnFunc(e.testConnections)
 
 	// Re-register ask_user tool and frontend approval hook on the new loop
 	if e.agentLoop != nil {
@@ -957,33 +1079,33 @@ func (e *Engine) bridgeAgentEvents() {
 				SessionID: sessionID,
 				Payload:   StatusPayload{Message: "writing"},
 			})
-			case agent.EventKindSubTurnSpawn:
-				if p, ok := evt.Payload.(agent.SubTurnSpawnPayload); ok {
-					// Resolve a friendly agent label from the agent registry if available.
-					label := p.Label
-					if e.agentLoop != nil {
-						if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
-							label = ag.Name
-						}
+		case agent.EventKindSubTurnSpawn:
+			if p, ok := evt.Payload.(agent.SubTurnSpawnPayload); ok {
+				// Resolve a friendly agent label from the agent registry if available.
+				label := p.Label
+				if e.agentLoop != nil {
+					if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
+						label = ag.Name
 					}
-					fmt.Printf("[Bridge] SubTurn SPAWN: session=%q agent=%q label=%q\n", sessionID, p.AgentID, label)
-					e.eventBus.Emit(Event{
-						Kind:      EventKindStatus,
-						SessionID: sessionID,
-						Payload:   StatusPayload{Message: "agent:" + label},
-					})
 				}
-			case agent.EventKindSubTurnEnd:
-				if p, ok := evt.Payload.(agent.SubTurnEndPayload); ok {
-					label := p.Label
-					if label == "" {
-						label = p.AgentID
+				fmt.Printf("[Bridge] SubTurn SPAWN: session=%q agent=%q label=%q\n", sessionID, p.AgentID, label)
+				e.eventBus.Emit(Event{
+					Kind:      EventKindStatus,
+					SessionID: sessionID,
+					Payload:   StatusPayload{Message: "agent:" + label},
+				})
+			}
+		case agent.EventKindSubTurnEnd:
+			if p, ok := evt.Payload.(agent.SubTurnEndPayload); ok {
+				label := p.Label
+				if label == "" {
+					label = p.AgentID
+				}
+				if e.agentLoop != nil {
+					if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
+						label = ag.Name
 					}
-					if e.agentLoop != nil {
-						if ag, agOK := e.agentLoop.GetRegistry().GetAgent(p.AgentID); agOK && ag.Name != "" {
-							label = ag.Name
-						}
-					}
+				}
 				fmt.Printf("[Bridge] SubTurn END: session=%q agent=%q label=%q status=%q\n", sessionID, p.AgentID, label, p.Status)
 				status := "writing"
 				if p.Status == "error" {
@@ -995,6 +1117,26 @@ func (e *Engine) bridgeAgentEvents() {
 					Kind:      EventKindStatus,
 					SessionID: sessionID,
 					Payload:   StatusPayload{Message: status},
+				})
+			}
+		case agent.EventKindCommandResult:
+			if p, ok := evt.Payload.(agent.CommandResultPayload); ok {
+				// Commands resolve before a TurnStart, so the opaque→real session
+				// mapping may not exist yet. Fall back to the in-flight
+				// SendMessage sessionID when resolution yields the raw key.
+				cmdSessionID := sessionID
+				if cmdSessionID == "" || strings.HasPrefix(cmdSessionID, "sk_v1_") {
+					if sid := e.takePendingSessionID(); sid != "" {
+						cmdSessionID = sid
+					}
+				}
+				if cmdSessionID == "" {
+					continue
+				}
+				e.eventBus.Emit(Event{
+					Kind:      EventKindCommandResult,
+					SessionID: cmdSessionID,
+					Payload:   CommandResultPayload{Command: p.Command, Output: p.Output},
 				})
 			}
 		}
@@ -1351,14 +1493,14 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 	state := e.buildOrchestratorState(sessionID)
 
 	// 5. Roteamento via LLM (personality como prompt de roteamento)
-		decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
-		if err != nil {
-			fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
-		}
-		fmt.Printf("[ProcessOrchestrated] decision: nextAgent=%q task=%q subTasks=%d reasoning=%q\n",
-			decision.NextAgent, decision.Task, len(decision.SubTasks), decision.Reasoning)
+	decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
+	if err != nil {
+		fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
+	}
+	fmt.Printf("[ProcessOrchestrated] decision: nextAgent=%q task=%q subTasks=%d reasoning=%q\n",
+		decision.NextAgent, decision.Task, len(decision.SubTasks), decision.Reasoning)
 
-		// 6. Emite decisão de roteamento
+	// 6. Emite decisão de roteamento
 	e.eventBus.Emit(Event{
 		Kind:      EventKindOrchestratorDecision,
 		SessionID: sessionID,
@@ -1416,20 +1558,20 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		}
 	}
 
-// 8. Execução (concorrente para sub-tasks)
-		fmt.Printf("[ProcessOrchestrated] calling ExecuteRouting: decision={NextAgent=%s Task=%q SubTasks=%d}\n",
-			decision.NextAgent, decision.Task, len(decision.SubTasks))
-		output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
-		fmt.Printf("[ProcessOrchestrated] ExecuteRouting returned: outputLen=%d err=%v\n", len(output), err)
-		if err != nil {
-			// Se o erro for de "agent not found" (NextAgent vazio), trata como resposta educada
-			if decision.NextAgent == "" {
-				output = "Olá! Como posso ajudar você hoje? Posso desenvolver backend em Go, criar interfaces em React ou escrever testes automatizados."
-				err = nil
-			} else {
-				return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
-			}
+	// 8. Execução (concorrente para sub-tasks)
+	fmt.Printf("[ProcessOrchestrated] calling ExecuteRouting: decision={NextAgent=%s Task=%q SubTasks=%d}\n",
+		decision.NextAgent, decision.Task, len(decision.SubTasks))
+	output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
+	fmt.Printf("[ProcessOrchestrated] ExecuteRouting returned: outputLen=%d err=%v\n", len(output), err)
+	if err != nil {
+		// Se o erro for de "agent not found" (NextAgent vazio), trata como resposta educada
+		if decision.NextAgent == "" {
+			output = "Olá! Como posso ajudar você hoje? Posso desenvolver backend em Go, criar interfaces em React ou escrever testes automatizados."
+			err = nil
+		} else {
+			return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
 		}
+	}
 
 	// 9. Salva na sessão
 	e.SessionMgr.AddMessage(sessionID, "user", text)
@@ -1586,7 +1728,7 @@ func (e *Engine) buildOrchestratorState(sessionID string) string {
 
 // isOrchestratorRequest detecta se uma mensagem deve ser roteada pelo orquestrador.
 var (
-	orchestratorMultiStepRe  = regexp.MustCompile(`(?i)(crie\s+.*\s+e\s+(depois|faça|adicione|implemente)|implemente\s+.*\s+e\s+(depois|faça|adicione|test)|faça\s+.*\s+e\s+(depois|adicione|crie)|backend\s+.*\s+e\s+.*frontend|frontend\s+.*\s+e\s+.*backend|go\s+.*\s+e\s+.*react|react\s+.*\s+e\s+.*go|api\s+.*\s+e\s+.*tela|tela\s+.*\s+e\s+.*api)`)
+	orchestratorMultiStepRe = regexp.MustCompile(`(?i)(crie\s+.*\s+e\s+(depois|faça|adicione|implemente)|implemente\s+.*\s+e\s+(depois|faça|adicione|test)|faça\s+.*\s+e\s+(depois|adicione|crie)|backend\s+.*\s+e\s+.*frontend|frontend\s+.*\s+e\s+.*backend|go\s+.*\s+e\s+.*react|react\s+.*\s+e\s+.*go|api\s+.*\s+e\s+.*tela|tela\s+.*\s+e\s+.*api)`)
 	orchestratorPrefixRe    = regexp.MustCompile(`(?i)^/(orchestrate|multi)\b`)
 	orchestratorExplicitRe  = regexp.MustCompile(`(?i)(golang\s+agent|react\s+agent|tester\s+agent|orquestrador|orquest)`)
 )
@@ -1629,52 +1771,52 @@ func syncAdaAgentsToConfig(adaAgents []AgentConfig, cfgAgents *[]config.AgentCon
 		}
 	}
 
-// Adiciona agentes do ada_config.json que ainda não existem
-		for _, adaAgent := range adaAgents {
-			agentID := adaAgent.Name
-			if agentID == "" {
-				continue
-			}
-
-			// Usa ID numérico do agente se fornecido, senão gera a partir do nome
-			normalizedID := strings.ToLower(strings.ReplaceAll(agentID, " ", "-"))
-			if adaAgent.ID > 0 {
-				normalizedID = fmt.Sprintf("agent-%d", adaAgent.ID)
-			}
-
-			if existingIDs[normalizedID] {
-				continue // Já existe
-			}
-
-			// Converte para config.AgentConfig
-			cfgAgent := config.AgentConfig{
-				ID:         normalizedID,
-				Name:       adaAgent.Name,
-				Model: &config.AgentModelConfig{
-					Primary: adaAgent.Model,
-				},
-				Provider:  adaAgent.Provider,
-				Type:      adaAgent.Type,
-				Icon:      adaAgent.Icon,
-				Color:     adaAgent.Color,
-			}
-
-			// Converte delegates para subagents.allow_agents
-			if len(adaAgent.Delegates) > 0 {
-				cfgAgent.Subagents = &config.SubagentsConfig{
-					AllowAgents: adaAgent.Delegates,
-				}
-			}
-
-			// Usa SystemPrompt como personality se não houver personality definida
-			if adaAgent.SystemPrompt != "" {
-				cfgAgent.Personality = adaAgent.SystemPrompt
-			}
-
-			*cfgAgents = append(*cfgAgents, cfgAgent)
-			fmt.Printf("[Engine] Sincronizado agente: %s (type=%s, id=%s)\n", adaAgent.Name, adaAgent.Type, normalizedID)
+	// Adiciona agentes do ada_config.json que ainda não existem
+	for _, adaAgent := range adaAgents {
+		agentID := adaAgent.Name
+		if agentID == "" {
+			continue
 		}
+
+		// Usa ID numérico do agente se fornecido, senão gera a partir do nome
+		normalizedID := strings.ToLower(strings.ReplaceAll(agentID, " ", "-"))
+		if adaAgent.ID > 0 {
+			normalizedID = fmt.Sprintf("agent-%d", adaAgent.ID)
+		}
+
+		if existingIDs[normalizedID] {
+			continue // Já existe
+		}
+
+		// Converte para config.AgentConfig
+		cfgAgent := config.AgentConfig{
+			ID:   normalizedID,
+			Name: adaAgent.Name,
+			Model: &config.AgentModelConfig{
+				Primary: adaAgent.Model,
+			},
+			Provider: adaAgent.Provider,
+			Type:     adaAgent.Type,
+			Icon:     adaAgent.Icon,
+			Color:    adaAgent.Color,
+		}
+
+		// Converte delegates para subagents.allow_agents
+		if len(adaAgent.Delegates) > 0 {
+			cfgAgent.Subagents = &config.SubagentsConfig{
+				AllowAgents: adaAgent.Delegates,
+			}
+		}
+
+		// Usa SystemPrompt como personality se não houver personality definida
+		if adaAgent.SystemPrompt != "" {
+			cfgAgent.Personality = adaAgent.SystemPrompt
+		}
+
+		*cfgAgents = append(*cfgAgents, cfgAgent)
+		fmt.Printf("[Engine] Sincronizado agente: %s (type=%s, id=%s)\n", adaAgent.Name, adaAgent.Type, normalizedID)
 	}
+}
 
 // filterAgentsByWorkspace filtra a lista de agentes para manter apenas os
 // selecionados no workspace. Um agente é selecionado se seu ID ou Name estiver
@@ -1697,7 +1839,7 @@ func filterAgentsByWorkspace(cfgAgents *[]config.AgentConfig, selectedAgentNames
 		// Verifica pelo ID normalizado
 		idNormalized := strings.ToLower(strings.ReplaceAll(agent.ID, " ", "-"))
 		nameNormalized := strings.ToLower(strings.ReplaceAll(agent.Name, " ", "-"))
-		
+
 		if selectedSet[idNormalized] || selectedSet[nameNormalized] {
 			filtered = append(filtered, agent)
 		}
@@ -1761,12 +1903,39 @@ func (e *Engine) workspaceHealth() (string, error) {
 	if len(ws.Folders) > 0 {
 		report.WriteString(fmt.Sprintf("✅ Folders: %s\n", strings.Join(ws.Folders, ", ")))
 		ok++
+		// Verifica se as pastas existem no disco
+		for _, f := range ws.Folders {
+			if _, err := os.Stat(f); os.IsNotExist(err) {
+				report.WriteString(fmt.Sprintf("  ❌ Folder não encontrada: %s\n", f))
+				critical++
+			}
+		}
 	} else {
 		report.WriteString("❌ Folders: NENHUM — chat sessions, skills e file tools não funcionarão corretamente\n")
 		critical++
 	}
 
-	// 3. Workers
+	// 3. Agents, Workers & Orchestrator
+	if e.orchestrator != nil {
+		report.WriteString("✅ Orchestrator: Ativo\n")
+		ok++
+	} else {
+		report.WriteString("⚠️  Orchestrator: Inativo (multi-agent desabilitado)\n")
+		warnings++
+	}
+
+	agentCount := len(ws.Agents)
+	if agentCount == 0 && len(e.adaCfg.Agents) > 0 {
+		agentCount = len(e.adaCfg.Agents) // fallback para agentes globais
+	}
+	if agentCount > 0 {
+		report.WriteString(fmt.Sprintf("✅ Agents: %d configurados\n", agentCount))
+		ok++
+	} else {
+		report.WriteString("⚠️  Agents: Nenhum agente específico no workspace\n")
+		warnings++
+	}
+
 	if len(ws.WorkerNames) > 0 {
 		report.WriteString(fmt.Sprintf("✅ Workers: %s (%d configurados)\n", strings.Join(ws.WorkerNames, ", "), len(ws.WorkerNames)))
 		ok++
@@ -1784,7 +1953,39 @@ func (e *Engine) workspaceHealth() (string, error) {
 		warnings++
 	}
 
-	// 5. Providers
+	// 5. Skills & Tools
+	skillCount := len(ws.Skills)
+	if skillCount > 0 {
+		report.WriteString(fmt.Sprintf("✅ Skills: %d habilitadas\n", skillCount))
+		ok++
+	} else {
+		report.WriteString("⚠️  Skills: Nenhuma skill habilitada no workspace\n")
+		warnings++
+	}
+
+	toolCount := len(ws.Tools)
+	if toolCount > 0 {
+		report.WriteString(fmt.Sprintf("✅ Tools: %d habilitadas\n", toolCount))
+		ok++
+	} else {
+		report.WriteString("⚠️  Tools: Nenhuma ferramenta habilitada (read/write file desativados)\n")
+		warnings++
+	}
+
+	mcpCount := 0
+	for _, m := range e.adaCfg.MCPServers {
+		if m.Enabled {
+			mcpCount++
+		}
+	}
+	if mcpCount > 0 {
+		report.WriteString(fmt.Sprintf("✅ MCP: %d servidores ativos\n", mcpCount))
+		ok++
+	} else {
+		report.WriteString("ℹ️  MCP: Nenhum servidor externo configurado\n")
+	}
+
+	// 6. Providers & Models
 	if len(e.adaCfg.Providers) > 0 {
 		provNames := getMapKeys(e.adaCfg.Providers)
 		totalKeys := 0
@@ -1800,17 +2001,110 @@ func (e *Engine) workspaceHealth() (string, error) {
 		critical++
 	}
 
-	// 6. Model list
 	if len(e.adaCfg.ModelList) > 0 {
-		report.WriteString(fmt.Sprintf("✅ Modelos: %d disponíveis\n", len(e.adaCfg.ModelList)))
+		report.WriteString(fmt.Sprintf("✅ Modelos: %d disponíveis no model_list\n", len(e.adaCfg.ModelList)))
 		ok++
 	} else {
 		report.WriteString("⚠️  Modelos: NENHUM no model_list — use override de modelo no chat\n")
 		warnings++
 	}
 
+	// 7. Special Providers
+	if e.adaCfg.SpecModel != "" && e.adaCfg.SpecProvider != "" {
+		report.WriteString(fmt.Sprintf("✅ Spec Wizard: %s (%s)\n", e.adaCfg.SpecModel, e.adaCfg.SpecProvider))
+		ok++
+	} else {
+		report.WriteString("⚠️  Spec Wizard: Não configurado (geração de specs desativada)\n")
+		warnings++
+	}
+
+	if e.adaCfg.ImageModel != "" {
+		report.WriteString(fmt.Sprintf("✅ Image Gen: %s\n", e.adaCfg.ImageModel))
+		ok++
+	}
+
+	if e.adaCfg.EmbeddingModel != "" {
+		report.WriteString(fmt.Sprintf("✅ Embeddings: %s\n", e.adaCfg.EmbeddingModel))
+		ok++
+	}
+
+	// 8. TinyBrain
+	if e.adaCfg.TinyBrain.ModelName != "" {
+		report.WriteString(fmt.Sprintf("✅ TinyBrain: %s (%s)\n", e.adaCfg.TinyBrain.ModelName, e.adaCfg.TinyBrain.Provider))
+		ok++
+	} else {
+		report.WriteString("ℹ️  TinyBrain: Não configurado (usando modelo principal para tarefas leves)\n")
+	}
+
+	// 9. Knowledge Base
+	if len(ws.Knowledge) > 0 {
+		report.WriteString(fmt.Sprintf("✅ Knowledge: %d arquivos\n", len(ws.Knowledge)))
+		ok++
+		for _, k := range ws.Knowledge {
+			if _, err := os.Stat(k); os.IsNotExist(err) {
+				report.WriteString(fmt.Sprintf("  ❌ Arquivo não encontrado: %s\n", k))
+				critical++
+			}
+		}
+	}
+
+	// 10. Git Integration
+	if ws.CommitChanges {
+		report.WriteString("✅ Git Auto-commit: Habilitado\n")
+		ok++
+		for _, f := range ws.Folders {
+			gitPath := filepath.Join(f, ".git")
+			if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+				report.WriteString(fmt.Sprintf("  ⚠️  Folder não é repo Git: %s\n", f))
+				warnings++
+			}
+		}
+	}
+
+	// 11. Constraints
+	report.WriteString(fmt.Sprintf("⚙️  Constraints: context=%d, prompt=%d\n", ws.MaxContextLength, ws.MaxPrompt))
+
 	report.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	report.WriteString(fmt.Sprintf("%d ❌ critical | %d ⚠️  warning | %d ✅ ok\n", critical, warnings, ok))
+
+	return report.String(), nil
+}
+
+// testConnections validates real provider API connectivity for all configured providers.
+func (e *Engine) testConnections() (string, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var report strings.Builder
+	report.WriteString("🌐 Provider Connection Test\n")
+	report.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+
+	ok := 0
+	failed := 0
+
+	for name, p := range e.adaCfg.Providers {
+		report.WriteString(fmt.Sprintf("Testing %s... ", name))
+		
+		// Use existing TestProviderConnection logic
+		res, err := e.TestProviderConnection(name, p.GetAPIKey(), p.ApiUrl, p.TypeConnection)
+		
+		if err == nil && res.Ok {
+			report.WriteString("✅ OK\n")
+			ok++
+		} else {
+			msg := "FAIL"
+			if res.Message != "" {
+				msg = res.Message
+			} else if err != nil {
+				msg = err.Error()
+			}
+			report.WriteString(fmt.Sprintf("❌ %s\n", msg))
+			failed++
+		}
+	}
+
+	report.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	report.WriteString(fmt.Sprintf("%d ✅ success | %d ❌ failed\n", ok, failed))
 
 	return report.String(), nil
 }

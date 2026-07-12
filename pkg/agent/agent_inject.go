@@ -64,6 +64,10 @@ func (al *AgentLoop) SetHealthFunc(fn func() (string, error)) {
 	al.healthFunc = fn
 }
 
+func (al *AgentLoop) SetTestConnFunc(fn func() (string, error)) {
+	al.testConnFunc = fn
+}
+
 func (al *AgentLoop) RecordLastChannel(channel string) error {
 	if al.state == nil {
 		return nil

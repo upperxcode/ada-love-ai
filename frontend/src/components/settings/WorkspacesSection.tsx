@@ -26,6 +26,7 @@ function WorkspacesSection() {
   const [workspaces, setWorkspaces] = useState<api.backend.WorkspaceConfig[]>(
     [],
   );
+  const [templates, setTemplates] = useState<api.backend.WorkspaceTemplate[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editing, setEditing] = useState<api.backend.WorkspaceConfig | null>(
@@ -45,15 +46,25 @@ function WorkspacesSection() {
   const [skillInput, setSkillInput] = useState('');
 
   useEffect(() => {
+    api.getWorkspaceTemplates().then(setTemplates);
+  }, []);
+
+  useEffect(() => {
+    // Load spec-wizards from DB
+    api.getSpecWizards().then((wizards) => {
+      setSpecWizards(wizards.map((w: any) => ({ id: w.id, name: w.name })));
+    }).catch(() => {
+      // Fallback to localStorage if DB fails
+      const saved = localStorage.getItem('spec-wizards');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setSpecWizards(parsed.map((w: any) => ({ id: w.id, name: w.name })));
+        } catch {}
+      }
+    });
     api.getAvailableTools().then(setAvailableTools);
     api.getToolProfiles().then(setAvailableProfiles);
-    const saved = localStorage.getItem('spec-wizards');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setSpecWizards(parsed.map((w: any) => ({ id: w.id, name: w.name })));
-      } catch {}
-    }
   }, []);
 
   const [knownTools, setKnownTools] = useState<api.backend.ToolUIInfo[]>([]);
@@ -73,7 +84,7 @@ function WorkspacesSection() {
     knowledge: [] as string[],
     skills: [] as string[],
     agents: [] as string[],
-    workers: [] as api.backend.WorkerConfig[],
+    worker_names: [] as string[],
     tools: [] as string[],
     enabled: true,
     maxPromptSend: 0,
@@ -112,7 +123,7 @@ function WorkspacesSection() {
   const load = async () => {
     try {
       const ws = await api.getWorkspaces();
-      console.log('[WorkspacesSection] load: workspaces =', ws.map((w) => ({ title: w.title, path: w.path, workers: w.workers })));
+      console.log('[WorkspacesSection] load: workspaces =', ws.map((w) => ({ title: w.title, path: w.path, worker_names: w.worker_names })));
       setWorkspaces(ws);
     } catch { setWorkspaces([]); }
 
@@ -128,13 +139,14 @@ function WorkspacesSection() {
     } catch { setAvailableWorkers([]); }
 
     try {
-      const agents = await api.getAgents();
-      setAvailableAgents(agents.map(a => a.name));
-    } catch {}
-
-    try {
       const skills = await api.getInstalledSkills();
       setKnownSkills(skills);
+    } catch {}
+
+    // Load spec wizards from DB
+    try {
+      const sw = await api.getSpecWizards();
+      setSpecWizards(sw.map((w: any) => ({ id: w.id, name: w.name })));
     } catch {}
   };
   useEffect(() => {
@@ -155,8 +167,8 @@ function WorkspacesSection() {
   const toggleArrayItem = (arr: string[], item: string) =>
     arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
 
-  const openEdit = (ws: api.backend.WorkspaceConfig) => {
-    console.log('[WorkspacesSection] openEdit:', { title: ws.title, path: ws.path, workers: ws.workers });
+const openEdit = (ws: api.backend.WorkspaceConfig) => {
+    console.log('[WorkspacesSection] openEdit:', { title: ws.title, path: ws.path, worker_names: ws.worker_names });
     setEditing(ws);
     setE({
       title: ws.title,
@@ -168,13 +180,13 @@ function WorkspacesSection() {
       knowledge: ws.knowledge || [],
       skills: ws.skills || [],
       agents: ws.agents || [],
-      workers: ws.workers || [],
+      worker_names: ws.worker_names || [],
       tools: ws.tools || [],
       enabled: ws.enabled,
       maxPromptSend: ws.max_prompt_send || 0,
       commitChanges: ws.commit_changes !== false,
       maxContextLength: ws.max_context_length || 0,
-      specWizard: ws.spec_wizard || '',
+      specWizard: ws.spec_wizard_id || '',
     });
     setShowEdit(true);
   };
@@ -184,8 +196,8 @@ function WorkspacesSection() {
     console.log('[WorkspacesSection] handleSaveEdit:', {
       originalTitle: editing.title,
       newTitle: E.title,
-      workers: E.workers,
-      workersCount: E.workers.length,
+      worker_names: E.worker_names,
+      workersCount: E.worker_names.length,
     });
     const payload = {
       ...editing,
@@ -198,15 +210,15 @@ function WorkspacesSection() {
       knowledge: E.knowledge,
       skills: E.skills,
       agents: E.agents,
-      workers: E.workers,
+      worker_names: E.worker_names,
       tools: E.tools,
       enabled: E.enabled,
       max_prompt_send: E.maxPromptSend,
       commit_changes: E.commitChanges,
       max_context_length: E.maxContextLength,
-      spec_wizard: E.specWizard,
+      spec_wizard_id: E.specWizard,
     };
-    console.log('[WorkspacesSection] payload workers:', payload.workers);
+    console.log('[WorkspacesSection] payload worker_names:', payload.worker_names);
     await api.updateWorkspace(editing.title, payload);
     setShowEdit(false);
     setEditing(null);
@@ -288,7 +300,7 @@ function WorkspacesSection() {
               {ws.description || 'No description'}
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {ws.workers?.length || 0} workers ·{' '}
+              {ws.worker_names?.length || 0} workers ·{' '}
               {ws.folders?.length || 0} folders ·{' '}
               {ws.agents?.length || 0} agents ·{' '}
               {ws.skills?.length || 0} skills
@@ -315,9 +327,32 @@ function WorkspacesSection() {
                 onChange={(e) => setA({ ...A, title: e.target.value })}
               />
             </div>
+            {templates.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Template</label>
+                <Select
+                  onValueChange={(val) => {
+                    const tpl = templates.find((t) => String(t.id) === val);
+                    if (tpl) setA({ ...A, personality: tpl.personality });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={String(tpl.id)}>
+                        {tpl.name} — {tpl.description}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">Personality</label>
-              <Input
+              <textarea
+                className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={A.personality}
                 onChange={(e) => setA({ ...A, personality: e.target.value })}
               />
@@ -510,7 +545,7 @@ function WorkspacesSection() {
                         !workerSearch || w.name.toLowerCase().includes(workerSearch.toLowerCase())
                       )
                       .map((worker) => {
-                        const alreadyAdded = E.workers.some((w) => w.name === worker.name);
+                        const alreadyAdded = E.worker_names.includes(worker.name);
                         return (
                           <span
                             key={worker.name}
@@ -522,11 +557,11 @@ function WorkspacesSection() {
                             onClick={() => {
                               console.log('[WorkspacesSection] clicked worker:', worker.name, 'alreadyAdded:', alreadyAdded);
                               if (alreadyAdded) {
-                                setE({ ...E, workers: E.workers.filter((w) => w.name !== worker.name) });
+                                setE({ ...E, worker_names: E.worker_names.filter((n) => n !== worker.name) });
                               } else {
-                                setE({ ...E, workers: [...E.workers, worker] });
+                                setE({ ...E, worker_names: [...E.worker_names, worker.name] });
                               }
-                              console.log('[WorkspacesSection] E.workers after click:', E.workers);
+                              console.log('[WorkspacesSection] E.worker_names after click:', E.worker_names);
                             }}
                           >
                             {worker.icon || '🤖'} {worker.name}

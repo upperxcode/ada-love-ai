@@ -356,6 +356,14 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		e.CheckAndSummarize(sessionID)
 	}
 
+	// Comandos tratados (OutcomeHandled) têm sua saída exibida em um painel
+	// dedicado via evento chat:commandResult. Retornamos vazio para evitar
+	// que a saída vire uma bolha de chat (que someria após o reload da sessão,
+	// já que comandos não são persistidos no histórico).
+	if isCommand {
+		return "", nil
+	}
+
 	return resp, nil
 }
 

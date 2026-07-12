@@ -3,6 +3,8 @@ import { WorkspaceTree } from './WorkspaceTree';
 import { ChatArea } from './ChatArea';
 import { ChatInput } from './ChatInput';
 import { EventsContainer } from './EventsContainer';
+import { OrchestratorPanel } from './OrchestratorPanel';
+import { CommandResultPanel } from './CommandResultPanel';
 import { Icon } from './Icon';
 import { useTheme } from '../lib/theme';
 import * as api from '../api';
@@ -20,12 +22,12 @@ function ChatLayoutContent({ onOpenSettings }: { onOpenSettings: () => void }) {
     api.getWorkspaces().then((ws) => {
       console.log(`[MainLayout] Loaded ${ws.length} workspaces:`, ws.map((w) => w.title || w.path));
       setWorkspaces(ws);
-      // Eagerly load sessions for ALL workspaces with valid paths
-      const validPaths = ws.map((w) => w.path || w.title).filter(Boolean);
-      if (validPaths.length > 0) {
-        console.log(`[MainLayout] Eager loading sessions for ${validPaths.length} workspaces...`);
-        loadAllSessions(validPaths);
-      }
+      // Eagerly load sessions for ALL workspaces using their backend path (empty string is valid for orphaned sessions)
+      const paths = ws.map((w) => w.path);
+      // Deduplicate to avoid redundant calls
+      const uniquePaths = [...new Set(paths)];
+      console.log(`[MainLayout] Eager loading sessions for ${uniquePaths.length} unique workspace paths...`);
+      loadAllSessions(uniquePaths);
     }).catch((e) => {
       console.error('[MainLayout] Failed to load workspaces:', e);
       setWorkspaces([]);
@@ -46,6 +48,7 @@ function ChatLayoutContent({ onOpenSettings }: { onOpenSettings: () => void }) {
           <div className="workspace-sidebar shrink-0 h-full flex flex-col">
             <WorkspaceTree
               workspaces={workspaces}
+              worker_names={workers.map((w) => w.name)}
               workers={workers}
               onAddChat={createSession}
               onWorkspacesChanged={() => {
@@ -55,13 +58,17 @@ function ChatLayoutContent({ onOpenSettings }: { onOpenSettings: () => void }) {
           </div>
         )}
 
-        <div className="flex flex-col flex-1 min-w-0 min-h-0 border-l border-border">
+        <div className="relative flex flex-col flex-1 min-w-0 min-h-0 border-l border-border">
           {/* Chat area - histórico de conversas */}
           <ChatArea />
+          {/* Orchestrator panel - progresso do multi-agent */}
+          <OrchestratorPanel />
           {/* Events container - notificações de status */}
           <EventsContainer />
           {/* Input area */}
           <ChatInput />
+          {/* Floating panel for slash command results (e.g. /health) */}
+          <CommandResultPanel />
         </div>
       </div>
 

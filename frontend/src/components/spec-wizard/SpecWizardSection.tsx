@@ -19,6 +19,7 @@ import { PatternSelector } from './PatternSelector';
 import { ReviewSection } from './ReviewSection';
 import { HealthBar } from './HealthBar';
 import { AISuggestIcon } from './AISuggestIcon';
+import * as api from '../../api';
 
 // Helper to build context for AI suggestions from wizard state
 function buildWizardContext(wizardState: any): string {
@@ -59,6 +60,40 @@ interface Wizard {
   architectureHealth?: number;
   color?: string;
   icon?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Convert from backend SpecWizardConfig to frontend Wizard
+function specWizardToWizard(w: api.backend.SpecWizardConfig): Wizard {
+  return {
+    id: w.id,
+    name: w.name,
+    step: 0,
+    expertLanguagePlugin: w.expert_language_plugin || null,
+    description: w.description,
+    prd: w.prd,
+    functionalRequirements: w.functional_requirements,
+    nonFunctionalRequirements: w.non_functional_requirements,
+    persistence: w.persistence,
+    architecture: w.architecture,
+    engineeringPhilosophies: w.engineering_philosophies,
+    designPatterns: w.design_patterns,
+    dataPatterns: w.data_patterns,
+    stackConfig: w.stack_config?.map(s => ({ name: s.name, example: s.example })),
+    business: w.business ? {
+      stateManagement: w.business.state_management,
+      apiContract: w.business.api_contract,
+      customizationDetails: w.business.customization_details,
+      finalAdjustments: w.business.final_adjustments,
+      architectureRecommendations: w.business.architecture_recommendations,
+    } : undefined,
+    architectureHealth: w.architecture_health,
+    color: w.color,
+    icon: w.icon,
+    created_at: w.created_at,
+    updated_at: w.updated_at,
+  };
 }
 
 // Simple UUID generator (no external dependency)
@@ -106,21 +141,58 @@ function SpecWizardSection() {
     icon: '📝',
   });
 
-  // Load wizards from localStorage
-  const loadWizards = (): void => {
-    const saved = localStorage.getItem('spec-wizards');
-    if (saved) {
-      setWizards(JSON.parse(saved));
-    }
+// Load wizards from DB on mount
+  useEffect(() => {
+    loadWizards();
+  }, []);
+
+  // Load wizards from DB
+  const loadWizards = async (): Promise<void> => {
+    const wizardsFromDB = await api.getSpecWizards();
+    setWizards(wizardsFromDB.map(specWizardToWizard));
   };
 
-  // Save wizards to localStorage
-  const saveWizards = (wizardsToSave: Wizard[]): void => {
-    localStorage.setItem('spec-wizards', JSON.stringify(wizardsToSave));
+// Save wizard to DB
+  const saveWizard = async (wizard: Wizard): Promise<Wizard | null> => {
+    const config: api.backend.SpecWizardConfig = {
+      id: wizard.id,
+      name: wizard.name,
+      description: wizard.description || '',
+      expert_language_plugin: wizard.expertLanguagePlugin || '',
+      prd: wizard.prd || '',
+      functional_requirements: wizard.functionalRequirements || [],
+      non_functional_requirements: wizard.nonFunctionalRequirements || [],
+      persistence: wizard.persistence || '',
+      architecture: wizard.architecture || '',
+      engineering_philosophies: wizard.engineeringPhilosophies || [],
+      design_patterns: wizard.designPatterns || [],
+      data_patterns: wizard.dataPatterns || [],
+      stack_config: wizard.stackConfig?.map(s => ({ name: s.name, example: s.example })) || [],
+      business: {
+        state_management: wizard.business?.stateManagement || '',
+        api_contract: wizard.business?.apiContract || '',
+        customization_details: wizard.business?.customizationDetails || '',
+        final_adjustments: wizard.business?.finalAdjustments || '',
+        architecture_recommendations: wizard.business?.architectureRecommendations || '',
+      },
+      color: wizard.color || '#3b82f6',
+      icon: wizard.icon || '📝',
+      architecture_health: wizard.architectureHealth || 0,
+      created_at: wizard.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    const result = await api.saveSpecWizard(config);
+    if (!result) return null;
+    return specWizardToWizard(result);
+  };
+
+  // Delete wizard from DB
+  const deleteWizard = async (id: string): Promise<void> => {
+    await api.deleteSpecWizard(id);
   };
 
   // Handle save
-  const handleSave = () => {
+  const handleSave = async () => {
     let updatedWizards = [...wizards];
     if (editing) {
       updatedWizards = updatedWizards.map((w) =>
@@ -145,7 +217,12 @@ function SpecWizardSection() {
       ];
     }
     setWizards(updatedWizards);
-    saveWizards(updatedWizards);
+    await saveWizard({
+      ...wizardState,
+      id: editing?.id || generateId(),
+      step: 0,
+      architectureHealth: calculateHealth(),
+    });
     setShowEdit(false);
     setEditing(null);
     setWizardState({
@@ -175,10 +252,10 @@ function SpecWizardSection() {
   };
 
   // Handle delete
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const updatedWizards = wizards.filter((w) => w.id !== id);
     setWizards(updatedWizards);
-    saveWizards(updatedWizards);
+    await deleteWizard(id);
   };
 
   // Open edit dialog

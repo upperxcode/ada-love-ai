@@ -1,4 +1,2 @@
-{"role":"user","content":"me diga o caminho dos diretórios que você tem acesso"}
-{"role":"assistant","content":"Como uma inteligência artificial, não tenho acesso físico ao sistema ou a um diretório específico. No entanto, em termos de dados disponíveis para mim:\n\n1. **Workspace**: `/home/data/aux/dev/projetos/go/ia/ada-love-ai`\n   - `memory/MEMORY.md`\n   - `YYYYMM/YYYYMMDD.md` (Arquivos diários de memória)\n   - `skills/{skill-name}/SKILL.md`\n\n2. **Project Folders**:\n   - `/home/data/aux/dev/projetos/go/ia/ada-love-ai`\n   - `/home/data/aux/dev/projetos/go/ia/picoclaw`\n\nSe você tiver alguma outra pergunta ou precisar de informações sobre qualquer um desses diretórios, sinta-se à vontade para perguntar!"}
 {"role":"user","content":"olá"}
-{"role":"assistant","content":"Olá! Como posso ajudar você hoje?"}
+{"role":"user","content":"OLA"}

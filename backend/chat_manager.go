@@ -371,12 +371,12 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 			if reg := e.agentLoop.GetRegistry(); reg != nil {
 				if defAgent := reg.GetDefaultAgent(); defAgent != nil {
 					// legacy field SystemPrompt no longer exists on AgentInstance; set via ContextBuilder instead
-						// defAgent.SystemPrompt = enhancedSystemPrompt
-						// Use ContextBuilder to update runtime personality for the default agent
-						if defAgent.ContextBuilder != nil {
-							defAgent.ContextBuilder.WithPersonality(enhancedSystemPrompt)
-							defAgent.ContextBuilder.InvalidateCache()
-						}
+					// defAgent.SystemPrompt = enhancedSystemPrompt
+					// Use ContextBuilder to update runtime personality for the default agent
+					if defAgent.ContextBuilder != nil {
+						defAgent.ContextBuilder.WithPersonality(enhancedSystemPrompt)
+						defAgent.ContextBuilder.InvalidateCache()
+					}
 				}
 			}
 		}
@@ -531,8 +531,25 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 	// Endpoint OpenAI padrão
 	url := fmt.Sprintf("%s/chat/completions", apiBase)
 
+	// Ensure we don't send an empty model field. Prefer configured TinyBrain model;
+	// if missing, try to resolve a model from ModelList for the same provider.
+	modelToUse := strings.TrimSpace(e.adaCfg.TinyBrain.ModelName)
+	if modelToUse == "" {
+		prov := strings.TrimSpace(e.adaCfg.TinyBrain.Provider)
+		for _, m := range e.adaCfg.ModelList {
+			if prov != "" && strings.EqualFold(m.Provider, prov) {
+				modelToUse = strings.TrimSpace(m.ModelName)
+				fmt.Printf("[Engine] SendTinyBrainMessage: TinyBrain.model empty, using ModelList fallback %q for provider %q\n", modelToUse, prov)
+				break
+			}
+		}
+	}
+	if modelToUse == "" {
+		return "", fmt.Errorf("TinyBrain model not configured for provider %q", e.adaCfg.TinyBrain.Provider)
+	}
+
 	requestBody := map[string]interface{}{
-		"model": e.adaCfg.TinyBrain.ModelName,
+		"model": modelToUse,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},

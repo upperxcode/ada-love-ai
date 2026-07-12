@@ -137,7 +137,6 @@ export namespace backend {
 	export class ToolProfile {
 	    id: number;
 	    name: string;
-	    description?: string;
 	    color: string;
 	    icon: string;
 	    tools: string[];
@@ -150,7 +149,6 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
-	        this.description = source["description"];
 	        this.color = source["color"];
 	        this.icon = source["icon"];
 	        this.tools = source["tools"];
@@ -448,8 +446,6 @@ export namespace backend {
 	    workspaces: WorkspaceConfig[];
 	    // Go type: struct { ModelName string "json:\"model_name\""; Provider string "json:\"provider\""; EmbeddingModel string "json:\"embedding_model\""; EmbeddingProvider string "json:\"embedding_provider\""; Tools []string "json:\"tools\"" }
 	    tiny_brain: any;
-	    // Go type: struct { ModelName string "json:\"model_name\""; Provider string "json:\"provider\""; Tools []string "json:\"tools\"" }
-	    classifier: any;
 	    embedding_model: string;
 	    embedding_provider: string;
 	    image_model: string;
@@ -481,7 +477,6 @@ export namespace backend {
 	        this.active_workspace_index = source["active_workspace_index"];
 	        this.workspaces = this.convertValues(source["workspaces"], WorkspaceConfig);
 	        this.tiny_brain = this.convertValues(source["tiny_brain"], Object);
-	        this.classifier = this.convertValues(source["classifier"], Object);
 	        this.embedding_model = source["embedding_model"];
 	        this.embedding_provider = source["embedding_provider"];
 	        this.image_model = source["image_model"];

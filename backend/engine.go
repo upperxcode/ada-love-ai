@@ -224,12 +224,6 @@ func NewEngine() (*Engine, error) {
 					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
 						adaCfg.TinyBrain.Tools = tools
 					}
-				case "classifier":
-					adaCfg.Classifier.ModelName = r.Model
-					adaCfg.Classifier.Provider = r.Provider
-					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
-						adaCfg.Classifier.Tools = tools
-					}
 				}
 			}
 		} else {
@@ -1066,18 +1060,6 @@ func (e *Engine) SaveAdaConfig() error {
 				}
 			} else {
 				fmt.Printf("[Engine] Warn: failed to persist tinybrain fixed model: %v\n", err)
-			}
-		}
-		// classifier
-		if e.adaCfg.Classifier.ModelName != "" || e.adaCfg.Classifier.Provider != "" {
-			if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "classifier", Provider: e.adaCfg.Classifier.Provider, Model: e.adaCfg.Classifier.ModelName}); err == nil {
-				if len(e.adaCfg.Classifier.Tools) > 0 {
-					if err := e.db.SetFixedModelRowTools(id, e.adaCfg.Classifier.Tools); err != nil {
-						fmt.Printf("[Engine] Warn: failed to persist classifier tools: %v\n", err)
-					}
-				}
-			} else {
-				fmt.Printf("[Engine] Warn: failed to persist classifier fixed model: %v\n", err)
 			}
 		}
 	}

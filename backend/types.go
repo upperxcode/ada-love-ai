@@ -180,11 +180,6 @@ type AdaConfig struct {
 		EmbeddingProvider string   `json:"embedding_provider"`
 		Tools             []string `json:"tools"`
 	} `json:"tiny_brain"`
-	Classifier struct {
-		ModelName string   `json:"model_name"`
-		Provider  string   `json:"provider"`
-		Tools     []string `json:"tools"`
-	} `json:"classifier"`
 	EmbeddingModel    string                      `json:"embedding_model"`
 	EmbeddingProvider string                      `json:"embedding_provider"`
 	ImageModel        string                      `json:"image_model"`

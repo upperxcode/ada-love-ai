@@ -164,24 +164,30 @@ func (s *Store) init() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE TABLE IF NOT EXISTS mcps (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			nome TEXT NOT NULL,
-			connect_type TEXT NOT NULL CHECK(connect_type IN ('websocket','url','cli_command')),
-			command TEXT,
-			arguments TEXT,
-			environment TEXT,
-			color TEXT DEFAULT '',
-			icon TEXT DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS providers (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
-			api_url TEXT,
-			connection_types TEXT,
-			color TEXT DEFAULT '',
-			icon TEXT DEFAULT ''
-		)`,
+			`CREATE TABLE IF NOT EXISTS mcps (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				nome TEXT NOT NULL,
+				connect_type TEXT NOT NULL CHECK(connect_type IN ('websocket','url','cli_command')),
+				command TEXT,
+				arguments TEXT,
+				environment TEXT,
+				color TEXT DEFAULT '',
+				icon TEXT DEFAULT ''
+			)`,
+			`CREATE TABLE IF NOT EXISTS providers (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				api_url TEXT,
+				connection_types TEXT,
+				color TEXT DEFAULT '',
+				icon TEXT DEFAULT ''
+			)`,
+			`CREATE TABLE IF NOT EXISTS router_configs (
+				name TEXT PRIMARY KEY,
+				endpoint TEXT NOT NULL,
+				labels_json TEXT NOT NULL,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
 		`CREATE TABLE IF NOT EXISTS provider_apikeys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			provider_id INTEGER NOT NULL,
@@ -339,10 +345,22 @@ func (s *Store) init() error {
 	}
 
 	for _, q := range queries {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("erro ao criar tabela: %v\nQuery: %s", err, q)
+			if _, err := s.db.Exec(q); err != nil {
+				return fmt.Errorf("erro ao criar tabela: %v\nQuery: %s", err, q)
+			}
 		}
+
+	// Ensure router_configs table exists for storing router endpoint and labels
+	// (keeps model selection configurable at runtime).
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS router_configs (
+			name TEXT PRIMARY KEY,
+			endpoint TEXT NOT NULL,
+			labels_json TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+		return fmt.Errorf("erro ao criar tabela router_configs: %v", err)
 	}
+
 
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_workspaces_nome ON workspaces(nome)`,

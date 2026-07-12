@@ -40,6 +40,16 @@ func NewInternalRouterDefault() *InternalRouter {
 	return NewInternalRouter("http://127.0.0.1:8008/classify", labels, 2*time.Second)
 }
 
+// UpdateLabels replaces the in-memory labels slice (useful for runtime tuning).
+func (r *InternalRouter) UpdateLabels(labels []string) {
+	r.Labels = append([]string{}, labels...)
+}
+
+// UpdateEndpoint allows changing the endpoint at runtime.
+func (r *InternalRouter) UpdateEndpoint(endpoint string) {
+	r.Endpoint = endpoint
+}
+
 type internalRequest struct {
 	Text            string   `json:"text"`
 	CandidateLabels []string `json:"candidate_labels"`

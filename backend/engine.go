@@ -417,7 +417,28 @@ func NewEngine() (*Engine, error) {
 
 	// Provide accessor for tinyBrainRouter for local inspection and tests
 	// (not exported; used only by inspection binaries)
-	// func (e *Engine) TinyBrainRouter() *tinybrain.TinyBrainRouter { return e.tinyBrainRouter }
+	func (e *Engine) GetRouter() tinybrain.Router { return e.tinyBrainRouter }
+
+	// SetRouterConfig updates the router configuration in runtime and persists it to DB.
+	func (e *Engine) SetRouterConfig(name, endpoint string, labels []string) error {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		// update in-memory router
+		r := tinybrain.NewInternalRouter(endpoint, labels, 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+		defer cancel()
+		if _, err := r.DetectIntent(ctx, "health check: ping"); err != nil {
+			return fmt.Errorf("failed to validate router config: %w", err)
+		}
+		e.tinyBrainRouter = r
+		// persist
+		bj, _ := json.Marshal(labels)
+		if _, err := e.db.SaveRouterConfig(name, endpoint, string(bj)); err != nil {
+			return err
+		}
+		fmt.Printf("[Engine] SetRouterConfig: persisted and activated router %q -> %s\n", name, endpoint)
+		return nil
+	}
 
 	// Sincroniza agentes do ada_config.json com cfg.Agents.List
 	syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
@@ -459,23 +480,34 @@ func NewEngine() (*Engine, error) {
 		fmt.Println("[Engine] Greeting System inicializado (SQLite-based zero-token responses)")
 	}
 
-	// Initialize routing: prefer the Jina router (local, fast). If not available,
-	// fall back to the original TinyBrain LLM-based router when configured in DB.
-	// This allows an operator to disable tinybrain in favor of the local Jina service.
-	jinaRouter := tinybrain.NewJinaRouter()
-	// quick health check: try a small classify call with timeout; if it succeeds, use it.
-	ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
-	defer cancelhc()
-	func() {
-		_, err := jinaRouter.DetectIntent(ctxhc, "health check: ping")
-		if err != nil {
-			fmt.Printf("[Engine] Jina router health check failed: %v\n", err)
-			return
+	// Initialize routing: prefer the internal router (local, fast).
+	// Load persisted router config if available, otherwise use default.
+	if e.db != nil {
+		if ep, lj, found, err := e.db.GetRouterConfig("default"); err == nil && found {
+			// try to unmarshal labels
+			var labels []string
+			if err := json.Unmarshal([]byte(lj), &labels); err == nil {
+				r := tinybrain.NewInternalRouter(ep, labels, 2*time.Second)
+				ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
+				defer cancelhc()
+				if _, err := r.DetectIntent(ctxhc, "health check: ping"); err == nil {
+					e.tinyBrainRouter = r
+					fmt.Println("[Engine] TinyBrain InternalRouter inicializado from DB config (local classifier)")
+				}
+			}
 		}
-		// Jina router OK — use it
-		e.tinyBrainRouter = jinaRouter
-		fmt.Println("[Engine] TinyBrain JinaRouter inicializado (local classifier)")
-	}()
+	}
+
+	if e.tinyBrainRouter == nil {
+		// fallback to in-memory default internal router
+		r := tinybrain.NewInternalRouterDefault()
+		ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
+		defer cancelhc()
+		if _, err := r.DetectIntent(ctxhc, "health check: ping"); err == nil {
+			e.tinyBrainRouter = r
+			fmt.Println("[Engine] TinyBrain InternalRouter inicializado (default local classifier)")
+		}
+	}
 
 	if e.tinyBrainRouter == nil {
 		// Fall back to LLM-based TinyBrain if configured

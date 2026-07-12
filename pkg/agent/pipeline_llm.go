@@ -232,8 +232,15 @@ func (p *Pipeline) CallLLM(
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
+			// Diagnostic: log finish reason and basic metadata to help debug stop handling
+			if exec.response != nil {
+				fmt.Printf("[Pipeline] LLM response received: FinishReason=%q content_len=%d model=%q provider=%T\n", exec.response.FinishReason, len(exec.response.Content), exec.llmModel, exec.activeProvider)
+			} else {
+				fmt.Printf("[Pipeline] LLM response received: nil response (no error)\n")
+			}
 			break
 		}
+
 		if ts.hardAbortRequested() && errors.Is(err, context.Canceled) {
 			_ = ts.requestHardAbort()
 			exec.abortedByHardAbort = true

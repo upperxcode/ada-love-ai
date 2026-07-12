@@ -655,27 +655,19 @@ func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
 
 // --- Operações de Configuração ---
 
+// SetGlobalConfig and GetGlobalConfig are legacy helpers kept for compatibility with
+// older migration logic. New runtime code must use normalized tables (app_state, mcps,
+// providers, tool_profiles, etc.) instead of the generic config key/value table.
+// The legacy config table is removed from schema; these helpers now return errors to
+// prevent accidental runtime use.
 func (s *Store) SetGlobalConfig(key string, value interface{}) error {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, key, string(data))
-	return err
+	return fmt.Errorf("SetGlobalConfig is deprecated; use normalized tables instead (key=%s)", key)
 }
 
 func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
-	var value string
-	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	err = json.Unmarshal([]byte(value), target)
-	return true, err
+	return false, fmt.Errorf("GetGlobalConfig is deprecated; use normalized tables instead (key=%s)", key)
 }
+
 
 // --- Fixed Models (embedding/image/spec/tinybrain) ---
 // fixed_models: id, name, provider, model

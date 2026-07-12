@@ -684,15 +684,35 @@ func (s *Store) SaveFixedModelRow(f FixedModel) (int64, error) {
 	if f.Name == "" {
 		return 0, fmt.Errorf("fixed model name is required")
 	}
+	// Defensive: if caller passed an empty model string, avoid overwriting an existing
+	// row with an empty model. If a row exists return its id; otherwise fail.
+	if strings.TrimSpace(f.Model) == "" {
+		var existingID int64
+		if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = ?`, f.Name).Scan(&existingID); err == nil {
+			fmt.Printf("[DB] SaveFixedModelRow: model empty, returning existing id=%d for name=%q\n", existingID, f.Name)
+			return existingID, nil
+		}
+		return 0, fmt.Errorf("fixed model '%s' missing model value", f.Name)
+	}
 	// Upsert by name
-	_, err := s.db.Exec(`INSERT INTO fixed_models (name, provider, model) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET provider=excluded.provider, model=excluded.model`, f.Name, f.Provider, f.Model)
+	res, err := s.db.Exec(`INSERT INTO fixed_models (name, provider, model) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET provider=excluded.provider, model=excluded.model`, f.Name, f.Provider, f.Model)
 	if err != nil {
 		return 0, err
 	}
+	// ensure we get id
 	var id int64
 	if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = ?`, f.Name).Scan(&id); err != nil {
-		return 0, err
+		// fallback: try LastInsertId when available
+		if res != nil {
+			if rid, rerr := res.LastInsertId(); rerr == nil {
+				id = rid
+			}
+		}
+		if id == 0 {
+			return 0, err
+		}
 	}
+	fmt.Printf("[DB] SaveFixedModelRow: upserted name=%q provider=%q model=%q id=%d\n", f.Name, f.Provider, f.Model, id)
 	return id, nil
 }
 

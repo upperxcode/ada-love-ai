@@ -325,17 +325,20 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	}
 
 	// --- TinyBrain Intent Classification & Context Injection ---
+	// Default to GENERAL; we'll sanitize the router output before using it.
 	var injectedContext string
 	var activeProfile string
+	var tinybrainIntent tinybrain.Intent = tinybrain.IntentGeneral
 	if e.tinyBrainRouter != nil && !isRetry && !isCommand {
-		intent, err := e.tinyBrainRouter.DetectIntent(ctx, text)
-		if err != nil {
-			fmt.Printf("[SendMessage] Aviso: falha na classificação de intenção: %v\n", err)
-		} else {
-			fmt.Printf("[SendMessage] Intenção detectada: %s\n", intent)
+		if intent, err := e.tinyBrainRouter.DetectIntent(ctx, text); err == nil {
+			// SANITIZAÇÃO CRÍTICA: Remove espaços, quebras de linha e aspas extras que o LLM local possa ter enviado
+			intentStr := strings.TrimSpace(string(intent))
+			intentStr = strings.Trim(intentStr, `"'`+"`")
+			tinybrainIntent = tinybrain.Intent(intentStr)
+			fmt.Printf("[SendMessage] Intenção detectada e sanitizada pelo TinyBrain: %q\n", tinybrainIntent)
 
-			// Load specialist profile based on intent
-			switch intent {
+			// Load specialist profile based on sanitized intent
+			switch tinybrainIntent {
 			case tinybrain.IntentGoProgramming:
 				activeProfile = profiles.GoSpecialistPrompt
 				// Try to inject active file context
@@ -355,6 +358,8 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 			case tinybrain.IntentArchitecture:
 				activeProfile = profiles.GoSpecialistPrompt
 			}
+		} else {
+			fmt.Printf("[SendMessage] Aviso: falha na classificação de intenção: %v\n", err)
 		}
 	}
 
@@ -396,12 +401,18 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		logWorkspaceID = sess.WorkspaceID
 	}
 
-	if e.orchestrator != nil && !isRetry && !isCommand {
+	// Orchestrator should only run for non-GENERAL intents. If TinyBrain classified
+	// the message as GENERAL (or the router is not configured), bypass the orchestrator
+	// and let the normal agent loop handle the message.
+	if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
 		routingRules := e.resolveWorkspaceRoutingRules(sessionID)
 		if routingRules != "" {
 			fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
 			return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride)
 		}
+	} else {
+		// Explicit bypass log to make it clear when the orchestrator is skipped.
+		fmt.Printf("[SendMessage] Orchestrator bypassed: tinybrain_intent=%q isRetry=%v isCommand=%v orchestrator_present=%v\n", tinybrainIntent, isRetry, isCommand, e.orchestrator != nil)
 	}
 
 	fmt.Printf("[SendMessage] step=pre-log sessionID=%q sess=%v\n", sessionID, sess != nil)
@@ -534,9 +545,12 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 	// Ensure we don't send an empty model field. Prefer configured TinyBrain model;
 	// if missing, try to resolve a model from ModelList for the same provider.
 	modelToUse := strings.TrimSpace(e.adaCfg.TinyBrain.ModelName)
+	prov := strings.TrimSpace(e.adaCfg.TinyBrain.Provider)
 	if modelToUse == "" {
-		prov := strings.TrimSpace(e.adaCfg.TinyBrain.Provider)
 		for _, m := range e.adaCfg.ModelList {
+			if m == nil {
+				continue
+			}
 			if prov != "" && strings.EqualFold(m.Provider, prov) {
 				modelToUse = strings.TrimSpace(m.ModelName)
 				fmt.Printf("[Engine] SendTinyBrainMessage: TinyBrain.model empty, using ModelList fallback %q for provider %q\n", modelToUse, prov)
@@ -544,6 +558,22 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 			}
 		}
 	}
+
+	// Diagnostic logging to help trace why model could be empty in runtime builds
+	fmt.Printf("[Engine] SendTinyBrainMessage: tinybrain.provider=%q tinybrain.model=%q resolvedModel=%q model_list_count=%d\n",
+		prov, e.adaCfg.TinyBrain.ModelName, modelToUse, len(e.adaCfg.ModelList))
+	// Print first few entries from model_list for visibility
+	maxShow := 6
+	for i, mm := range e.adaCfg.ModelList {
+		if i >= maxShow {
+			break
+		}
+		if mm == nil {
+			continue
+		}
+		fmt.Printf("[Engine] SendTinyBrainMessage: model_list[%d] provider=%q model_name=%q api_base=%q\n", i, mm.Provider, mm.ModelName, mm.APIBase)
+	}
+
 	if modelToUse == "" {
 		return "", fmt.Errorf("TinyBrain model not configured for provider %q", e.adaCfg.TinyBrain.Provider)
 	}
@@ -560,6 +590,9 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 	if err != nil {
 		return "", err
 	}
+
+	// Log the exact payload that will be sent to the provider for auditing
+	fmt.Printf("[Engine] SendTinyBrainMessage: request JSON=%s\n", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {

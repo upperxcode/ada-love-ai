@@ -14,7 +14,7 @@ Mantenha tudo simples. Prefira soluções diretas e fáceis de entender em vez d
 
 Princípios práticos
 
-- Mantenha arquivos pequenos e com responsabilidade única.
+- Mantenha arquivos pequenos e com responsabilidade única, não muito maior que 300 linhas.
   - Cada arquivo deve ter foco claro; evite arquivos gigantes com muitas responsabilidades.
 - Em Go, prefira funções/métodos pequenos e coesos.
   - Extraia funções quando um trecho de código atinge mais do que algumas linhas ou faz mais de uma coisa.

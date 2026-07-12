@@ -17,13 +17,23 @@ const (
 	IntentArchitecture  Intent = "ARCHITECTURE"
 )
 
-type TinyBrainRouter struct {
-	model providers.LLMProvider
+// Router is the interface used by the engine to classify intents. Implementations
+// include the original TinyBrainRouter (LLM-based) and the JinaRouter (local classifier).
+type Router interface {
+	DetectIntent(ctx context.Context, userInput string) (Intent, error)
 }
 
-func NewTinyBrainRouter(model providers.LLMProvider) *TinyBrainRouter {
+// TinyBrainRouter is kept for backward compatibility; it implements
+// the Router interface so the engine can use either implementation.
+type TinyBrainRouter struct {
+	model     providers.LLMProvider
+	modelName string
+}
+
+func NewTinyBrainRouter(model providers.LLMProvider, modelName string) *TinyBrainRouter {
 	return &TinyBrainRouter{
-		model: model,
+		model:     model,
+		modelName: strings.TrimSpace(modelName),
 	}
 }
 
@@ -63,7 +73,9 @@ Respond ONLY with the category token. No markdown, no punctuation, no explanatio
     }
 
     // Forçamos a temperatura para 0.0 absoluto
-    resp, err := r.model.Chat(ctx, messages, nil, "", map[string]any{
+    // Use the configured modelName so the provider receives a non-empty model field
+    modelToSend := r.modelName
+    resp, err := r.model.Chat(ctx, messages, nil, modelToSend, map[string]any{
         "temperature": 0.0,
         "max_tokens":  6, // Reduzido para 6 pois o maior token é GO_PROGRAMMING (aprox. 4-5 tokens)
     })

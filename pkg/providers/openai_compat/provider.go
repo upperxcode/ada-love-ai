@@ -322,6 +322,15 @@ func (p *Provider) Chat(
 
 	requestBody := p.buildRequestBody(messages, tools, model, options)
 
+	// Diagnostic logging: print the model field that will be sent and metadata
+	if m, ok := requestBody["model"]; ok {
+		fmt.Printf("[Provider] Chat: provider=%q api_base=%q model_field=%q api_key_set=%v\n",
+			p.providerName, p.apiBase, fmt.Sprintf("%v", m), p.apiKey != "")
+	} else {
+		fmt.Printf("[Provider] Chat: provider=%q api_base=%q model_field=<missing> api_key_set=%v\n",
+			p.providerName, p.apiBase, p.apiKey != "")
+	}
+
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -331,6 +340,7 @@ func (p *Provider) Chat(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+
 
 	req.Header.Set("Content-Type", "application/json")
 	if p.userAgent != "" {

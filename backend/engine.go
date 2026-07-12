@@ -62,7 +62,9 @@ type Engine struct {
 	orchestrator *orchestrator.Orchestrator
 	// Routing & Injection components
 	greetingSystem  *greeting.GreetingSystem
-	tinyBrainRouter *tinybrain.TinyBrainRouter
+	// tinyBrainRouter is a pluggable router for intent classification. Use the
+	// Router interface so we can swap implementations (LLM-based or fast local).
+	tinyBrainRouter tinybrain.Router
 	profiles        map[string]string
 }
 
@@ -335,6 +337,9 @@ func NewEngine() (*Engine, error) {
 		sessionKeyMap:    make(map[string]string),
 	}
 
+	// tinyBrainRouter will be created below; add a small accessor via method
+	// (keeps field unexported but callable by inspection helpers)
+
 	e.connectMessageBus()
 
 	// Carrega dados do banco se disponível
@@ -410,6 +415,10 @@ func NewEngine() (*Engine, error) {
 	// Sincroniza o workspace ativo com a configuração antes de iniciar
 	e.syncActiveWorkspaceToAgent()
 
+	// Provide accessor for tinyBrainRouter for local inspection and tests
+	// (not exported; used only by inspection binaries)
+	// func (e *Engine) TinyBrainRouter() *tinybrain.TinyBrainRouter { return e.tinyBrainRouter }
+
 	// Sincroniza agentes do ada_config.json com cfg.Agents.List
 	syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
 
@@ -450,29 +459,49 @@ func NewEngine() (*Engine, error) {
 		fmt.Println("[Engine] Greeting System inicializado (SQLite-based zero-token responses)")
 	}
 
-	// Initialize TinyBrain Router for intent classification using the TinyBrain model
-	if e.adaCfg.TinyBrain.ModelName != "" && e.adaCfg.TinyBrain.Provider != "" {
-		// Create a provider for the TinyBrain model
-		tinyBrainProvAny, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
-			Provider:  e.adaCfg.TinyBrain.Provider,
-			ModelName: e.adaCfg.TinyBrain.ModelName,
-			Model:     e.adaCfg.TinyBrain.ModelName,
-			Enabled:   true,
-		})
-		if err == nil && tinyBrainProvAny != nil {
-			if tp, ok := tinyBrainProvAny.(providers.LLMProvider); ok {
-				tinyBrainRouter := tinybrain.NewTinyBrainRouter(tp)
-				e.tinyBrainRouter = tinyBrainRouter
-				fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
+	// Initialize routing: prefer the Jina router (local, fast). If not available,
+	// fall back to the original TinyBrain LLM-based router when configured in DB.
+	// This allows an operator to disable tinybrain in favor of the local Jina service.
+	jinaRouter := tinybrain.NewJinaRouter()
+	// quick health check: try a small classify call with timeout; if it succeeds, use it.
+	ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancelhc()
+	func() {
+		_, err := jinaRouter.DetectIntent(ctxhc, "health check: ping")
+		if err != nil {
+			fmt.Printf("[Engine] Jina router health check failed: %v\n", err)
+			return
+		}
+		// Jina router OK — use it
+		e.tinyBrainRouter = jinaRouter
+		fmt.Println("[Engine] TinyBrain JinaRouter inicializado (local classifier)")
+	}()
+
+	if e.tinyBrainRouter == nil {
+		// Fall back to LLM-based TinyBrain if configured
+		if e.adaCfg.TinyBrain.ModelName != "" && e.adaCfg.TinyBrain.Provider != "" {
+			// Create a provider for the TinyBrain model
+			tinyBrainProvAny, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
+				Provider:  e.adaCfg.TinyBrain.Provider,
+				ModelName: e.adaCfg.TinyBrain.ModelName,
+				Model:     e.adaCfg.TinyBrain.ModelName,
+				Enabled:   true,
+			})
+			if err == nil && tinyBrainProvAny != nil {
+				if tp, ok := tinyBrainProvAny.(providers.LLMProvider); ok {
+					tinyBrainRouter := tinybrain.NewTinyBrainRouter(tp, adaCfg.TinyBrain.ModelName)
+					e.tinyBrainRouter = tinyBrainRouter
+					fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
+				} else {
+					fmt.Printf("[Engine] Aviso: tinyBrain provider não implementa providers.LLMProvider: %T\n", tinyBrainProvAny)
+				}
+
 			} else {
-				fmt.Printf("[Engine] Aviso: tinyBrain provider não implementa providers.LLMProvider: %T\n", tinyBrainProvAny)
+				fmt.Printf("[Engine] Aviso: falha ao criar provider para TinyBrain: %v\n", err)
 			}
 		} else {
-			fmt.Printf("[Engine] Aviso: falha ao criar provider para TinyBrain: %v\n", err)
+			fmt.Println("[Engine] TinyBrain não configurado — classificação de intenção desabilitada")
 		}
-
-	} else {
-		fmt.Println("[Engine] TinyBrain não configurado — classificação de intenção desabilitada")
 	}
 
 	// Context Loader - using package functions directly (no struct needed)

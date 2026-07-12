@@ -435,7 +435,7 @@ func NewEngine() (*Engine, error) {
 
 	// Initialize Greeting System (SQLite-based zero-token responses)
 	dbPath := filepath.Join(configDir, "greetings.db")
-	greetingSys, err := greeting.NewGreetingSystem(dbPath)
+	greetingSys, err = greeting.NewGreetingSystem(dbPath)
 	if err != nil {
 		fmt.Printf("[Engine] Aviso: falha ao inicializar Greeting System: %v\n", err)
 	} else {
@@ -447,19 +447,24 @@ func NewEngine() (*Engine, error) {
 	// Initialize TinyBrain Router for intent classification using the TinyBrain model
 	if e.adaCfg.TinyBrain.ModelName != "" && e.adaCfg.TinyBrain.Provider != "" {
 		// Create a provider for the TinyBrain model
-		tinyBrainProvider, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
+		tinyBrainProvAny, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
 			Provider:  e.adaCfg.TinyBrain.Provider,
 			ModelName: e.adaCfg.TinyBrain.ModelName,
 			Model:     e.adaCfg.TinyBrain.ModelName,
 			Enabled:   true,
 		})
-		if err == nil && tinyBrainProvider != nil {
-			tinyBrainRouter := tinybrain.NewTinyBrainRouter(tinyBrainProvider)
-			e.tinyBrainRouter = tinyBrainRouter
-			fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
+		if err == nil && tinyBrainProvAny != nil {
+			if tp, ok := tinyBrainProvAny.(providers.LLMProvider); ok {
+				tinyBrainRouter := tinybrain.NewTinyBrainRouter(tp)
+				e.tinyBrainRouter = tinyBrainRouter
+				fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
+			} else {
+				fmt.Printf("[Engine] Aviso: tinyBrain provider não implementa providers.LLMProvider: %T\n", tinyBrainProvAny)
+			}
 		} else {
 			fmt.Printf("[Engine] Aviso: falha ao criar provider para TinyBrain: %v\n", err)
 		}
+
 	} else {
 		fmt.Println("[Engine] TinyBrain não configurado — classificação de intenção desabilitada")
 	}

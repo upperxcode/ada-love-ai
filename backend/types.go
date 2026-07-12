@@ -126,6 +126,7 @@ type WorkspaceConfig struct {
 	SpecProvider      string   `json:"spec_provider" db:"spec_provider"`
 	SpecWizardID      string   `json:"spec_wizard_id" db:"spec_wizard_id"`
 	Personality       string   `json:"personality" db:"personality"`
+	RoutingRules      string   `json:"routing_rules" db:"routing_rules"`
 	Color             string   `json:"color" db:"color"`
 	Icon              string   `json:"icon" db:"icon"`
 	Title             string   `json:"title"`

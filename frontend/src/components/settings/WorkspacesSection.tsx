@@ -80,6 +80,7 @@ function WorkspacesSection() {
     color: '#3b82f6',
     icon: '📂',
     personality: '',
+    routing_rules: '',
     folders: [] as string[],
     knowledge: [] as string[],
     skills: [] as string[],
@@ -92,7 +93,7 @@ function WorkspacesSection() {
     maxContextLength: 0,
     specWizard: '',
   });
-  const [A, setA] = useState({ title: '', personality: '' });
+  const [A, setA] = useState({ title: '', personality: '', routing_rules: '' });
   const [selectedField, setSelectedField] = useState('folders');
   const fieldMap: Record<
     string,
@@ -155,9 +156,9 @@ function WorkspacesSection() {
 
   const handleAdd = async () => {
     if (!A.title.trim()) return;
-    await api.addWorkspace(A.title.trim(), '', A.personality.trim());
+    await api.addWorkspace(A.title.trim(), '', A.personality.trim(), A.routing_rules.trim());
     setShowAdd(false);
-    setA({ title: '', personality: '' });
+    setA({ title: '', personality: '', routing_rules: '' });
     load();
   };
 
@@ -176,6 +177,7 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
       color: ws.color || '#3b82f6',
       icon: ws.icon || '📂',
       personality: ws.personality,
+      routing_rules: ws.routing_rules || '',
       folders: ws.folders || [],
       knowledge: ws.knowledge || [],
       skills: ws.skills || [],
@@ -206,6 +208,7 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
       color: E.color,
       icon: E.icon,
       personality: E.personality,
+      routing_rules: E.routing_rules,
       folders: E.folders,
       knowledge: E.knowledge,
       skills: E.skills,
@@ -357,6 +360,15 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
                 onChange={(e) => setA({ ...A, personality: e.target.value })}
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Routing Rules (Orquestrador)</label>
+              <textarea
+                className="w-full min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="Instruções de roteamento para o orquestrador. Deixe vazio para usar o agent normal."
+                value={A.routing_rules}
+                onChange={(e) => setA({ ...A, routing_rules: e.target.value })}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>
@@ -480,6 +492,15 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
               label="Personality"
               value={E.personality}
               onChange={(v) => setE({ ...E, personality: v })}
+            />
+          </div>
+
+          {/* Routing Rules */}
+          <div>
+            <ExpandableEditor
+              label="Routing Rules (Orquestrador)"
+              value={E.routing_rules}
+              onChange={(v) => setE({ ...E, routing_rules: v })}
             />
           </div>
 
@@ -730,7 +751,7 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
                       );
                     }}
                   >
-                    {p.name} ({p.tools.length} tools)
+                    {p.name} ({p.tools?.length ?? 0} tools)
                   </button>
                 ))}
               </div>
@@ -745,7 +766,7 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
                   );
                   if (profile) {
                     const newTools = [
-                      ...new Set([...E.tools, ...profile.tools]),
+                      ...new Set([...E.tools, ...(profile.tools || [])]),
                     ];
                     setE({ ...E, tools: newTools });
                   }
@@ -763,7 +784,7 @@ const openEdit = (ws: api.backend.WorkspaceConfig) => {
                   );
                   const filteredTools = selectedProfile
                     ? availableTools.filter((t) =>
-                        selectedProfile.tools.includes(t.name),
+                        selectedProfile.tools?.includes(t.name),
                       )
                     : availableTools;
                   return filteredTools.map((t) => (

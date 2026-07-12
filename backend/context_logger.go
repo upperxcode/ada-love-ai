@@ -13,47 +13,47 @@ import (
 
 // ContextLogEntry represents a single log entry for what a chat sent as context
 type ContextLogEntry struct {
-	Timestamp     time.Time `json:"timestamp"`
-	SessionID     string    `json:"session_id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	WorkerName    string    `json:"worker_name"`
-	Model         string    `json:"model"`
-	Provider      string    `json:"provider"`
-	Mode          string    `json:"mode"`
-	Thinking      string    `json:"thinking"`
-	UserMessage   string    `json:"user_message"`
-	FullPrompt    string    `json:"full_prompt,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
+	SessionID   string    `json:"session_id"`
+	WorkspaceID string    `json:"workspace_id"`
+	WorkerName  string    `json:"worker_name"`
+	Model       string    `json:"model"`
+	Provider    string    `json:"provider"`
+	Mode        string    `json:"mode"`
+	Thinking    string    `json:"thinking"`
+	UserMessage string    `json:"user_message"`
+	FullPrompt  string    `json:"full_prompt,omitempty"`
 	// Complete context actually sent to the LLM
-	SystemPrompt  string          `json:"system_prompt,omitempty"`
-	Messages      []ContextMessage `json:"messages,omitempty"`
-	ToolCount     int             `json:"tool_count,omitempty"`
-	Tools         []string        `json:"tools,omitempty"`
-	HistoryCount  int             `json:"history_count"`
-	History       []ChatMessage   `json:"history,omitempty"`
-	MessageCount  int             `json:"message_count"`
-	Error         string          `json:"error,omitempty"`
+	SystemPrompt string           `json:"system_prompt,omitempty"`
+	Messages     []ContextMessage `json:"messages,omitempty"`
+	ToolCount    int              `json:"tool_count,omitempty"`
+	Tools        []string         `json:"tools,omitempty"`
+	HistoryCount int              `json:"history_count"`
+	History      []ChatMessage    `json:"history,omitempty"`
+	MessageCount int              `json:"message_count"`
+	Error        string           `json:"error,omitempty"`
 }
 
 // ContextMessage mirrors providers.Message for JSON logging
 type ContextMessage struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
 	HasToolCalls bool   `json:"has_tool_calls,omitempty"`
 }
 
 // ContextLogger manages logging of context sent to LLMs
 type ContextLogger struct {
-	mu             sync.Mutex
-	logPath        string
-	enabled        bool
-	file           *os.File
-	buffered       bool
-	lastEntryTime  time.Time
+	mu            sync.Mutex
+	logPath       string
+	enabled       bool
+	file          *os.File
+	buffered      bool
+	lastEntryTime time.Time
 }
 
 var (
 	globalContextLogger *ContextLogger
-	loggerOnce            sync.Once
+	loggerOnce          sync.Once
 )
 
 // InitContextLogger initializes the global context logger
@@ -258,8 +258,8 @@ func LogFullContext(
 		}
 		hasToolCalls := len(m.ToolCalls) > 0
 		ctxMessages = append(ctxMessages, ContextMessage{
-			Role:       m.Role,
-			Content:    m.Content,
+			Role:         m.Role,
+			Content:      m.Content,
 			HasToolCalls: hasToolCalls,
 		})
 	}
@@ -272,16 +272,16 @@ func LogFullContext(
 	}
 
 	entry := ContextLogEntry{
-		Timestamp:   time.Now(),
-		SessionID:   sessionID,
-		WorkerName:  agentID,
-		Model:       model,
-		Mode:        mode,
-		UserMessage: userMessage,
+		Timestamp:    time.Now(),
+		SessionID:    sessionID,
+		WorkerName:   agentID,
+		Model:        model,
+		Mode:         mode,
+		UserMessage:  userMessage,
 		SystemPrompt: systemPrompt,
 		Messages:     ctxMessages,
-		ToolCount:   len(toolDefs),
-		Tools:       toolNames,
+		ToolCount:    len(toolDefs),
+		Tools:        toolNames,
 		MessageCount: len(messages),
 	}
 

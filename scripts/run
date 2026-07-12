@@ -32,7 +32,7 @@ while true
         case 1
             echo "$blue" "[INFO] Iniciando Wails Dev (React Hot-Reload)..."
             echo "$yellow" "[INFO] Certifique-se de que o frontend tem as dependências instaladas: cd frontend && npm install"
-            wails dev -noreload -tags "webkit2_41"
+            wails dev -noreload -debounce 5000 -tags "webkit2_41"
         case 2
             echo "$green" "[BUILD] Gerando binário Wails Produção..."
             mkdir -p bin

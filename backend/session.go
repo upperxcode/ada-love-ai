@@ -18,34 +18,34 @@ type ToolCall struct {
 }
 
 type ChatMessage struct {
-	ID        int64      `json:"id"`
-	Role      string     `json:"role"`
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string    `json:"tool_call_id,omitempty"`
-	Time      time.Time  `json:"time"`
+	ID         int64      `json:"id"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Time       time.Time  `json:"time"`
 }
 
 type ChatSession struct {
-	ID                   string        `json:"id"`
-	WorkspaceID          string        `json:"workspace_id"`
-	WorkerName           string        `json:"worker_name"`
-	ParentSessionID      string        `json:"parent_session_id"`
-	Title                string        `json:"title"`
-	Summary              string        `json:"summary"`
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspace_id"`
+	WorkerName      string `json:"worker_name"`
+	ParentSessionID string `json:"parent_session_id"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary"`
 	// Config per-chat
-	Model                string        `json:"model"`
-	Provider             string        `json:"provider"`
-	Mode                 string        `json:"mode"`         // "ask"|"plan"|"auto"|"full"
-	Thinking             string        `json:"thinking"`     // "" ou "high"
+	Model    string `json:"model"`
+	Provider string `json:"provider"`
+	Mode     string `json:"mode"`     // "ask"|"plan"|"auto"|"full"
+	Thinking string `json:"thinking"` // "" ou "high"
 	// Summarization
-	SummarizedContext    string        `json:"summarized_context"`     // Resumo contínuo + últimas N Q&A
-	SummarizedAt         time.Time     `json:"summarized_at"`          // Quando foi sumarizado
-	LastSummarizedMsgID  int64         `json:"last_summarized_msg_id"` // ID da última msg incluída no resumo
-	Messages             []ChatMessage `json:"messages"`
-	CreatedAt            time.Time     `json:"created_at"`
-	UpdatedAt            time.Time     `json:"updated_at"`
-	Pinned               bool          `json:"pinned"`
+	SummarizedContext   string        `json:"summarized_context"`     // Resumo contínuo + últimas N Q&A
+	SummarizedAt        time.Time     `json:"summarized_at"`          // Quando foi sumarizado
+	LastSummarizedMsgID int64         `json:"last_summarized_msg_id"` // ID da última msg incluída no resumo
+	Messages            []ChatMessage `json:"messages"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
+	Pinned              bool          `json:"pinned"`
 }
 
 type SessionManager struct {
@@ -245,22 +245,25 @@ func (s *SessionManager) AddRichMessage(id string, msg ChatMessage) (int, bool) 
 		msg.Time = time.Now()
 	}
 
-	// Verifica se a mensagem já existe pelo índice
-	existing := -1
-	for i, m := range sess.Messages {
-		if m.ID == msg.ID {
-			existing = i
-			break
+	// Só faz upsert se ID for válido (> 0). IDs zero significam mensagem nova
+	// sem ID atribuído pelo banco — sem isso, todas as mensagens novas (ID=0)
+	// casam entre si e a segunda substitui a primeira.
+	if msg.ID > 0 {
+		existing := -1
+		for i, m := range sess.Messages {
+			if m.ID == msg.ID {
+				existing = i
+				break
+			}
+		}
+		if existing >= 0 {
+			sess.Messages[existing] = msg
+			sess.UpdatedAt = time.Now()
+			return len(sess.Messages), true
 		}
 	}
 
-	if existing >= 0 {
-		// Atualiza a mensagem existente
-		sess.Messages[existing] = msg
-	} else {
-		// Insere nova mensagem
-		sess.Messages = append(sess.Messages, msg)
-	}
+	sess.Messages = append(sess.Messages, msg)
 	sess.UpdatedAt = time.Now()
 
 	return len(sess.Messages), true

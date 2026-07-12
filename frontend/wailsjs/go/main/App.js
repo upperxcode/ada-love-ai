@@ -10,8 +10,8 @@ export function AddToolsToProfile(arg1, arg2) {
   return window['go']['main']['App']['AddToolsToProfile'](arg1, arg2);
 }
 
-export function AddWorkspace(arg1, arg2, arg3) {
-  return window['go']['main']['App']['AddWorkspace'](arg1, arg2, arg3);
+export function AddWorkspace(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['AddWorkspace'](arg1, arg2, arg3, arg4);
 }
 
 export function AnswerApproval(arg1, arg2, arg3) {

@@ -2,9 +2,9 @@
   "key": "sk_v1_cb10fea2cfe7f7373a42cc19db45c88fb87caebad9d6295e89a00577b35d7cc1",
   "summary": "",
   "skip": 0,
-  "count": 2,
+  "count": 10,
   "created_at": "2026-05-01T16:45:12.09940408-03:00",
-  "updated_at": "2026-07-11T23:48:56.898914644-03:00",
+  "updated_at": "2026-07-12T01:31:52.356657783-03:00",
   "scope": {
     "version": 1,
     "agent_id": "main",
@@ -25,6 +25,6 @@
     "agent:main:direct:direct",
     "agent:main:cli:direct:direct",
     "agent:main:cli:default:direct:direct",
-    "ada:session_1783796953662520234"
+    "ada:session_1783776783746831960"
   ]
 }

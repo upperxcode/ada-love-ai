@@ -118,6 +118,11 @@ func (p *Pipeline) CallLLM(
 		}
 	}
 
+	// Safety net: if activeProvider is still nil, return a clear error instead of panicking.
+	if exec.activeProvider == nil {
+		return ControlBreak, fmt.Errorf("nenhum provider/modelo configurado. Abra Settings > AI Providers e adicione um provider com API key, ou selecione um modelo no chat")
+	}
+
 	// BeforeLLM hook
 	if p.Hooks != nil {
 		llmReq, decision := p.Hooks.BeforeLLM(turnCtx, &LLMHookRequest{

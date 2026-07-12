@@ -8,7 +8,7 @@ export function AddToolToWorkspace(arg1:string,arg2:string):Promise<boolean>;
 
 export function AddToolsToProfile(arg1:number,arg2:Array<string>):Promise<boolean>;
 
-export function AddWorkspace(arg1:string,arg2:string,arg3:string):Promise<void>;
+export function AddWorkspace(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function AnswerApproval(arg1:string,arg2:boolean,arg3:string):Promise<void>;
 

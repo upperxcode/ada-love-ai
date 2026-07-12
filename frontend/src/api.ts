@@ -79,6 +79,7 @@ declare global {
             title: string,
             path: string,
             personality: string,
+            routingRules: string,
           ): Promise<void>;
           DeleteWorkspace(path: string): Promise<void>;
           UpdateWorkspace(
@@ -583,6 +584,7 @@ export class SpecWizardConfig {
     path: string = '';
     folders: string[] = [];
     personality: string = '';
+    routing_rules: string = '';
     knowledge: string[] = [];
     worker_names: string[] = [];
     skills: string[] = [];
@@ -605,6 +607,7 @@ export class SpecWizardConfig {
       this.path = source['path'] ?? '';
       this.folders = source['folders'] ?? [];
       this.personality = source['personality'] ?? '';
+      this.routing_rules = source['routing_rules'] ?? '';
       this.knowledge = source['knowledge'] ?? [];
       this.worker_names = (
         source['worker_names'] ??
@@ -1035,11 +1038,12 @@ export async function addWorkspace(
   title: string,
   path: string,
   personality: string,
+  routingRules: string,
 ): Promise<void> {
   const app = getApp();
   if (!app) return;
   try {
-    await app.AddWorkspace(title, path, personality);
+    await app.AddWorkspace(title, path, personality, routingRules);
   } catch {}
 }
 

@@ -76,6 +76,13 @@ func (o *Orchestrator) registerDefaultAgents() {
 		WorkspaceRoot: o.workspaceRoot,
 	})
 	o.registry.Register(testerAgent)
+
+	// Generic Agent (fallback when no specific agent is configured)
+	genericAgent := NewGenericAgent(GenericAgentConfig{
+		Model:         o.orchestratorModel,
+		WorkspaceRoot: o.workspaceRoot,
+	})
+	o.registry.Register(genericAgent)
 }
 
 // SetSubAgentProviders propaga o provider para todos os sub-agentes registrados.
@@ -140,10 +147,10 @@ Modelo Padrão: %s`, o.workspaceRoot, o.orchestratorModel)
 }
 
 // RoutingPrompt creates the prompt for the orchestrator's routing decision.
-// If personality is non-empty, it replaces the default hardcoded prompt.
-func (o *Orchestrator) RoutingPrompt(userInput string, personality string) string {
-	if personality != "" {
-		return personality + "\n\nEntrada do usuário:\n" + userInput
+// If routingRules is non-empty, it replaces the default hardcoded prompt.
+func (o *Orchestrator) RoutingPrompt(userInput string, routingRules string) string {
+	if routingRules != "" {
+		return routingRules + "\n\nEntrada do usuário:\n" + userInput
 	}
 
 	agentsDesc := ""
@@ -235,7 +242,13 @@ func (o *Orchestrator) ExecuteRouting(ctx context.Context, decision RoutingDecis
 
 		agent, ok := o.registry.Get(decision.NextAgent)
 		if !ok {
-			return "", fmt.Errorf("agent %s not found", decision.NextAgent)
+			// Agente não configurado — fallback para agente genérico com aviso
+			fmt.Printf("[Orchestrator] ⚠️ Agent %q não encontrado no registry, usando fallback genérico\n", decision.NextAgent)
+			if genericAgent, gok := o.registry.Get(AgentTypeGeneric); gok {
+				agent = genericAgent
+			} else {
+				return "", fmt.Errorf("agent %s not found and no generic fallback available", decision.NextAgent)
+			}
 		}
 
 		layers := o.BuildPromptLayers(decision.NextAgent, decision.Task, state, decision.RelatedFiles)
@@ -324,11 +337,17 @@ func (o *Orchestrator) executeSubTasksConcurrent(
 
 				agent, ok := o.registry.Get(st.Agent)
 				if !ok {
-					err := fmt.Errorf("agent %s not found", st.Agent)
-					if onEvent != nil {
-						onEvent("error", st, err)
+					// Agente não configurado — fallback para genérico
+					fmt.Printf("[Orchestrator] ⚠️ Sub-task agent %q não encontrado, usando fallback genérico\n", st.Agent)
+					if genericAgent, gok := o.registry.Get(AgentTypeGeneric); gok {
+						agent = genericAgent
+					} else {
+						err := fmt.Errorf("agent %s not found and no generic fallback available", st.Agent)
+						if onEvent != nil {
+							onEvent("error", st, err)
+						}
+						return err
 					}
-					return err
 				}
 
 				layers := o.BuildPromptLayers(st.Agent, st.Task, accumulatedState, nil)
@@ -386,12 +405,12 @@ func (o *Orchestrator) RouteAndExecuteWithState(ctx context.Context, userInput s
 // LLMRoute uses the LLM provider to make a routing decision.
 // personality is the workspace personality used as routing prompt (empty = default).
 // Falls back to heuristicRoute on any error.
-func (o *Orchestrator) LLMRoute(ctx context.Context, userInput string, personality string) (RoutingDecision, error) {
+func (o *Orchestrator) LLMRoute(ctx context.Context, userInput string, routingRules string) (RoutingDecision, error) {
 	if o.provider == nil {
 		return o.heuristicRoute(userInput), nil
 	}
 
-	prompt := o.RoutingPrompt(userInput, personality)
+	prompt := o.RoutingPrompt(userInput, routingRules)
 	messages := []providers.Message{
 		{Role: "user", Content: prompt},
 	}
@@ -444,7 +463,35 @@ var decision RoutingDecision
 			}
 		}
 
+		// Normaliza nomes de agent (GOLANG_AGENT → golang, etc.)
+		decision.NextAgent = normalizeAgentType(string(decision.NextAgent))
+		for i := range decision.SubTasks {
+			decision.SubTasks[i].Agent = normalizeAgentType(string(decision.SubTasks[i].Agent))
+		}
+
 		return decision, nil
+}
+
+// normalizeAgentType mapeia variações de nomes de agent (ex: "GOLANG_AGENT") para o AgentType correto do registry.
+func normalizeAgentType(raw string) AgentType {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	// Remove sufixos comuns
+	s = strings.TrimSuffix(s, "_agent")
+	s = strings.TrimSuffix(s, "agent")
+	s = strings.TrimSpace(s)
+
+	switch s {
+	case "golang", "go", "go_lang", "golanger":
+		return AgentTypeGoLang
+	case "react", "reactjs", "react_agent":
+		return AgentTypeReact
+	case "tester", "test", "testing", "tester_agent":
+		return AgentTypeTester
+	case "generic", "default":
+		return AgentTypeGeneric
+	default:
+		return AgentType(s)
+	}
 }
 
 // heuristicRoute uses simple keyword heuristics to route when LLM is unavailable.
@@ -513,4 +560,9 @@ func (o *Orchestrator) SetModel(model string) {
 // Config returns the orchestrator configuration
 func (o *Orchestrator) Config() OrchestratorConfig {
 	return o.config
+}
+
+// GetRegistry returns the agent registry (for external validation checks).
+func (o *Orchestrator) GetRegistry() *AgentRegistry {
+	return o.registry
 }

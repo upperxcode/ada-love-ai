@@ -169,36 +169,41 @@ type ModelConfig struct {
 }
 
 type AdaConfig struct {
-	ActiveWorkspacePath string            `json:"active_workspace_path"`
-	ActiveWorkspaceIndex int              `json:"active_workspace_index"`
-	Workspaces          []WorkspaceConfig `json:"workspaces"`
-	TinyBrain           struct {
-		ModelName         string `json:"model_name"`
-		Provider          string `json:"provider"`
-		EmbeddingModel    string `json:"embedding_model"`
-		EmbeddingProvider string `json:"embedding_provider"`
+	ActiveWorkspacePath  string            `json:"active_workspace_path"`
+	ActiveWorkspaceIndex int               `json:"active_workspace_index"`
+	Workspaces           []WorkspaceConfig `json:"workspaces"`
+	TinyBrain            struct {
+		ModelName         string   `json:"model_name"`
+		Provider          string   `json:"provider"`
+		EmbeddingModel    string   `json:"embedding_model"`
+		EmbeddingProvider string   `json:"embedding_provider"`
 		Tools             []string `json:"tools"`
 	} `json:"tiny_brain"`
-	EmbeddingModel    string `json:"embedding_model"`
-	EmbeddingProvider string `json:"embedding_provider"`
-	ImageModel        string `json:"image_model"`
-	ImageProvider     string `json:"image_provider"`
-	SpecModel           string `json:"spec_model"`
-	SpecProvider        string `json:"spec_provider"`
-	SpecTools           []string `json:"spec_tools"`
-	Workers              []WorkerConfig     `json:"workers"`
-	WorkerCategories     []string          `json:"worker_categories"`
-	Agents               []AgentConfig     `json:"agents"`
-	AgentCategories      []string          `json:"agent_categories"`
-	ProviderKeys        map[string]string `json:"provider_keys"`
-	ProviderBases       map[string]string `json:"provider_bases"`
-	ModelSettings       map[string]ExtraModelConfig `json:"model_settings"`
-	ModelList           config.SecureModelList      `json:"model_list"`
-	Providers           map[string]ProviderConfig   `json:"providers,omitempty"`
-	ToolProfiles        []ToolProfile               `json:"tool_profiles,omitempty"`
-	MCPServers          map[string]MCPServerUI      `json:"mcp_servers,omitempty"`
-	SpecWizards          []SpecWizardConfig         `json:"spec_wizards"`
-	Templates            []WorkspaceTemplate         `json:"templates"`
+	Classifier struct {
+		ModelName string   `json:"model_name"`
+		Provider  string   `json:"provider"`
+		Tools     []string `json:"tools"`
+	} `json:"classifier"`
+	EmbeddingModel    string                      `json:"embedding_model"`
+	EmbeddingProvider string                      `json:"embedding_provider"`
+	ImageModel        string                      `json:"image_model"`
+	ImageProvider     string                      `json:"image_provider"`
+	SpecModel         string                      `json:"spec_model"`
+	SpecProvider      string                      `json:"spec_provider"`
+	SpecTools         []string                    `json:"spec_tools"`
+	Workers           []WorkerConfig              `json:"workers"`
+	WorkerCategories  []string                    `json:"worker_categories"`
+	Agents            []AgentConfig               `json:"agents"`
+	AgentCategories   []string                    `json:"agent_categories"`
+	ProviderKeys      map[string]string           `json:"provider_keys"`
+	ProviderBases     map[string]string           `json:"provider_bases"`
+	ModelSettings     map[string]ExtraModelConfig `json:"model_settings"`
+	ModelList         config.SecureModelList      `json:"model_list"`
+	Providers         map[string]ProviderConfig   `json:"providers,omitempty"`
+	ToolProfiles      []ToolProfile               `json:"tool_profiles,omitempty"`
+	MCPServers        map[string]MCPServerUI      `json:"mcp_servers,omitempty"`
+	SpecWizards       []SpecWizardConfig          `json:"spec_wizards"`
+	Templates         []WorkspaceTemplate         `json:"templates"`
 }
 
 // MCPServerUI extends MCP server config with UI fields (icon, color).

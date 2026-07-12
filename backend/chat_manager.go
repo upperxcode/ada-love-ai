@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/bus"
+	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/config"
 	"ada-love-ai/pkg/providers"
 )
@@ -89,15 +89,6 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Injeta o sessionID no contexto
 	ctx = context.WithValue(ctx, "session_id", sessionID)
 
-// Interceptação do orquestrador: ativa apenas para tarefas de desenvolvimento
-		if e.orchestrator != nil && !isRetry {
-			personality := e.resolveWorkspacePersonality(sessionID)
-			if personality != "" && isDevTask(text) {
-				fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q\n", sessionID)
-				return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride)
-			}
-		}
-
 	// Obtem informações da sessão para logging
 	var sess *ChatSession
 	if e.SessionMgr != nil {
@@ -121,7 +112,7 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// goroutines from the old loop are still running). Instead we patch
 	// cfg.Agents.Defaults and the live ContextBuilder in-place.
 	if sess != nil && sess.WorkspaceID != "" {
-		e.syncWorkspaceForTurn(sess.WorkspaceID)
+		e.syncWorkspaceForTurn(sess.WorkspaceID, sessionID)
 	}
 
 	// Variáveis para rastrear modelo e provider
@@ -290,16 +281,53 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		return "Chat history cleared!", nil
 	}
 
-	fmt.Printf("[SendMessage] step=pre-log sessionID=%q sess=%v\n", sessionID, sess != nil)
-	// Log do contexto sendo enviado (antes de ProcessDirect)
-	// Obtem o histórico da sessão para logging
-	historyForLog := []ChatMessage{}
+	// Interceptação do orquestrador: só para mensagens que NÃO são comandos.
+	// Comandos (/clear, etc.) e perguntas aleatórias usam o agent normal com persona do worker.
+	// Injetar o sessionID no contexto para o scope do orchestrate usar.
+	ctx = context.WithValue(ctx, "session_id", sessionID)
+
+
+	// If session not in SessionMgr, load from DB (handles sessions from previous app runs)
+	if sess == nil && sessionID != "" && e.db != nil {
+		fmt.Printf("[SendMessage] session %q not in SessionMgr, loading from DB\n", sessionID)
+		if dbSess, err := e.db.GetSession(sessionID); err == nil && dbSess != nil {
+			e.SessionMgr.LoadSession(dbSess)
+			sess = dbSess
+			fmt.Printf("[SendMessage] loaded from DB: messages=%d\n", len(dbSess.Messages))
+		} else {
+			fmt.Printf("[SendMessage] session %q not found in DB either: %v\n", sessionID, err)
+		}
+	}
+
+	// Sync the agent's folders/personality with the session's workspace WITHOUT
+	// reloading the agent loop (reloading mid-send crashes the app because
+	// goroutines from the old loop are still running). Instead we patch
+	// cfg.Agents.Defaults and the live ContextBuilder in-place.
+	if sess != nil && sess.WorkspaceID != "" {
+		e.syncWorkspaceForTurn(sess.WorkspaceID, sessionID)
+	}
+
+	// Take a snapshot of the session context now that we have folder/personality sync
+	// but BEFORE attempting to resolve routing rules, so orchestration uses the right model.
 	var logWorkspaceID, logAgentName string
+	var historyForLog []ChatMessage
 	if sess != nil {
 		historyForLog = sess.Messages
 		logWorkspaceID = sess.WorkspaceID
 	}
-	
+
+	if e.orchestrator != nil && !isRetry && !isCommand {
+		routingRules := e.resolveWorkspaceRoutingRules(sessionID)
+		if routingRules != "" {
+			fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
+			return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride)
+		}
+	}
+
+	fmt.Printf("[SendMessage] step=pre-log sessionID=%q sess=%v\n", sessionID, sess != nil)
+	// Log do contexto sendo enviado (antes de ProcessDirect)
+	// Continue with the normal agent processing
+
 	// Determina o modelo e provider finais para logging
 	logModel := modelOverride
 	logProvider := ""
@@ -312,7 +340,7 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 			logProvider = prov.Name()
 		}
 	}
-	
+
 	// Log do contexto completo
 	LogChatContextWithHistory(
 		sessionID,
@@ -330,6 +358,21 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 
 	// Track the pending sessionID so the event bridge can map opaque keys
 	e.setPendingSessionID(sessionID)
+
+	// Validação: verificar se há um provider/modelo disponível antes de prosseguir.
+	// Se não há modelOverride e o agent padrão não tem provider, retorna erro claro.
+	if cached == nil && modelOverride == "" {
+		if e.agentLoop != nil {
+			if reg := e.agentLoop.GetRegistry(); reg != nil {
+				if defAgent := reg.GetDefaultAgent(); defAgent != nil && defAgent.Provider == nil {
+					fmt.Printf("[SendMessage] Nenhum provider/modelo configurado — retornando erro ao frontend\n")
+					errMsg := "Nenhum modelo configurado. Abra Settings > AI Providers e adicione um provider com API key, ou selecione um modelo no chat."
+					e.eventBus.Emit(Event{Kind: EventKindError, SessionID: sessionID, Payload: ErrorPayload{Message: errMsg}, Time: time.Now()})
+					return "", fmt.Errorf("%s", errMsg)
+				}
+			}
+		}
+	}
 
 	fmt.Printf("[SendMessage] step=pre-ProcessDirect sessionID=%q agentLoop=%v\n", sessionID, e.agentLoop != nil)
 	resp, err := e.agentLoop.ProcessDirect(ctx, finalPrompt, sessionKey)

@@ -81,13 +81,13 @@ func (w *StreamingWrapper) Chat(ctx context.Context, messages []providers.Messag
 				if len(results) == 2 {
 					res, _ := results[0].Interface().(*providers.LLMResponse)
 					err, _ := results[1].Interface().(error)
-					
+
 					// Sincronização final: garante que qualquer conteúdo que não foi enviado via delta
 					// durante o streaming seja enviado agora.
 					if err == nil && res != nil && len(res.Content) > lastLen {
 						w.emitDelta(ctx, res.Content[lastLen:])
 					}
-					
+
 					return res, err
 				}
 			}
@@ -137,7 +137,7 @@ func (w *StreamingWrapper) emitDelta(ctx context.Context, content string) {
 	if w.eventBus == nil || content == "" {
 		return
 	}
-	
+
 	sessionID, _ := ctx.Value("session_id").(string)
 	fmt.Printf("[StreamingWrapper] emitDelta: sessionID=%q content_len=%d\n", sessionID, len(content))
 	w.eventBus.Emit(Event{Kind: EventKindLLMDelta, SessionID: sessionID, Payload: StreamingDeltaPayload{Content: content}})

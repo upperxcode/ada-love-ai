@@ -83,8 +83,10 @@ func (s *Store) init() error {
 	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN routing_rules TEXT DEFAULT ''`)
 
-	queries := []string{
+	queries := []string{ // core tables
+
 		`CREATE TABLE IF NOT EXISTS workspaces (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			nome TEXT NOT NULL,
@@ -96,6 +98,7 @@ func (s *Store) init() error {
 			spec_provider TEXT,
 			spec_wizard_id TEXT REFERENCES spec_wizards(id) ON DELETE SET NULL,
 			personality TEXT,
+			routing_rules TEXT,
 			color TEXT DEFAULT '',
 			icon TEXT DEFAULT ''
 		)`,
@@ -170,10 +173,6 @@ func (s *Store) init() error {
 			environment TEXT,
 			color TEXT DEFAULT '',
 			icon TEXT DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS config (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS providers (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -319,12 +318,24 @@ func (s *Store) init() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS workspace_templates (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
-			description TEXT,
-			personality TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				description TEXT,
+				personality TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		`CREATE TABLE IF NOT EXISTS tool_profiles (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				description TEXT,
+				color TEXT DEFAULT '',
+				icon TEXT DEFAULT ''
+			)`,
+		`CREATE TABLE IF NOT EXISTS tool_profile_tools (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				profile_id INTEGER NOT NULL REFERENCES tool_profiles(id) ON DELETE CASCADE,
+				tool_name TEXT NOT NULL
+			)`,
 	}
 
 	for _, q := range queries {
@@ -356,10 +367,32 @@ func (s *Store) init() error {
 			model TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS fixed_model_tools (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			fixed_model_id INTEGER NOT NULL REFERENCES fixed_models(id) ON DELETE CASCADE,
-			tool TEXT NOT NULL
-		)`,
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				fixed_model_id INTEGER NOT NULL REFERENCES fixed_models(id) ON DELETE CASCADE,
+				tool TEXT NOT NULL
+			)`,
+		`CREATE TABLE IF NOT EXISTS mcps (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				nome TEXT NOT NULL,
+				connect_type TEXT NOT NULL,
+				command TEXT,
+				arguments TEXT,
+				environment TEXT,
+				color TEXT DEFAULT '',
+				icon TEXT DEFAULT ''
+			)`,
+		`CREATE TABLE IF NOT EXISTS tool_profiles (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				description TEXT,
+				color TEXT DEFAULT '',
+				icon TEXT DEFAULT ''
+			)`,
+		`CREATE TABLE IF NOT EXISTS tool_profile_tools (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				profile_id INTEGER NOT NULL REFERENCES tool_profiles(id) ON DELETE CASCADE,
+				tool_name TEXT NOT NULL
+			)`,
 	}
 	for _, idx := range indexes {
 		if _, err := s.db.Exec(idx); err != nil {
@@ -384,6 +417,51 @@ func (s *Store) init() error {
 		curVersion = 0
 	}
 
+	// Helper: detect legacy config table and read JSON values from it
+	var _cfgTbl string
+	configExists := false
+	if err := s.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='config'").Scan(&_cfgTbl); err == nil {
+		configExists = true
+	}
+
+	readConfigString := func(key string) (string, bool) {
+		if !configExists {
+			return "", false
+		}
+		var raw sql.NullString
+		if err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&raw); err != nil {
+			return "", false
+		}
+		if !raw.Valid {
+			return "", false
+		}
+		// Try to unmarshal JSON string value into a plain string
+		var out string
+		if err := json.Unmarshal([]byte(raw.String), &out); err == nil {
+			return out, true
+		}
+		// Fallback: return raw as-is
+		return raw.String, true
+	}
+
+	readConfigStringArray := func(key string) ([]string, bool) {
+		if !configExists {
+			return nil, false
+		}
+		var raw sql.NullString
+		if err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&raw); err != nil {
+			return nil, false
+		}
+		if !raw.Valid {
+			return nil, false
+		}
+		var out []string
+		if err := json.Unmarshal([]byte(raw.String), &out); err == nil {
+			return out, true
+		}
+		return nil, false
+	}
+
 	// Migration 1: move legacy global_config entries into fixed_models rows + legacy fixedmodels table migration
 	const migrationV1 = 1
 	if curVersion < migrationV1 {
@@ -391,16 +469,13 @@ func (s *Store) init() error {
 		migrationPerformed := false
 
 		// 1) Spec
-		var specModel string
-		if ok, _ := s.GetGlobalConfig("spec_model", &specModel); ok && specModel != "" {
+		if specModel, ok := readConfigString("spec_model"); ok && specModel != "" {
 			migrationPerformed = true
-			var specProvider string
-			s.GetGlobalConfig("spec_provider", &specProvider)
+			specProvider, _ := readConfigString("spec_provider")
 			// Insert or update fixed_models row for 'spec'
 			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('spec', ?, ?)`, specProvider, specModel)
 			// Persist tools if present
-			var specTools []string
-			if ok2, _ := s.GetGlobalConfig("spec_tools", &specTools); ok2 {
+			if specTools, ok2 := readConfigStringArray("spec_tools"); ok2 {
 				var id int64
 				if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = 'spec'`).Scan(&id); err == nil {
 					// clear current tools and insert
@@ -413,8 +488,7 @@ func (s *Store) init() error {
 		}
 
 		// 2) TinyBrain
-		var tinyRaw string
-		if ok, _ := s.GetGlobalConfig("tiny_brain", &tinyRaw); ok {
+		if tinyRaw, ok := readConfigString("tiny_brain"); ok {
 			// tiny_brain may be stored as JSON object; try to unmarshal into struct
 			var tb struct {
 				ModelName string   `json:"model_name"`
@@ -437,16 +511,14 @@ func (s *Store) init() error {
 		}
 
 		// 3) Embedding & Image
-		var embeddingModel, embeddingProvider string
-		if ok, _ := s.GetGlobalConfig("embedding_model", &embeddingModel); ok && embeddingModel != "" {
+		if embeddingModel, ok := readConfigString("embedding_model"); ok && embeddingModel != "" {
 			migrationPerformed = true
-			s.GetGlobalConfig("embedding_provider", &embeddingProvider)
+			embeddingProvider, _ := readConfigString("embedding_provider")
 			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('embedding', ?, ?)`, embeddingProvider, embeddingModel)
 		}
-		var imageModel, imageProvider string
-		if ok, _ := s.GetGlobalConfig("image_model", &imageModel); ok && imageModel != "" {
+		if imageModel, ok := readConfigString("image_model"); ok && imageModel != "" {
 			migrationPerformed = true
-			s.GetGlobalConfig("image_provider", &imageProvider)
+			imageProvider, _ := readConfigString("image_provider")
 			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('image', ?, ?)`, imageProvider, imageModel)
 		}
 
@@ -499,6 +571,66 @@ func (s *Store) init() error {
 				fmt.Printf("[DB] Warn: failed to record migration %d: %v\n", migrationV1, err)
 			} else {
 				fmt.Printf("[DB] Migration %d applied\n", migrationV1)
+			}
+		}
+	}
+
+	// Migration 2: move tool_profiles and mcp_servers from config (key/value) into normalized tables
+	const migrationV2 = 2
+	if curVersion < migrationV2 {
+		moved := false
+		// tool_profiles
+		if tpsRaw, ok := readConfigString("tool_profiles"); ok {
+			var tps []ToolProfile
+			if err := json.Unmarshal([]byte(tpsRaw), &tps); err == nil && len(tps) > 0 {
+				if err := s.SaveToolProfiles(tps); err == nil {
+					moved = true
+				}
+			}
+		}
+		// mcp_servers
+		if mcpsRaw, ok := readConfigString("mcp_servers"); ok {
+			var mcps map[string]MCPServerUI
+			if err := json.Unmarshal([]byte(mcpsRaw), &mcps); err == nil {
+				for name, m := range mcps {
+					// serialize args and env as JSON strings
+					argsJSON := ""
+					if len(m.Args) > 0 {
+						if b, err := json.Marshal(m.Args); err == nil {
+							argsJSON = string(b)
+						}
+					}
+					envJSON := ""
+					if len(m.Env) > 0 {
+						if b, err := json.Marshal(m.Env); err == nil {
+							envJSON = string(b)
+						}
+					}
+					if m.URL != "" {
+						// merge URL into env under key __url
+						var em map[string]string
+						if envJSON != "" {
+							json.Unmarshal([]byte(envJSON), &em)
+						}
+						if em == nil {
+							em = map[string]string{}
+						}
+						em["__url"] = m.URL
+						if b, err := json.Marshal(em); err == nil {
+							envJSON = string(b)
+						}
+					}
+					if _, err := s.SaveMCP(name, "", m.Command, argsJSON, envJSON, m.Color, m.Icon); err == nil {
+						moved = true
+					}
+				}
+			}
+		}
+		if moved {
+			if _, err := s.db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, migrationV2); err != nil {
+				fmt.Printf("[DB] Warn: failed to record migration %d: %v\n", migrationV2, err)
+			} else {
+				fmt.Printf("[DB] Migration %d applied\n", migrationV2)
 			}
 		}
 	}
@@ -659,9 +791,9 @@ func (s *Store) SaveWorkspace(ws WorkspaceConfig) (int64, error) {
 		}
 	}
 	_, err := s.db.Exec(`
-				INSERT OR REPLACE INTO workspaces (id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ws.ID, nome, ws.Description, path, ws.MaxPrompt, ws.MaxContent, ws.Commit, ws.SpecProvider, specWizardID, ws.Personality, ws.Color, ws.Icon,
+				INSERT OR REPLACE INTO workspaces (id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, routing_rules, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ws.ID, nome, ws.Description, path, ws.MaxPrompt, ws.MaxContent, ws.Commit, ws.SpecProvider, specWizardID, ws.Personality, ws.RoutingRules, ws.Color, ws.Icon,
 		ws.Summary, ws.Enabled, ws.MaxPromptSend, ws.CommitChanges, ws.MaxContextLength, ws.EmbeddingModel, ws.EmbeddingProvider)
 	if err != nil {
 		return 0, err
@@ -681,7 +813,7 @@ func (s *Store) SaveWorkspace(ws WorkspaceConfig) (int64, error) {
 }
 
 func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
-	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces`)
+	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, routing_rules, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces`)
 	if err != nil {
 		return nil, err
 	}
@@ -690,10 +822,10 @@ func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
 	var workspaces []WorkspaceConfig
 	for rows.Next() {
 		var ws WorkspaceConfig
-		var nome, description, path, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
+		var nome, description, path, specProvider, specWizardID, personality, routingRules, color, icon, summary, embModel, embProvider sql.NullString
 		var maxPrompt, maxContent, maxPromptSend, maxContextLen sql.NullInt64
 		var commit, enabled sql.NullBool
-		if err := rows.Scan(&ws.ID, &nome, &description, &path, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
+		if err := rows.Scan(&ws.ID, &nome, &description, &path, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &routingRules, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
 			return nil, err
 		}
 		ws.Title = nome.String
@@ -706,6 +838,7 @@ func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
 		ws.SpecProvider = specProvider.String
 		ws.SpecWizardID = specWizardID.String
 		ws.Personality = personality.String
+		ws.RoutingRules = routingRules.String
 		ws.Color = color.String
 		ws.Icon = icon.String
 		ws.Summary = summary.String
@@ -739,7 +872,7 @@ func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
 }
 
 func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
-	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces WHERE path = ?`, path)
+	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, routing_rules, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces WHERE path = ?`, path)
 	if err != nil {
 		return nil, err
 	}
@@ -748,10 +881,10 @@ func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
 		return nil, nil
 	}
 	var ws WorkspaceConfig
-	var nome, description, p, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
+	var nome, description, p, specProvider, specWizardID, personality, routingRules, color, icon, summary, embModel, embProvider sql.NullString
 	var maxPrompt, maxContent, maxPromptSend, maxContextLen sql.NullInt64
 	var commit, enabled sql.NullBool
-	if err := rows.Scan(&ws.ID, &nome, &description, &p, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
+	if err := rows.Scan(&ws.ID, &nome, &description, &p, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &routingRules, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
 		return nil, err
 	}
 	ws.Title = nome.String
@@ -764,6 +897,7 @@ func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
 	ws.SpecProvider = specProvider.String
 	ws.SpecWizardID = specWizardID.String
 	ws.Personality = personality.String
+	ws.RoutingRules = routingRules.String
 	ws.Color = color.String
 	ws.Icon = icon.String
 	ws.Summary = summary.String
@@ -1015,8 +1149,8 @@ func (s *Store) DeleteSkill(id int64) error {
 
 func (s *Store) SaveMCP(name, connectType, command, arguments, environment, color, icon string) (int64, error) {
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO mcps (id, nome, connect_type, command, arguments, environment, color, icon)
-		VALUES ((SELECT id FROM mcps WHERE nome = ?), ?, ?, ?, ?, ?, ?, ?)`,
+			INSERT OR REPLACE INTO mcps (id, nome, connect_type, command, arguments, environment, color, icon)
+			VALUES ((SELECT id FROM mcps WHERE nome = ?), ?, ?, ?, ?, ?, ?, ?)`,
 		name, name, connectType, command, arguments, environment, color, icon)
 	if err != nil {
 		return 0, err
@@ -1049,6 +1183,125 @@ func (s *Store) GetMCPs() ([]map[string]string, error) {
 			"color":        color.String,
 			"icon":         icon.String,
 		})
+	}
+	return out, nil
+}
+
+// GetMCPsMap returns MCP servers as map[name]MCPServerUI
+func (s *Store) GetMCPsMap() (map[string]MCPServerUI, error) {
+	rows, err := s.db.Query(`SELECT nome, connect_type, command, arguments, environment, color, icon FROM mcps`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]MCPServerUI{}
+	for rows.Next() {
+		var nome, ct, cmd, args, env, color, icon sql.NullString
+		if err := rows.Scan(&nome, &ct, &cmd, &args, &env, &color, &icon); err != nil {
+			return nil, err
+		}
+		m := MCPServerUI{Command: cmd.String, URL: "", Enabled: true, Icon: icon.String, Color: color.String}
+		if args.Valid && args.String != "" {
+			var arr []string
+			if err := json.Unmarshal([]byte(args.String), &arr); err == nil {
+				m.Args = arr
+			}
+		}
+		if env.Valid && env.String != "" {
+			var em map[string]string
+			if err := json.Unmarshal([]byte(env.String), &em); err == nil {
+				if u, ok := em["__url"]; ok {
+					m.URL = u
+					delete(em, "__url")
+				}
+				m.Env = em
+			}
+		}
+		out[nome.String] = m
+	}
+	return out, nil
+}
+
+// SaveAppState writes the active workspace state (single-row table id=1)
+func (s *Store) SaveAppState(activePath string, index int) error {
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO app_state (id, active_workspace_path, active_workspace_index) VALUES (1, ?, ?)`, activePath, index)
+	return err
+}
+
+// GetAppState returns active workspace path and index
+func (s *Store) GetAppState() (string, int, error) {
+	var path sql.NullString
+	var idx sql.NullInt64
+	if err := s.db.QueryRow(`SELECT active_workspace_path, active_workspace_index FROM app_state WHERE id = 1`).Scan(&path, &idx); err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, nil
+		}
+		return "", 0, err
+	}
+	return path.String, int(idx.Int64), nil
+}
+
+func (s *Store) SaveToolProfiles(profiles []ToolProfile) error {
+	// transactionally replace all tool profiles
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`DELETE FROM tool_profile_tools`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM tool_profiles`); err != nil {
+		return err
+	}
+
+	for _, p := range profiles {
+		if _, err = tx.Exec(`INSERT INTO tool_profiles (name, color, icon) VALUES (?, ?, ?)`, p.Name, p.Color, p.Icon); err != nil {
+			return err
+		}
+		var pid int64
+		if err = tx.QueryRow(`SELECT id FROM tool_profiles WHERE name = ?`, p.Name).Scan(&pid); err != nil {
+			return err
+		}
+		for _, t := range p.Tools {
+			if _, err = tx.Exec(`INSERT INTO tool_profile_tools (profile_id, tool_name) VALUES (?, ?)`, pid, t); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) GetToolProfiles() ([]ToolProfile, error) {
+	rows, err := s.db.Query(`SELECT id, name, color, icon FROM tool_profiles ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ToolProfile
+	for rows.Next() {
+		var p ToolProfile
+		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &p.Icon); err != nil {
+			return nil, err
+		}
+		// load tools
+		trows, err := s.db.Query(`SELECT tool_name FROM tool_profile_tools WHERE profile_id = ? ORDER BY id`, p.ID)
+		if err == nil {
+			for trows.Next() {
+				var tn string
+				if trows.Scan(&tn) == nil {
+					p.Tools = append(p.Tools, tn)
+				}
+			}
+			trows.Close()
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }
@@ -1436,7 +1689,13 @@ func deadaptProviderConfig(sp StoredProvider) ProviderConfig {
 // --- Operações de Sessão ---
 
 func (s *Store) SaveSession(sess ChatSession) error {
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		INSERT OR REPLACE INTO sessions (id, workspace_path, title, pinned, embedding, created_at, updated_at,
 			worker_name, parent_session_id, model, provider, mode, thinking, summary, summarized_context,
 			summary_token_count, summarized_at, last_summarized_msg_id)
@@ -1447,12 +1706,11 @@ func (s *Store) SaveSession(sess ChatSession) error {
 	if err != nil {
 		return err
 	}
-	// Mensagens: substituição simples
-	if _, err = s.db.Exec(`DELETE FROM messages WHERE session_id = ?`, sess.ID); err != nil {
+	if _, err = tx.Exec(`DELETE FROM messages WHERE session_id = ?`, sess.ID); err != nil {
 		return err
 	}
 	for i, msg := range sess.Messages {
-		res, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
+		res, err := tx.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
 			sess.ID, msg.Role, msg.Content, msg.Time)
 		if err != nil {
 			log.Printf("Erro ao salvar mensagem: %v", err)
@@ -1462,7 +1720,7 @@ func (s *Store) SaveSession(sess ChatSession) error {
 			sess.Messages[i].ID = id
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) AddMessageToSession(sessionID string, role string, content string) error {

@@ -149,7 +149,7 @@ func (e *Engine) PingProvider(name string) error {
 			return fmt.Errorf("URL base não configurada para %s", name)
 		}
 	}
-	
+
 	resp, err := http.Get(apiBase + "/models")
 	if err != nil {
 		return err
@@ -242,9 +242,9 @@ func fetchOpenAIModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		Data []struct {
 			ID           string `json:"id"`
 			Architecture *struct {
-				Modality          string `json:"modality"`
-				InputModalities   any    `json:"input_modalities"`
-				OutputModalities  any    `json:"output_modalities"`
+				Modality         string `json:"modality"`
+				InputModalities  any    `json:"input_modalities"`
+				OutputModalities any    `json:"output_modalities"`
 			} `json:"architecture"`
 		} `json:"data"`
 	}
@@ -257,9 +257,9 @@ func fetchOpenAIModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		if m.ID == "" {
 			continue
 		}
-			vision, embedding := detectCapabilities(m.ID, m.Architecture)
-			free, thinking := classifyChatModel(m.ID, embedding)
-			models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
+		vision, embedding := detectCapabilities(m.ID, m.Architecture)
+		free, thinking := classifyChatModel(m.ID, embedding)
+		models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
 	}
 	return models, nil
 }
@@ -284,17 +284,17 @@ func fetchAnthropicModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		return nil, fmt.Errorf("falha ao decodificar resposta /models: %w", err)
 	}
 
-		models := make([]ProviderModel, 0, len(resp.Data))
-		for _, m := range resp.Data {
-			if m.ID == "" {
-				continue
-			}
-				vision, embedding := detectCapabilities(m.ID, nil)
-				free, thinking := classifyChatModel(m.ID, embedding)
-				models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
+	models := make([]ProviderModel, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		if m.ID == "" {
+			continue
 		}
-		return models, nil
+		vision, embedding := detectCapabilities(m.ID, nil)
+		free, thinking := classifyChatModel(m.ID, embedding)
+		models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
 	}
+	return models, nil
+}
 
 // fetchGeminiModels handles Google's Generative Language /v1beta/models shape:
 // { models: [{ name: "models/gemini-1.5-flash", supportedGenerationMethods: [...] }] },
@@ -329,11 +329,11 @@ func fetchGeminiModels(apiBase, apiKey string) ([]ProviderModel, error) {
 				embedding = true
 			}
 		}
-				free, thinking := classifyChatModel(id, embedding)
-				models = append(models, newProviderModel(id, vision, embedding, free, thinking))
-		}
-		return models, nil
+		free, thinking := classifyChatModel(id, embedding)
+		models = append(models, newProviderModel(id, vision, embedding, free, thinking))
 	}
+	return models, nil
+}
 
 // newProviderModel builds a ProviderModel with the given capabilities.
 // Chat models (non-embedding) default to Tools=true (most support function calling).

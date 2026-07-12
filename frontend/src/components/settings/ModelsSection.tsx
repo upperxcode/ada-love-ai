@@ -433,6 +433,16 @@ function ModelsSection() {
       .map(([name]) => ({ value: name, label: name }));
   })();
 
+  const classifierModels = (() => {
+    const provider = adaConfig?.classifier?.provider;
+    const models = provider
+      ? adaConfig?.providers?.[provider]?.models
+      : undefined;
+    if (!models) return [];
+    return Object.entries(models)
+      .map(([name]) => ({ value: name, label: name }));
+  })();
+
   return (
     <div className="space-y-6">
       <div>
@@ -679,15 +689,15 @@ function ModelsSection() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">TinyBrain Provider</label>
+            <label className="text-sm font-medium">Classifier Provider</label>
             <Select
-              value={adaConfig?.tiny_brain?.provider || ''}
+              value={adaConfig?.classifier?.provider || ''}
               onValueChange={(v) => {
                 if (adaConfig) {
                   const newCfg = new api.backend.AdaConfig({
                     ...adaConfig,
-                    tiny_brain: {
-                      ...(adaConfig.tiny_brain || {}),
+                    classifier: {
+                      ...(adaConfig.classifier || {}),
                       provider: v,
                     },
                   });
@@ -711,16 +721,16 @@ function ModelsSection() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">TinyBrain Model</label>
+            <label className="text-sm font-medium">Classifier Model</label>
             <div className="flex gap-2">
               <Select
-                value={adaConfig?.tiny_brain?.model_name || ''}
+                value={adaConfig?.classifier?.model_name || ''}
                 onValueChange={(v) => {
                   if (adaConfig) {
                     const newCfg = new api.backend.AdaConfig({
                       ...adaConfig,
-                      tiny_brain: {
-                        ...(adaConfig.tiny_brain || {}),
+                      classifier: {
+                        ...(adaConfig.classifier || {}),
                         model_name: v,
                       },
                     });
@@ -733,7 +743,7 @@ function ModelsSection() {
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
                 <SelectContent>
-                  {tinyBrainModels.map((m) => (
+                  {classifierModels.map((m) => (
                     <SelectItem key={m.value} value={m.value}>
                       {m.label}
                     </SelectItem>
@@ -746,24 +756,12 @@ function ModelsSection() {
                 variant="outline"
                 className="shrink-0 px-2"
                 onClick={() => {
-                  setCustomImageValue(adaConfig?.tiny_brain?.model_name || '');
+                  setCustomImageValue(adaConfig?.classifier?.model_name || '');
                   setShowCustomImage(true);
                 }}
                 title="Custom model"
               >
                 <Icon name="Plus" size={14} />
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="shrink-0 px-2"
-                onClick={() =>
-                  setShowToolsDialog({ type: 'tiny_brain', open: true })
-                }
-                title="Model tools"
-              >
-                <Icon name="Settings" size={14} />
               </Button>
             </div>
           </div>

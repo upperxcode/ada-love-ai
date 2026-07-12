@@ -105,36 +105,66 @@ func NewEngine() (*Engine, error) {
 				for _, a := range legacy.Agents {
 					db.SaveAgent(a)
 				}
+				// Persist fixed models from legacy config
 				if legacy.EmbeddingModel != "" {
-					db.SetGlobalConfig("embedding_model", legacy.EmbeddingModel)
-				}
-				if legacy.EmbeddingProvider != "" {
-					db.SetGlobalConfig("embedding_provider", legacy.EmbeddingProvider)
+					db.SaveFixedModelRow(FixedModel{Name: "embedding", Provider: legacy.EmbeddingProvider, Model: legacy.EmbeddingModel})
 				}
 				if legacy.ImageModel != "" {
-					db.SetGlobalConfig("image_model", legacy.ImageModel)
+					db.SaveFixedModelRow(FixedModel{Name: "image", Provider: legacy.ImageProvider, Model: legacy.ImageModel})
 				}
-				if legacy.ImageProvider != "" {
-					db.SetGlobalConfig("image_provider", legacy.ImageProvider)
+				if legacy.SpecModel != "" || legacy.SpecProvider != "" {
+					if id, err := db.SaveFixedModelRow(FixedModel{Name: "spec", Provider: legacy.SpecProvider, Model: legacy.SpecModel}); err == nil {
+						if len(legacy.SpecTools) > 0 {
+							db.SetFixedModelRowTools(id, legacy.SpecTools)
+						}
+					}
 				}
-				if legacy.SpecModel != "" {
-					db.SetGlobalConfig("spec_model", legacy.SpecModel)
+				// tinybrain
+				if legacy.TinyBrain.ModelName != "" || legacy.TinyBrain.Provider != "" {
+					if id, err := db.SaveFixedModelRow(FixedModel{Name: "tinybrain", Provider: legacy.TinyBrain.Provider, Model: legacy.TinyBrain.ModelName}); err == nil {
+						if len(legacy.TinyBrain.Tools) > 0 {
+							db.SetFixedModelRowTools(id, legacy.TinyBrain.Tools)
+						}
+					}
 				}
-				if legacy.SpecProvider != "" {
-					db.SetGlobalConfig("spec_provider", legacy.SpecProvider)
-				}
+				// tool profiles
 				if legacy.ToolProfiles != nil {
-					db.SetGlobalConfig("tool_profiles", legacy.ToolProfiles)
+					db.SaveToolProfiles(legacy.ToolProfiles)
 				}
+				// mcp servers
 				if len(legacy.MCPServers) > 0 {
-					db.SetGlobalConfig("mcp_servers", legacy.MCPServers)
+					for name, m := range legacy.MCPServers {
+						argsJSON := ""
+						if len(m.Args) > 0 {
+							if b, err := json.Marshal(m.Args); err == nil {
+								argsJSON = string(b)
+							}
+						}
+						envJSON := ""
+						if len(m.Env) > 0 {
+							if b, err := json.Marshal(m.Env); err == nil {
+								envJSON = string(b)
+							}
+						}
+						// merge URL
+						if m.URL != "" {
+							var em map[string]string
+							if envJSON != "" {
+								json.Unmarshal([]byte(envJSON), &em)
+							}
+							if em == nil {
+								em = map[string]string{}
+							}
+							em["__url"] = m.URL
+							if b, err := json.Marshal(em); err == nil {
+								envJSON = string(b)
+							}
+						}
+						db.SaveMCP(name, "", m.Command, argsJSON, envJSON, m.Color, m.Icon)
+					}
 				}
-				if legacy.ActiveWorkspacePath != "" {
-					db.SetGlobalConfig("active_workspace_path", legacy.ActiveWorkspacePath)
-				}
-				if legacy.ActiveWorkspaceIndex > 0 {
-					db.SetGlobalConfig("active_workspace_index", legacy.ActiveWorkspaceIndex)
-				}
+				// active workspace
+				db.SaveAppState(legacy.ActiveWorkspacePath, legacy.ActiveWorkspaceIndex)
 				fmt.Printf("[Engine] Migração one-shot do JSON legado concluída\n")
 			}
 		}
@@ -194,25 +224,30 @@ func NewEngine() (*Engine, error) {
 					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
 						adaCfg.TinyBrain.Tools = tools
 					}
+				case "classifier":
+					adaCfg.Classifier.ModelName = r.Model
+					adaCfg.Classifier.Provider = r.Provider
+					if tools, err := db.GetFixedModelRowTools(r.ID); err == nil {
+						adaCfg.Classifier.Tools = tools
+					}
 				}
 			}
 		} else {
-			// fallback: keep legacy global_config if fixed_models query fails
-			db.GetGlobalConfig("embedding_model", &adaCfg.EmbeddingModel)
-			db.GetGlobalConfig("embedding_provider", &adaCfg.EmbeddingProvider)
-			db.GetGlobalConfig("image_model", &adaCfg.ImageModel)
-			db.GetGlobalConfig("image_provider", &adaCfg.ImageProvider)
-			db.GetGlobalConfig("spec_model", &adaCfg.SpecModel)
-			db.GetGlobalConfig("spec_provider", &adaCfg.SpecProvider)
-			db.GetGlobalConfig("spec_tools", &adaCfg.SpecTools)
+			// If fixed_models cannot be read, leave embedding/image/spec empty (we don't fallback to JSON files)
 		}
-		// ToolProfiles
-		db.GetGlobalConfig("tool_profiles", &adaCfg.ToolProfiles)
-		// MCPServers
-		db.GetGlobalConfig("mcp_servers", &adaCfg.MCPServers)
-		// Active workspace
-		db.GetGlobalConfig("active_workspace_path", &adaCfg.ActiveWorkspacePath)
-		db.GetGlobalConfig("active_workspace_index", &adaCfg.ActiveWorkspaceIndex)
+		// ToolProfiles: load from normalized table
+		if tps, err := db.GetToolProfiles(); err == nil {
+			adaCfg.ToolProfiles = tps
+		}
+		// MCPServers: load from normalized table
+		if mcs, err := db.GetMCPsMap(); err == nil {
+			adaCfg.MCPServers = mcs
+		}
+		// Active workspace: load from typed table
+		if path, idx, err := db.GetAppState(); err == nil {
+			adaCfg.ActiveWorkspacePath = path
+			adaCfg.ActiveWorkspaceIndex = idx
+		}
 	}
 
 	// Migração e saneamento básico
@@ -530,8 +565,8 @@ func (e *Engine) ensureWorkspaceSynced(workspacePath string) {
 // syncWorkspaceForTurn updates the live agent loop with the session's workspace
 // WITHOUT reloading (which would crash the app mid-turn). It patches
 // cfg.Agents.Defaults and calls UpdateWorkspace on the default agent's
-// ContextBuilder so the system prompt reflects the correct folders.
-func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
+// ContextBuilder so the system prompt reflects the correct folders and worker persona.
+func (e *Engine) syncWorkspaceForTurn(workspacePath string, sessionID string) {
 	if workspacePath == "" {
 		return
 	}
@@ -581,11 +616,18 @@ func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
 	fmt.Printf("[Engine] syncWorkspaceForTurn: title=%q folders=%v → fsPath=%q\n",
 		ws.Title, ws.Folders, fsPath)
 
+	// Resolve a persona do worker associado à sessão para usar como system prompt.
+	workerPersona := e.resolveWorkerPersona(sessionID)
+
 	// Update cfg defaults so any future agent creation uses the right workspace.
 	e.cfg.Agents.Defaults.Workspace = fsPath
 	e.cfg.Agents.Defaults.Folders = ws.Folders
-	e.cfg.Agents.Defaults.Personality = ws.Personality
 	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
+
+	// Injeta a persona do worker como system prompt no agent genérico.
+	if workerPersona != "" {
+		e.cfg.Agents.Defaults.Personality = workerPersona
+	}
 
 	// Patch the LIVE agent loop's ContextBuilder (no reload) so the system
 	// prompt is rebuilt with the new workspace on the next turn.
@@ -593,7 +635,7 @@ func (e *Engine) syncWorkspaceForTurn(workspacePath string) {
 		registry := e.agentLoop.GetRegistry()
 		if registry != nil {
 			if agent := registry.GetDefaultAgent(); agent != nil && agent.ContextBuilder != nil {
-				agent.ContextBuilder.UpdateWorkspace(fsPath, ws.Folders, ws.Personality, ws.Knowledge)
+				agent.ContextBuilder.UpdateWorkspace(fsPath, ws.Folders, workerPersona, ws.Knowledge)
 			}
 		}
 	}
@@ -669,7 +711,7 @@ func (e *Engine) applyWorkspaceToAgentLocked(pathOrTitle string) {
 
 	e.cfg.Agents.Defaults.Workspace = fsPath
 	e.cfg.Agents.Defaults.Folders = ws.Folders
-	e.cfg.Agents.Defaults.Personality = ws.Personality
+	// Personality do worker é injetada por syncWorkspaceForTurn (tem sessionID).
 	e.cfg.Agents.Defaults.Knowledge = ws.Knowledge
 }
 
@@ -918,18 +960,71 @@ func (e *Engine) SaveAdaConfig() error {
 		}
 	}
 
-	// Salva seções restantes no DB (key-value)
+	// Salva seções restantes no DB (key-value / normalizadas)
 
-	e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
-	e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
-	e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
-	e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
-	e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
-	e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
-	e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
-	e.db.SetGlobalConfig("spec_tools", e.adaCfg.SpecTools)
-	e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
-	e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
+	// Persist small legacy keys into normalized fixed_models as appropriate
+	if e.adaCfg.EmbeddingModel != "" {
+		if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "embedding", Provider: e.adaCfg.EmbeddingProvider, Model: e.adaCfg.EmbeddingModel}); err != nil {
+			fmt.Printf("[Engine] Warn: failed to persist embedding fixed model: %v\n", err)
+		}
+	}
+	if e.adaCfg.ImageModel != "" {
+		if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "image", Provider: e.adaCfg.ImageProvider, Model: e.adaCfg.ImageModel}); err != nil {
+			fmt.Printf("[Engine] Warn: failed to persist image fixed model: %v\n", err)
+		}
+	}
+	if e.adaCfg.SpecModel != "" || e.adaCfg.SpecProvider != "" {
+		if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "spec", Provider: e.adaCfg.SpecProvider, Model: e.adaCfg.SpecModel}); err == nil {
+			if len(e.adaCfg.SpecTools) > 0 {
+				e.db.SetFixedModelRowTools(id, e.adaCfg.SpecTools)
+			}
+		} else {
+			fmt.Printf("[Engine] Warn: failed to persist spec fixed model: %v\n", err)
+		}
+	}
+	if len(e.adaCfg.SpecTools) > 0 {
+		// spec tools handled above per fixed model
+	}
+
+	// Persist tool profiles in normalized tables
+	if len(e.adaCfg.ToolProfiles) > 0 {
+		if err := e.db.SaveToolProfiles(e.adaCfg.ToolProfiles); err != nil {
+			fmt.Printf("[Engine] Warn: failed to persist tool_profiles: %v\n", err)
+		}
+	}
+	// Persist MCP servers in normalized table
+	for name, m := range e.adaCfg.MCPServers {
+		argsJSON := ""
+		if len(m.Args) > 0 {
+			if b, err := json.Marshal(m.Args); err == nil {
+				argsJSON = string(b)
+			}
+		}
+		envJSON := ""
+		if len(m.Env) > 0 {
+			if b, err := json.Marshal(m.Env); err == nil {
+				envJSON = string(b)
+			}
+		}
+		// merge URL into env under __url
+		if m.URL != "" {
+			var em map[string]string
+			if envJSON != "" {
+				json.Unmarshal([]byte(envJSON), &em)
+			}
+			if em == nil {
+				em = map[string]string{}
+			}
+			em["__url"] = m.URL
+			if b, err := json.Marshal(em); err == nil {
+				envJSON = string(b)
+			}
+		}
+		if _, err := e.db.SaveMCP(name, "", m.Command, argsJSON, envJSON, m.Color, m.Icon); err != nil {
+			fmt.Printf("[Engine] Warn: failed to persist MCP %s: %v\n", name, err)
+		}
+	}
+	// Keep active workspace keys in config table (still in DB key/value)
 	e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
 	e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
 
@@ -970,6 +1065,18 @@ func (e *Engine) SaveAdaConfig() error {
 				}
 			} else {
 				fmt.Printf("[Engine] Warn: failed to persist tinybrain fixed model: %v\n", err)
+			}
+		}
+		// classifier
+		if e.adaCfg.Classifier.ModelName != "" || e.adaCfg.Classifier.Provider != "" {
+			if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "classifier", Provider: e.adaCfg.Classifier.Provider, Model: e.adaCfg.Classifier.ModelName}); err == nil {
+				if len(e.adaCfg.Classifier.Tools) > 0 {
+					if err := e.db.SetFixedModelRowTools(id, e.adaCfg.Classifier.Tools); err != nil {
+						fmt.Printf("[Engine] Warn: failed to persist classifier tools: %v\n", err)
+					}
+				}
+			} else {
+				fmt.Printf("[Engine] Warn: failed to persist classifier fixed model: %v\n", err)
 			}
 		}
 	}
@@ -1451,24 +1558,34 @@ func (e *Engine) resolveProviderFromModel(providerName, modelName string) provid
 	return nil
 }
 
-// resolveWorkspacePersonality retorna a personality do workspace associado à sessão.
-func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
+// resolveWorkspaceRoutingRules retorna as regras de roteamento do workspace associado à sessão.
+// Usado APENAS pelo orquestrador para decidir qual sub-agente acionar.
+// A persona do worker é usada pelo agent normal (ContextBuilder), não aqui.
+func (e *Engine) resolveWorkspaceRoutingRules(sessionID string) string {
+	sess := e.SessionMgr.GetSession(sessionID)
+	if sess == nil {
+		return ""
+	}
+
+	for _, ws := range e.adaCfg.Workspaces {
+		if ws.Path == sess.WorkspaceID || ws.Title == sess.WorkspaceID {
+			return ws.RoutingRules
+		}
+	}
+	return ""
+}
+
+// resolveWorkerPersona retorna a persona completa do worker associado à sessão.
+// Usada pelo agent normal (ContextBuilder) como system prompt.
+func (e *Engine) resolveWorkerPersona(sessionID string) string {
 	sess := e.SessionMgr.GetSession(sessionID)
 	if sess == nil || e.db == nil {
 		return ""
 	}
 
-	// Primeiro tenta a persona do worker associado à sessão
 	if sess.WorkerName != "" {
-		if worker, err := e.db.GetWorkerByName(sess.WorkerName); err == nil && worker != nil && worker.Persona != "" {
-			return worker.Persona
-		}
-	}
-
-	// Fallback: personality do workspace
-	for _, ws := range e.adaCfg.Workspaces {
-		if ws.Path == sess.WorkspaceID || ws.Title == sess.WorkspaceID {
-			return ws.Personality
+		if worker, err := e.db.GetWorkerByName(sess.WorkerName); err == nil && worker != nil {
+			return FullPersona(*worker)
 		}
 	}
 	return ""
@@ -1478,7 +1595,15 @@ func (e *Engine) resolveWorkspacePersonality(sessionID string) string {
 func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string) (string, error) {
 	fmt.Printf("[ProcessOrchestrated] step=start sessionID=%q modelOverride=%q\n", sessionID, modelOverride)
 
-	// 0. Extrai o nome do modelo do override (formato "Provider/ModelName")
+	// 0. Garante que a sessão está no SessionMgr (pode ter vindo direto do DB via frontend)
+	if sess := e.SessionMgr.GetSession(sessionID); sess == nil && e.db != nil {
+		if dbSess, err := e.db.GetSession(sessionID); err == nil && dbSess != nil {
+			e.SessionMgr.LoadSession(dbSess)
+			fmt.Printf("[ProcessOrchestrated] sessão %q carregada do DB para SessionMgr\n", sessionID)
+		}
+	}
+
+	// 1. Extrai o nome do modelo do override (formato "Provider/ModelName")
 	modelName := modelOverride
 	if idx := strings.Index(modelOverride, "/"); idx != -1 {
 		modelName = modelOverride[idx+1:]
@@ -1496,9 +1621,9 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		fmt.Printf("[ProcessOrchestrated] provider is NIL - using heuristic routing\n")
 	}
 
-	// 2. Resolve personality do workspace
-	personality := e.resolveWorkspacePersonality(sessionID)
-	fmt.Printf("[ProcessOrchestrated] personality=%q\n", personality)
+	// 2. Resolve routing rules do workspace
+	routingRules := e.resolveWorkspaceRoutingRules(sessionID)
+	fmt.Printf("[ProcessOrchestrated] routingRules=%q\n", routingRules)
 
 	// 3. Aplica timeout do config
 	timeout := e.orchestrator.Config().Timeout
@@ -1511,8 +1636,8 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 	// 4. Monta estado do histórico da sessão
 	state := e.buildOrchestratorState(sessionID)
 
-	// 5. Roteamento via LLM (personality como prompt de roteamento)
-	decision, err := e.orchestrator.LLMRoute(ctx, text, personality)
+	// 5. Roteamento via LLM (routingRules como prompt de roteamento)
+	decision, err := e.orchestrator.LLMRoute(ctx, text, routingRules)
 	if err != nil {
 		fmt.Printf("[ProcessOrchestrated] LLM routing falhou: %v\n", err)
 	}
@@ -1588,7 +1713,28 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 			output = "Olá! Como posso ajudar você hoje? Posso desenvolver backend em Go, criar interfaces em React ou escrever testes automatizados."
 			err = nil
 		} else {
+			// Salva a mensagem do usuário e o erro no histórico antes de retornar
+			e.SessionMgr.AddMessage(sessionID, "user", text)
+			e.SessionMgr.AddMessage(sessionID, "assistant", fmt.Sprintf("Erro: %v", err))
+			if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
+				e.db.SaveSession(*sess)
+			}
 			return "", fmt.Errorf("execução do orquestrador falhou: %w", err)
+		}
+	}
+
+	// Emite aviso se o agente genérico foi usado como fallback
+	if decision.NextAgent != "" && decision.NextAgent != orchestrator.AgentTypeGeneric {
+		// Verifica se o agent realmente existe no registry (pode ter sido substituído por genérico)
+		if _, ok := e.orchestrator.GetRegistry().Get(decision.NextAgent); !ok {
+			warningMsg := fmt.Sprintf("⚠️ Agente %q não configurado. Usando agente genérico como fallback.", decision.NextAgent)
+			e.eventBus.Emit(Event{
+				Kind:      EventKindStatus,
+				SessionID: sessionID,
+				Payload:   StatusPayload{Message: warningMsg},
+				Time:      time.Now(),
+			})
+			output = warningMsg + "\n\n" + output
 		}
 	}
 

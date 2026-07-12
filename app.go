@@ -213,13 +213,14 @@ func (a *App) SetAgentCategories(categories []string) {
 func (a *App) GetWorkspaces() []backend.WorkspaceConfig {
 	return a.engine.ListWorkspaces()
 }
-func (a *App) AddWorkspace(title, path, personality string) error {
+func (a *App) AddWorkspace(title, path, personality, routingRules string) error {
 	w := backend.WorkspaceConfig{
-		Title:       title,
-		Path:        path,
-		Personality: personality,
-		Tools:       []string{},
-		Enabled:     true,
+		Title:        title,
+		Path:         path,
+		Personality:  personality,
+		RoutingRules: routingRules,
+		Tools:        []string{},
+		Enabled:      true,
 	}
 	return a.engine.AddWorkspace(w)
 }

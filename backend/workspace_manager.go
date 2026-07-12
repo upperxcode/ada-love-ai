@@ -278,7 +278,7 @@ func (e *Engine) AddToolToWorkspace(workspaceTitle, toolName string) bool {
 					e.mu.Unlock()
 					return false
 				}
-				}
+			}
 			e.adaCfg.Workspaces[i].Tools = append(w.Tools, toolName)
 			e.mu.Unlock()
 			e.SaveAdaConfig()

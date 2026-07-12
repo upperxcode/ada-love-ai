@@ -17,6 +17,7 @@ const (
 	AgentTypeReact        AgentType = "react"
 	AgentTypeTester       AgentType = "tester"
 	AgentTypeCustom       AgentType = "custom"
+	AgentTypeGeneric      AgentType = "generic"
 )
 
 func (a AgentType) String() string {
@@ -179,6 +180,7 @@ func DefaultOrchestratorConfig() OrchestratorConfig {
 			AgentTypeGoLang,
 			AgentTypeReact,
 			AgentTypeTester,
+			AgentTypeGeneric,
 		},
 		DefaultAgent: AgentTypeGoLang,
 		MaxSubTasks:  10,

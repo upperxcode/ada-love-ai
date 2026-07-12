@@ -72,6 +72,9 @@ func (r *InternalRouter) DetectIntent(ctx context.Context, text string) (Intent,
 		return IntentGeneral, err
 	}
 
+	// Diagnostic log: print the request payload being sent to the classifier
+	fmt.Printf("[InternalRouter] POST %s labels=%d request_json=%s\n", r.Endpoint, len(r.Labels), string(jsonData))
+
 	req, err := http.NewRequestWithContext(ctx, "POST", r.Endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return IntentGeneral, err
@@ -80,9 +83,13 @@ func (r *InternalRouter) DetectIntent(ctx context.Context, text string) (Intent,
 
 	resp, err := r.Client.Do(req)
 	if err != nil {
+		fmt.Printf("[InternalRouter] request error: %v\n", err)
 		return IntentGeneral, fmt.Errorf("falha ao conectar no microservico classifier: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Log response status for visibility
+	fmt.Printf("[InternalRouter] response status=%d\n", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		return IntentGeneral, fmt.Errorf("status de erro do microservico: %d", resp.StatusCode)
@@ -90,8 +97,11 @@ func (r *InternalRouter) DetectIntent(ctx context.Context, text string) (Intent,
 
 	var ir internalResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ir); err != nil {
+		fmt.Printf("[InternalRouter] failed to decode response: %v\n", err)
 		return IntentGeneral, err
 	}
+	// Diagnostic log: show top label and scores
+	fmt.Printf("[InternalRouter] classify response: top_label=%q scores=%v\n", ir.TopLabel, ir.Scores)
 
 	// Map top label to our Intent enums. We compare to the first label (programming)
 	if ir.TopLabel == r.Labels[0] {

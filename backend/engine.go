@@ -213,8 +213,7 @@ func NewEngine() (*Engine, error) {
 		// Active workspace
 		db.GetGlobalConfig("active_workspace_path", &adaCfg.ActiveWorkspacePath)
 		db.GetGlobalConfig("active_workspace_index", &adaCfg.ActiveWorkspaceIndex)
-		}
-
+	}
 
 	// Migração e saneamento básico
 	if adaCfg.ProviderBases == nil {
@@ -852,115 +851,135 @@ func (e *Engine) SaveAdaConfig() error {
 		}
 	}
 
-		// Salva spec-wizards nas tabelas próprias (fazer antes de gravar workspaces que referenciam spec_wizard_id)
-		for _, sw := range e.adaCfg.SpecWizards {
-			if err := e.db.SaveSpecWizard(sw); err != nil {
-				fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
+	// Salva spec-wizards nas tabelas próprias (fazer antes de gravar workspaces que referenciam spec_wizard_id)
+	for _, sw := range e.adaCfg.SpecWizards {
+		if err := e.db.SaveSpecWizard(sw); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
+		}
+	}
+
+	// Salva workspaces no DB e sincroniza junctions
+	for _, ws := range e.adaCfg.Workspaces {
+		id, err := e.db.SaveWorkspace(ws)
+		if err != nil {
+			fmt.Printf("[Engine] Erro ao salvar workspace %q: %v\n", ws.Title, err)
+			continue
+		}
+		// Resolve IDs de workers/agents pelos nomes e grava junctions
+		var wids []int64
+		for _, wn := range ws.WorkerNames {
+			if w, err := e.db.GetWorkerByName(wn); err == nil && w != nil {
+				wids = append(wids, w.ID)
 			}
 		}
-
-		// Salva workspaces no DB e sincroniza junctions
-		for _, ws := range e.adaCfg.Workspaces {
-			id, err := e.db.SaveWorkspace(ws)
-			if err != nil {
-				fmt.Printf("[Engine] Erro ao salvar workspace %q: %v\n", ws.Title, err)
-				continue
-			}
-			// Resolve IDs de workers/agents pelos nomes e grava junctions
-			var wids []int64
-			for _, wn := range ws.WorkerNames {
-				if w, err := e.db.GetWorkerByName(wn); err == nil && w != nil {
-					wids = append(wids, w.ID)
-				}
-			}
-			e.db.SetWorkspaceWorkers(id, wids)
-			var aids []int64
-			for _, an := range ws.Agents {
-				if a, err := e.db.GetAgentByName(an); err == nil && a != nil {
-					aids = append(aids, a.ID)
-				}
-			}
-			e.db.SetWorkspaceAgents(id, aids)
-			// Persiste folders e knowledge via junction tables
-			e.db.SetWorkspaceFolders(id, ws.Folders)
-			e.db.SetWorkspaceKnowledge(id, ws.Knowledge)
-		}
-
-		// Salva workers/agents nas tabelas próprias
-		for _, w := range e.adaCfg.Workers {
-			if _, err := e.db.SaveWorker(w); err != nil {
-				fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
+		e.db.SetWorkspaceWorkers(id, wids)
+		var aids []int64
+		for _, an := range ws.Agents {
+			if a, err := e.db.GetAgentByName(an); err == nil && a != nil {
+				aids = append(aids, a.ID)
 			}
 		}
-		for _, a := range e.adaCfg.Agents {
-			if _, err := e.db.SaveAgent(a); err != nil {
-				fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
+		e.db.SetWorkspaceAgents(id, aids)
+		// Persiste folders, knowledge, skills e tools via junction tables
+		e.db.SetWorkspaceFolders(id, ws.Folders)
+		e.db.SetWorkspaceKnowledge(id, ws.Knowledge)
+		// Resolve and persist skills (names -> ids)
+		var sids []int64
+		for _, sname := range ws.Skills {
+			// Try to get existing skill id
+			sid, err := e.db.GetSkillIDByName(sname)
+			if err != nil || sid == 0 {
+				// create a minimal skill record
+				if _, err := e.db.SaveSkill(sname, "", "", ""); err != nil {
+					continue
+				}
+				if sid, err = e.db.GetSkillIDByName(sname); err != nil {
+					continue
+				}
+			}
+			sids = append(sids, sid)
+		}
+		if len(sids) > 0 {
+			e.db.SetWorkspaceSkills(id, sids)
+		}
+		// Persist tools (names)
+		e.db.SetWorkspaceTools(id, ws.Tools)
+	}
+
+	// Salva workers/agents nas tabelas próprias
+	for _, w := range e.adaCfg.Workers {
+		if _, err := e.db.SaveWorker(w); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar worker %q: %v\n", w.Name, err)
+		}
+	}
+	for _, a := range e.adaCfg.Agents {
+		if _, err := e.db.SaveAgent(a); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar agent %q: %v\n", a.Name, err)
+		}
+	}
+
+	// Salva seções restantes no DB (key-value)
+
+	e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
+	e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
+	e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
+	e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
+	e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
+	e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
+	e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
+	e.db.SetGlobalConfig("spec_tools", e.adaCfg.SpecTools)
+	e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
+	e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
+	e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
+	e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
+
+	// Also persist fixed_models rows for embedding, image, spec and tinybrain
+	if e.db != nil {
+		// embedding
+		if e.adaCfg.EmbeddingModel != "" {
+			if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "embedding", Provider: e.adaCfg.EmbeddingProvider, Model: e.adaCfg.EmbeddingModel}); err != nil {
+				fmt.Printf("[Engine] Warn: failed to persist embedding fixed model: %v\n", err)
 			}
 		}
-
-		// Salva seções restantes no DB (key-value)
-
-		e.db.SetGlobalConfig("tiny_brain", e.adaCfg.TinyBrain)
-		e.db.SetGlobalConfig("embedding_model", e.adaCfg.EmbeddingModel)
-		e.db.SetGlobalConfig("embedding_provider", e.adaCfg.EmbeddingProvider)
-		e.db.SetGlobalConfig("image_model", e.adaCfg.ImageModel)
-		e.db.SetGlobalConfig("image_provider", e.adaCfg.ImageProvider)
-		e.db.SetGlobalConfig("spec_model", e.adaCfg.SpecModel)
-		e.db.SetGlobalConfig("spec_provider", e.adaCfg.SpecProvider)
-		e.db.SetGlobalConfig("spec_tools", e.adaCfg.SpecTools)
-		e.db.SetGlobalConfig("tool_profiles", e.adaCfg.ToolProfiles)
-		e.db.SetGlobalConfig("mcp_servers", e.adaCfg.MCPServers)
-		e.db.SetGlobalConfig("active_workspace_path", e.adaCfg.ActiveWorkspacePath)
-		e.db.SetGlobalConfig("active_workspace_index", e.adaCfg.ActiveWorkspaceIndex)
-
-		// Also persist fixed_models rows for embedding, image, spec and tinybrain
-		if e.db != nil {
-			// embedding
-			if e.adaCfg.EmbeddingModel != "" {
-				if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "embedding", Provider: e.adaCfg.EmbeddingProvider, Model: e.adaCfg.EmbeddingModel}); err != nil {
-					fmt.Printf("[Engine] Warn: failed to persist embedding fixed model: %v\n", err)
-				}
+		// image
+		if e.adaCfg.ImageModel != "" {
+			if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "image", Provider: e.adaCfg.ImageProvider, Model: e.adaCfg.ImageModel}); err != nil {
+				fmt.Printf("[Engine] Warn: failed to persist image fixed model: %v\n", err)
 			}
-			// image
-			if e.adaCfg.ImageModel != "" {
-				if _, err := e.db.SaveFixedModelRow(FixedModel{Name: "image", Provider: e.adaCfg.ImageProvider, Model: e.adaCfg.ImageModel}); err != nil {
-					fmt.Printf("[Engine] Warn: failed to persist image fixed model: %v\n", err)
-				}
-			}
-			// spec
-			if e.adaCfg.SpecModel != "" || e.adaCfg.SpecProvider != "" {
-				if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "spec", Provider: e.adaCfg.SpecProvider, Model: e.adaCfg.SpecModel}); err == nil {
-					// set tools if present
-					if len(e.adaCfg.SpecTools) > 0 {
-						if err := e.db.SetFixedModelRowTools(id, e.adaCfg.SpecTools); err != nil {
-							fmt.Printf("[Engine] Warn: failed to persist spec tools: %v\n", err)
-						}
+		}
+		// spec
+		if e.adaCfg.SpecModel != "" || e.adaCfg.SpecProvider != "" {
+			if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "spec", Provider: e.adaCfg.SpecProvider, Model: e.adaCfg.SpecModel}); err == nil {
+				// set tools if present
+				if len(e.adaCfg.SpecTools) > 0 {
+					if err := e.db.SetFixedModelRowTools(id, e.adaCfg.SpecTools); err != nil {
+						fmt.Printf("[Engine] Warn: failed to persist spec tools: %v\n", err)
 					}
-				} else {
-					fmt.Printf("[Engine] Warn: failed to persist spec fixed model: %v\n", err)
 				}
+			} else {
+				fmt.Printf("[Engine] Warn: failed to persist spec fixed model: %v\n", err)
 			}
-			// tinybrain
-			if e.adaCfg.TinyBrain.ModelName != "" || e.adaCfg.TinyBrain.Provider != "" {
-				if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "tinybrain", Provider: e.adaCfg.TinyBrain.Provider, Model: e.adaCfg.TinyBrain.ModelName}); err == nil {
-					if len(e.adaCfg.TinyBrain.Tools) > 0 {
-						if err := e.db.SetFixedModelRowTools(id, e.adaCfg.TinyBrain.Tools); err != nil {
-							fmt.Printf("[Engine] Warn: failed to persist tinybrain tools: %v\n", err)
-						}
+		}
+		// tinybrain
+		if e.adaCfg.TinyBrain.ModelName != "" || e.adaCfg.TinyBrain.Provider != "" {
+			if id, err := e.db.SaveFixedModelRow(FixedModel{Name: "tinybrain", Provider: e.adaCfg.TinyBrain.Provider, Model: e.adaCfg.TinyBrain.ModelName}); err == nil {
+				if len(e.adaCfg.TinyBrain.Tools) > 0 {
+					if err := e.db.SetFixedModelRowTools(id, e.adaCfg.TinyBrain.Tools); err != nil {
+						fmt.Printf("[Engine] Warn: failed to persist tinybrain tools: %v\n", err)
 					}
-				} else {
-					fmt.Printf("[Engine] Warn: failed to persist tinybrain fixed model: %v\n", err)
 				}
+			} else {
+				fmt.Printf("[Engine] Warn: failed to persist tinybrain fixed model: %v\n", err)
 			}
 		}
+	}
 
-		// Salva spec-wizards nas tabelas próprias
-		for _, sw := range e.adaCfg.SpecWizards {
-			if err := e.db.SaveSpecWizard(sw); err != nil {
-				fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
-			}
+	// Salva spec-wizards nas tabelas próprias
+	for _, sw := range e.adaCfg.SpecWizards {
+		if err := e.db.SaveSpecWizard(sw); err != nil {
+			fmt.Printf("[Engine] Erro ao salvar spec-wizard %q: %v\n", sw.Name, err)
 		}
-
+	}
 
 	return nil
 }
@@ -2084,10 +2103,10 @@ func (e *Engine) testConnections() (string, error) {
 
 	for name, p := range e.adaCfg.Providers {
 		report.WriteString(fmt.Sprintf("Testing %s... ", name))
-		
+
 		// Use existing TestProviderConnection logic
 		res, err := e.TestProviderConnection(name, p.GetAPIKey(), p.ApiUrl, p.TypeConnection)
-		
+
 		if err == nil && res.Ok {
 			report.WriteString("✅ OK\n")
 			ok++

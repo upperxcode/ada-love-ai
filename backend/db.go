@@ -44,7 +44,7 @@ func NewStore(dbPath string) (*Store, error) {
 	}
 
 	// Configurações de pool para SQLite (vários leitores, um escritor típico)
-	db.SetMaxOpenConns(5)        // SQLite lida bem com poucas conexões
+	db.SetMaxOpenConns(5) // SQLite lida bem com poucas conexões
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
@@ -73,18 +73,18 @@ func (s *Store) init() error {
 		PRAGMA foreign_keys=ON;
 	`)
 
-		// Ensure workspace columns exist for extended fields
-		// Attempt to add new columns with ALTER TABLE; if they already exist SQLite will error — we ignore errors.
-		// This is a best-effort migration for older DBs.
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN summary TEXT DEFAULT ''`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN enabled BOOL NOT NULL DEFAULT 1`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN max_prompt_send INTEGER NOT NULL DEFAULT 0`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN commit_changes BOOL NOT NULL DEFAULT 0`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER NOT NULL DEFAULT 0`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''`)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''`)
+	// Ensure workspace columns exist for extended fields
+	// Attempt to add new columns with ALTER TABLE; if they already exist SQLite will error — we ignore errors.
+	// This is a best-effort migration for older DBs.
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN summary TEXT DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN enabled BOOL NOT NULL DEFAULT 1`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN max_prompt_send INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN commit_changes BOOL NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN max_context_length INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_model TEXT DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN embedding_provider TEXT DEFAULT ''`)
 
-		queries := []string{
+	queries := []string{
 		`CREATE TABLE IF NOT EXISTS workspaces (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			nome TEXT NOT NULL,
@@ -360,154 +360,152 @@ func (s *Store) init() error {
 			fixed_model_id INTEGER NOT NULL REFERENCES fixed_models(id) ON DELETE CASCADE,
 			tool TEXT NOT NULL
 		)`,
+	}
+	for _, idx := range indexes {
+		if _, err := s.db.Exec(idx); err != nil {
+			return fmt.Errorf("erro ao criar índice %q: %v", idx, err)
 		}
-		for _, idx := range indexes {
-			if _, err := s.db.Exec(idx); err != nil {
-				return fmt.Errorf("erro ao criar índice %q: %v", idx, err)
+	}
+
+	// Add spec_wizard_id column to workspaces table (migration for existing DBs)
+	s.db.Exec(`ALTER TABLE workspaces ADD COLUMN spec_wizard_id TEXT REFERENCES spec_wizards(id) ON DELETE SET NULL`)
+
+	// Ensure migrations table exists to track applied migrations (versioning by integer)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`)
+
+	// Read current schema version (max applied)
+	var curVersion int
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&curVersion); err != nil {
+		// non-fatal: log and continue with version 0
+		fmt.Printf("[DB] Warn: failed to read schema version: %v\n", err)
+		curVersion = 0
+	}
+
+	// Migration 1: move legacy global_config entries into fixed_models rows + legacy fixedmodels table migration
+	const migrationV1 = 1
+	if curVersion < migrationV1 {
+		// Perform migration (kept similar to previous behavior). If this fails we abort and do not record the version.
+		migrationPerformed := false
+
+		// 1) Spec
+		var specModel string
+		if ok, _ := s.GetGlobalConfig("spec_model", &specModel); ok && specModel != "" {
+			migrationPerformed = true
+			var specProvider string
+			s.GetGlobalConfig("spec_provider", &specProvider)
+			// Insert or update fixed_models row for 'spec'
+			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('spec', ?, ?)`, specProvider, specModel)
+			// Persist tools if present
+			var specTools []string
+			if ok2, _ := s.GetGlobalConfig("spec_tools", &specTools); ok2 {
+				var id int64
+				if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = 'spec'`).Scan(&id); err == nil {
+					// clear current tools and insert
+					s.db.Exec(`DELETE FROM fixed_model_tools WHERE fixed_model_id = ?`, id)
+					for _, t := range specTools {
+						s.db.Exec(`INSERT INTO fixed_model_tools (fixed_model_id, tool) VALUES (?, ?)`, id, t)
+					}
+				}
 			}
 		}
 
-		// Add spec_wizard_id column to workspaces table (migration for existing DBs)
-		s.db.Exec(`ALTER TABLE workspaces ADD COLUMN spec_wizard_id TEXT REFERENCES spec_wizards(id) ON DELETE SET NULL`)
-
-		// Ensure migrations table exists to track applied migrations (versioning by integer)
-		s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version INTEGER PRIMARY KEY,
-			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`) 
-
-		// Read current schema version (max applied)
-		var curVersion int
-		if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&curVersion); err != nil {
-			// non-fatal: log and continue with version 0
-			fmt.Printf("[DB] Warn: failed to read schema version: %v\n", err)
-			curVersion = 0
-		}
-
-		// Migration 1: move legacy global_config entries into fixed_models rows + legacy fixedmodels table migration
-		const migrationV1 = 1
-		if curVersion < migrationV1 {
-			// Perform migration (kept similar to previous behavior). If this fails we abort and do not record the version.
-			migrationPerformed := false
-
-			// 1) Spec
-			var specModel string
-			if ok, _ := s.GetGlobalConfig("spec_model", &specModel); ok && specModel != "" {
-				migrationPerformed = true
-				var specProvider string
-				s.GetGlobalConfig("spec_provider", &specProvider)
-				// Insert or update fixed_models row for 'spec'
-				s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('spec', ?, ?)`, specProvider, specModel)
-				// Persist tools if present
-				var specTools []string
-				if ok2, _ := s.GetGlobalConfig("spec_tools", &specTools); ok2 {
+		// 2) TinyBrain
+		var tinyRaw string
+		if ok, _ := s.GetGlobalConfig("tiny_brain", &tinyRaw); ok {
+			// tiny_brain may be stored as JSON object; try to unmarshal into struct
+			var tb struct {
+				ModelName string   `json:"model_name"`
+				Provider  string   `json:"provider"`
+				Tools     []string `json:"tools"`
+			}
+			if err := json.Unmarshal([]byte(tinyRaw), &tb); err == nil {
+				if tb.ModelName != "" {
+					migrationPerformed = true
+					s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('tinybrain', ?, ?)`, tb.Provider, tb.ModelName)
 					var id int64
-					if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = 'spec'`).Scan(&id); err == nil {
-						// clear current tools and insert
+					if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = 'tinybrain'`).Scan(&id); err == nil {
 						s.db.Exec(`DELETE FROM fixed_model_tools WHERE fixed_model_id = ?`, id)
-						for _, t := range specTools {
+						for _, t := range tb.Tools {
 							s.db.Exec(`INSERT INTO fixed_model_tools (fixed_model_id, tool) VALUES (?, ?)`, id, t)
 						}
 					}
 				}
 			}
+		}
 
-			// 2) TinyBrain
-			var tinyRaw string
-			if ok, _ := s.GetGlobalConfig("tiny_brain", &tinyRaw); ok {
-				// tiny_brain may be stored as JSON object; try to unmarshal into struct
-				var tb struct {
-					ModelName string   `json:"model_name"`
-					Provider  string   `json:"provider"`
-					Tools     []string `json:"tools"`
+		// 3) Embedding & Image
+		var embeddingModel, embeddingProvider string
+		if ok, _ := s.GetGlobalConfig("embedding_model", &embeddingModel); ok && embeddingModel != "" {
+			migrationPerformed = true
+			s.GetGlobalConfig("embedding_provider", &embeddingProvider)
+			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('embedding', ?, ?)`, embeddingProvider, embeddingModel)
+		}
+		var imageModel, imageProvider string
+		if ok, _ := s.GetGlobalConfig("image_model", &imageModel); ok && imageModel != "" {
+			migrationPerformed = true
+			s.GetGlobalConfig("image_provider", &imageProvider)
+			s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('image', ?, ?)`, imageProvider, imageModel)
+		}
+
+		// --- Migration: legacy fixedmodels table (compound table) → fixed_models rows ---
+		var tblName string
+		if err := s.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='fixedmodels'").Scan(&tblName); err == nil {
+			// legacy table exists — inspect columns to confirm legacy schema
+			rows, err := s.db.Query("PRAGMA table_info('fixedmodels')")
+			if err == nil {
+				cols := map[string]bool{}
+				for rows.Next() {
+					var cid int
+					var name, ctype string
+					var notnull, pk int
+					var dflt sql.NullString
+					_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
+					cols[name] = true
 				}
-				if err := json.Unmarshal([]byte(tinyRaw), &tb); err == nil {
-					if tb.ModelName != "" {
-						migrationPerformed = true
-						s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('tinybrain', ?, ?)`, tb.Provider, tb.ModelName)
-						var id int64
-						if err := s.db.QueryRow(`SELECT id FROM fixed_models WHERE name = 'tinybrain'`).Scan(&id); err == nil {
-							s.db.Exec(`DELETE FROM fixed_model_tools WHERE fixed_model_id = ?`, id)
-							for _, t := range tb.Tools {
-								s.db.Exec(`INSERT INTO fixed_model_tools (fixed_model_id, tool) VALUES (?, ?)`, id, t)
-							}
-						}
-					}
-				}
-			}
-
-			// 3) Embedding & Image
-			var embeddingModel, embeddingProvider string
-			if ok, _ := s.GetGlobalConfig("embedding_model", &embeddingModel); ok && embeddingModel != "" {
-				migrationPerformed = true
-				s.GetGlobalConfig("embedding_provider", &embeddingProvider)
-				s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('embedding', ?, ?)`, embeddingProvider, embeddingModel)
-			}
-			var imageModel, imageProvider string
-			if ok, _ := s.GetGlobalConfig("image_model", &imageModel); ok && imageModel != "" {
-				migrationPerformed = true
-				s.GetGlobalConfig("image_provider", &imageProvider)
-				s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('image', ?, ?)`, imageProvider, imageModel)
-			}
-
-			// --- Migration: legacy fixedmodels table (compound table) → fixed_models rows ---
-			var tblName string
-			if err := s.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='fixedmodels'").Scan(&tblName); err == nil {
-				// legacy table exists — inspect columns to confirm legacy schema
-				rows, err := s.db.Query("PRAGMA table_info('fixedmodels')")
-				if err == nil {
-					cols := map[string]bool{}
-					for rows.Next() {
-						var cid int
-						var name, ctype string
-						var notnull, pk int
-						var dflt sql.NullString
-						_ = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk)
-						cols[name] = true
-					}
-					rows.Close()
-					// If legacy columns present, rename old table to a backup and migrate
-					if cols["embedding_model"] || cols["spec_model"] || cols["image_model"] {
-						backup := fmt.Sprintf("fixedmodels_backup_%d", time.Now().Unix())
-						if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE fixedmodels RENAME TO %s", backup)); err != nil {
-							fmt.Printf("[DB] Warn: failed to rename legacy fixedmodels table: %v\n", err)
-						} else {
-							// Read from backup and insert rows into fixed_models
-							var ep, em, ip, im, sp, sm sql.NullString
-							row := s.db.QueryRow(fmt.Sprintf(`SELECT embedding_provider, embedding_model, image_provider, image_model, spec_provider, spec_model FROM %s LIMIT 1`, backup))
-							if row != nil {
-								if err := row.Scan(&ep, &em, &ip, &im, &sp, &sm); err == nil {
-									if em.Valid && em.String != "" {
-										s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('embedding', ?, ?)`, ep.String, em.String)
-									}
-									if im.Valid && im.String != "" {
-										s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('image', ?, ?)`, ip.String, im.String)
-									}
-									if sm.Valid && sm.String != "" {
-										s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('spec', ?, ?)`, sp.String, sm.String)
-									}
+				rows.Close()
+				// If legacy columns present, rename old table to a backup and migrate
+				if cols["embedding_model"] || cols["spec_model"] || cols["image_model"] {
+					backup := fmt.Sprintf("fixedmodels_backup_%d", time.Now().Unix())
+					if _, err := s.db.Exec(fmt.Sprintf("ALTER TABLE fixedmodels RENAME TO %s", backup)); err != nil {
+						fmt.Printf("[DB] Warn: failed to rename legacy fixedmodels table: %v\n", err)
+					} else {
+						// Read from backup and insert rows into fixed_models
+						var ep, em, ip, im, sp, sm sql.NullString
+						row := s.db.QueryRow(fmt.Sprintf(`SELECT embedding_provider, embedding_model, image_provider, image_model, spec_provider, spec_model FROM %s LIMIT 1`, backup))
+						if row != nil {
+							if err := row.Scan(&ep, &em, &ip, &im, &sp, &sm); err == nil {
+								if em.Valid && em.String != "" {
+									s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('embedding', ?, ?)`, ep.String, em.String)
+								}
+								if im.Valid && im.String != "" {
+									s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('image', ?, ?)`, ip.String, im.String)
+								}
+								if sm.Valid && sm.String != "" {
+									s.db.Exec(`INSERT OR REPLACE INTO fixed_models (name, provider, model) VALUES ('spec', ?, ?)`, sp.String, sm.String)
 								}
 							}
-							fmt.Printf("[DB] Legacy fixedmodels table renamed to %s and migrated to fixed_models\n", backup)
 						}
+						fmt.Printf("[DB] Legacy fixedmodels table renamed to %s and migrated to fixed_models\n", backup)
 					}
 				}
 			}
+		}
 
-			if migrationPerformed {
-				if _, err := s.db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, migrationV1); err != nil {
-					fmt.Printf("[DB] Warn: failed to record migration %d: %v\n", migrationV1, err)
-				} else {
-					fmt.Printf("[DB] Migration %d applied\n", migrationV1)
-				}
+		if migrationPerformed {
+			if _, err := s.db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, migrationV1); err != nil {
+				fmt.Printf("[DB] Warn: failed to record migration %d: %v\n", migrationV1, err)
+			} else {
+				fmt.Printf("[DB] Migration %d applied\n", migrationV1)
 			}
 		}
+	}
 
-		fmt.Printf("[DB] Init: schema normalizado criado (fresh start)\n")
-		return nil
-		}
-
-
+	fmt.Printf("[DB] Init: schema normalizado criado (fresh start)\n")
+	return nil
+}
 
 func (s *Store) Close() error {
 	return s.db.Close()
@@ -523,37 +521,37 @@ func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return s.db.Query(query, args...)
 }
 
-	// --- Operações de Configuração ---
-	
-	func (s *Store) SetGlobalConfig(key string, value interface{}) error {
-		data, err := json.Marshal(value)
-		if err != nil {
-			return err
-		}
-		_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, key, string(data))
+// --- Operações de Configuração ---
+
+func (s *Store) SetGlobalConfig(key string, value interface{}) error {
+	data, err := json.Marshal(value)
+	if err != nil {
 		return err
 	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, key, string(data))
+	return err
+}
 
-	func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
-		var value string
-		err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&value)
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		err = json.Unmarshal([]byte(value), target)
-		return true, err
+func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
 	}
+	if err != nil {
+		return false, err
+	}
+	err = json.Unmarshal([]byte(value), target)
+	return true, err
+}
 
-	// --- Fixed Models (embedding/image/spec/tinybrain) ---
-	// fixed_models: id, name, provider, model
-	// fixed_model_tools: id, fixed_model_id, tool
+// --- Fixed Models (embedding/image/spec/tinybrain) ---
+// fixed_models: id, name, provider, model
+// fixed_model_tools: id, fixed_model_id, tool
 
 type FixedModel struct {
 	ID       int64  `db:"id" json:"id"`
-	Name     string `db:"name" json:"name"`       // e.g. "embedding", "image", "spec", "tinybrain"
+	Name     string `db:"name" json:"name"` // e.g. "embedding", "image", "spec", "tinybrain"
 	Provider string `db:"provider" json:"provider"`
 	Model    string `db:"model" json:"model"`
 }
@@ -638,130 +636,70 @@ func (s *Store) GetFixedModelRowTools(fixedModelID int64) ([]string, error) {
 
 // --- Operações de Workspace ---
 
-	func (s *Store) SaveWorkspace(ws WorkspaceConfig) (int64, error) {
-		nome := ws.Title
-		if nome == "" {
-			nome = ws.Nome
+func (s *Store) SaveWorkspace(ws WorkspaceConfig) (int64, error) {
+	nome := ws.Title
+	if nome == "" {
+		nome = ws.Nome
+	}
+	if nome == "" {
+		nome = "Sem nome"
+	}
+	path := ws.Path
+	if path == "" {
+		path = strings.ToLower(strings.ReplaceAll(nome, " ", "_"))
+	}
+	// Ensure spec_wizard_id references an existing spec_wizard, otherwise use NULL to avoid FK error
+	specWizardID := ws.SpecWizardID
+	if specWizardID != "" {
+		var exists int
+		err := s.db.QueryRow(`SELECT 1 FROM spec_wizards WHERE id = ? LIMIT 1`, specWizardID).Scan(&exists)
+		if err != nil {
+			// not found or error -> unset to avoid FK violation
+			specWizardID = ""
 		}
-		if nome == "" {
-			nome = "Sem nome"
-		}
-		path := ws.Path
-		if path == "" {
-			path = strings.ToLower(strings.ReplaceAll(nome, " ", "_"))
-		}
-		// Ensure spec_wizard_id references an existing spec_wizard, otherwise use NULL to avoid FK error
-		specWizardID := ws.SpecWizardID
-		if specWizardID != "" {
-			var exists int
-			err := s.db.QueryRow(`SELECT 1 FROM spec_wizards WHERE id = ? LIMIT 1`, specWizardID).Scan(&exists)
-			if err != nil {
-				// not found or error -> unset to avoid FK violation
-				specWizardID = ""
-			}
-		}
-		_, err := s.db.Exec(`
+	}
+	_, err := s.db.Exec(`
 				INSERT OR REPLACE INTO workspaces (id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				ws.ID, nome, ws.Description, path, ws.MaxPrompt, ws.MaxContent, ws.Commit, ws.SpecProvider, specWizardID, ws.Personality, ws.Color, ws.Icon,
-				ws.Summary, ws.Enabled, ws.MaxPromptSend, ws.CommitChanges, ws.MaxContextLength, ws.EmbeddingModel, ws.EmbeddingProvider)
-		if err != nil {
-			return 0, err
-		}
-
-		var id int64
-		if ws.ID > 0 {
-			id = int64(ws.ID)
-		} else {
-			if rid, err2 := s.db.Exec(`SELECT id FROM workspaces WHERE path = ?`, path); err2 == nil {
-				_ = rid
-			}
-		}
-		// Recupera o id gerado
-		s.db.QueryRow(`SELECT id FROM workspaces WHERE path = ?`, path).Scan(&id)
-		return id, nil
+		ws.ID, nome, ws.Description, path, ws.MaxPrompt, ws.MaxContent, ws.Commit, ws.SpecProvider, specWizardID, ws.Personality, ws.Color, ws.Icon,
+		ws.Summary, ws.Enabled, ws.MaxPromptSend, ws.CommitChanges, ws.MaxContextLength, ws.EmbeddingModel, ws.EmbeddingProvider)
+	if err != nil {
+		return 0, err
 	}
 
-
-	func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
-		rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces`)
-		if err != nil {
-			return nil, err
+	var id int64
+	if ws.ID > 0 {
+		id = int64(ws.ID)
+	} else {
+		if rid, err2 := s.db.Exec(`SELECT id FROM workspaces WHERE path = ?`, path); err2 == nil {
+			_ = rid
 		}
-		defer rows.Close()
-
-		var workspaces []WorkspaceConfig
-		for rows.Next() {
-			var ws WorkspaceConfig
-			var nome, description, path, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
-			var maxPrompt, maxContent, maxPromptSend, maxContextLen sql.NullInt64
-			var commit, enabled sql.NullBool
-			if err := rows.Scan(&ws.ID, &nome, &description, &path, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
-				return nil, err
-			}
-			ws.Title = nome.String
-			ws.Nome = nome.String
-			ws.Description = description.String
-			ws.Path = path.String
-			ws.MaxPrompt = int(maxPrompt.Int64)
-			ws.MaxContent = int(maxContent.Int64)
-			ws.Commit = !commit.Valid || commit.Bool
-			ws.SpecProvider = specProvider.String
-			ws.SpecWizardID = specWizardID.String
-			ws.Personality = personality.String
-			ws.Color = color.String
-			ws.Icon = icon.String
-			ws.Summary = summary.String
-			ws.Enabled = !enabled.Valid || enabled.Bool
-			ws.MaxPromptSend = int(maxPromptSend.Int64)
-			ws.CommitChanges = !commit.Valid || commit.Bool
-			ws.MaxContextLength = int(maxContextLen.Int64)
-			ws.EmbeddingModel = embModel.String
-			ws.EmbeddingProvider = embProvider.String
-			// Resolve nomes de workers/agents via junction
-			ws.WorkerNames = s.GetWorkspaceWorkerNames(ws.ID)
-			ws.Agents = s.GetWorkspaceAgentNames(ws.ID)
-			ws.Folders = s.GetWorkspaceFolders(ws.ID)
-			ws.Knowledge = s.GetWorkspaceKnowledge(ws.ID)
-			// Load skills (IDs -> names)
-			// GetWorkspaceSkillIDs not implemented, use direct query
-			rowsSkills, err := s.db.Query(`SELECT s.name FROM skills s JOIN workspace_skills ws ON s.id = ws.skill_id WHERE ws.workspace_id = ? AND ws.enabled = 1`, ws.ID)
-			if err == nil {
-				for rowsSkills.Next() {
-					var sname string
-					rowsSkills.Scan(&sname)
-					ws.Skills = append(ws.Skills, sname)
-				}
-				rowsSkills.Close()
-			}
-			// Load tools
-			ws.Tools = s.GetWorkspaceToolsByID(ws.ID)
-			workspaces = append(workspaces, ws)
-		}
-		return workspaces, nil
 	}
+	// Recupera o id gerado
+	s.db.QueryRow(`SELECT id FROM workspaces WHERE path = ?`, path).Scan(&id)
+	return id, nil
+}
 
+func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
+	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
-		rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces WHERE path = ?`, path)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		if !rows.Next() {
-			return nil, nil
-		}
+	var workspaces []WorkspaceConfig
+	for rows.Next() {
 		var ws WorkspaceConfig
-		var nome, description, p, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
+		var nome, description, path, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
 		var maxPrompt, maxContent, maxPromptSend, maxContextLen sql.NullInt64
 		var commit, enabled sql.NullBool
-		if err := rows.Scan(&ws.ID, &nome, &description, &p, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
+		if err := rows.Scan(&ws.ID, &nome, &description, &path, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
 			return nil, err
 		}
 		ws.Title = nome.String
 		ws.Nome = nome.String
 		ws.Description = description.String
-		ws.Path = p.String
+		ws.Path = path.String
 		ws.MaxPrompt = int(maxPrompt.Int64)
 		ws.MaxContent = int(maxContent.Int64)
 		ws.Commit = !commit.Valid || commit.Bool
@@ -777,11 +715,13 @@ func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
 		ws.MaxContextLength = int(maxContextLen.Int64)
 		ws.EmbeddingModel = embModel.String
 		ws.EmbeddingProvider = embProvider.String
+		// Resolve nomes de workers/agents via junction
 		ws.WorkerNames = s.GetWorkspaceWorkerNames(ws.ID)
 		ws.Agents = s.GetWorkspaceAgentNames(ws.ID)
 		ws.Folders = s.GetWorkspaceFolders(ws.ID)
 		ws.Knowledge = s.GetWorkspaceKnowledge(ws.ID)
-		// Load skills
+		// Load skills (IDs -> names)
+		// GetWorkspaceSkillIDs not implemented, use direct query
 		rowsSkills, err := s.db.Query(`SELECT s.name FROM skills s JOIN workspace_skills ws ON s.id = ws.skill_id WHERE ws.workspace_id = ? AND ws.enabled = 1`, ws.ID)
 		if err == nil {
 			for rowsSkills.Next() {
@@ -793,8 +733,64 @@ func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
 		}
 		// Load tools
 		ws.Tools = s.GetWorkspaceToolsByID(ws.ID)
-		return &ws, nil
+		workspaces = append(workspaces, ws)
 	}
+	return workspaces, nil
+}
+
+func (s *Store) GetWorkspaceByPath(path string) (*WorkspaceConfig, error) {
+	rows, err := s.db.Query(`SELECT id, nome, description, path, max_prompt, max_content, "commit", spec_provider, spec_wizard_id, personality, color, icon, summary, enabled, max_prompt_send, commit_changes, max_context_length, embedding_model, embedding_provider FROM workspaces WHERE path = ?`, path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, nil
+	}
+	var ws WorkspaceConfig
+	var nome, description, p, specProvider, specWizardID, personality, color, icon, summary, embModel, embProvider sql.NullString
+	var maxPrompt, maxContent, maxPromptSend, maxContextLen sql.NullInt64
+	var commit, enabled sql.NullBool
+	if err := rows.Scan(&ws.ID, &nome, &description, &p, &maxPrompt, &maxContent, &commit, &specProvider, &specWizardID, &personality, &color, &icon, &summary, &enabled, &maxPromptSend, &commit, &maxContextLen, &embModel, &embProvider); err != nil {
+		return nil, err
+	}
+	ws.Title = nome.String
+	ws.Nome = nome.String
+	ws.Description = description.String
+	ws.Path = p.String
+	ws.MaxPrompt = int(maxPrompt.Int64)
+	ws.MaxContent = int(maxContent.Int64)
+	ws.Commit = !commit.Valid || commit.Bool
+	ws.SpecProvider = specProvider.String
+	ws.SpecWizardID = specWizardID.String
+	ws.Personality = personality.String
+	ws.Color = color.String
+	ws.Icon = icon.String
+	ws.Summary = summary.String
+	ws.Enabled = !enabled.Valid || enabled.Bool
+	ws.MaxPromptSend = int(maxPromptSend.Int64)
+	ws.CommitChanges = !commit.Valid || commit.Bool
+	ws.MaxContextLength = int(maxContextLen.Int64)
+	ws.EmbeddingModel = embModel.String
+	ws.EmbeddingProvider = embProvider.String
+	ws.WorkerNames = s.GetWorkspaceWorkerNames(ws.ID)
+	ws.Agents = s.GetWorkspaceAgentNames(ws.ID)
+	ws.Folders = s.GetWorkspaceFolders(ws.ID)
+	ws.Knowledge = s.GetWorkspaceKnowledge(ws.ID)
+	// Load skills
+	rowsSkills, err := s.db.Query(`SELECT s.name FROM skills s JOIN workspace_skills ws ON s.id = ws.skill_id WHERE ws.workspace_id = ? AND ws.enabled = 1`, ws.ID)
+	if err == nil {
+		for rowsSkills.Next() {
+			var sname string
+			rowsSkills.Scan(&sname)
+			ws.Skills = append(ws.Skills, sname)
+		}
+		rowsSkills.Close()
+	}
+	// Load tools
+	ws.Tools = s.GetWorkspaceToolsByID(ws.ID)
+	return &ws, nil
+}
 
 func (s *Store) DeleteWorkspaceByPath(path string) error {
 	_, err := s.db.Exec(`DELETE FROM workspaces WHERE path = ?`, path)
@@ -1176,6 +1172,35 @@ func (s *Store) SetWorkspaceTools(workspaceID int64, toolNames []string) error {
 	return nil
 }
 
+// GetWorkspaceToolsByID returns tool names for a workspace.
+func (s *Store) GetWorkspaceToolsByID(workspaceID int64) []string {
+	rows, err := s.db.Query(`SELECT tool_name FROM workspace_tools WHERE workspace_id = ? ORDER BY id`, workspaceID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var tools []string
+	for rows.Next() {
+		var t string
+		if rows.Scan(&t) == nil {
+			tools = append(tools, t)
+		}
+	}
+	return tools
+}
+
+// GetSkillIDByName returns the skill id for a given skill name, or 0 if not found.
+func (s *Store) GetSkillIDByName(name string) (int64, error) {
+	var id int64
+	if err := s.db.QueryRow(`SELECT id FROM skills WHERE name = ?`, name).Scan(&id); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
 func (s *Store) SetWorkspaceFolders(workspaceID int64, folders []string) error {
 	if _, err := s.db.Exec(`DELETE FROM workspace_folders WHERE workspace_id = ?`, workspaceID); err != nil {
 		return err
@@ -1257,10 +1282,10 @@ type StoredModel struct {
 }
 
 func (s *Store) SaveProviderFull(p StoredProvider) error {
-_, err := s.db.Exec(`
+	_, err := s.db.Exec(`
 			INSERT OR REPLACE INTO providers (id, name, api_url, connection_types, color, icon)
 			VALUES ((SELECT id FROM providers WHERE name = ?), ?, ?, ?, ?, ?)`,
-			p.Name, p.Name, p.APIURL, p.ConnectionTypes, p.Color, p.Icon)
+		p.Name, p.Name, p.APIURL, p.ConnectionTypes, p.Color, p.Icon)
 	if err != nil {
 		return err
 	}
@@ -1373,7 +1398,6 @@ func (s *Store) GetFixedModels() (FixedModels, error) {
 	return f, err
 }
 
-
 // adaptProviderConfig converte ProviderConfig (modelo de app) → StoredProvider (modelo de DB).
 func adaptProviderConfig(name string, p ProviderConfig) StoredProvider {
 	sp := StoredProvider{
@@ -1394,10 +1418,10 @@ func adaptProviderConfig(name string, p ProviderConfig) StoredProvider {
 // deadaptProviderConfig converte StoredProvider (DB) → ProviderConfig (app).
 func deadaptProviderConfig(sp StoredProvider) ProviderConfig {
 	pc := ProviderConfig{
-		ApiUrl:        sp.APIURL,
+		ApiUrl:         sp.APIURL,
 		TypeConnection: sp.ConnectionTypes,
-		Color:         sp.Color,
-		Icon:          sp.Icon,
+		Color:          sp.Color,
+		Icon:           sp.Icon,
 	}
 	for _, k := range sp.APIKeys {
 		pc.ApiKeys = append(pc.ApiKeys, ProviderApiKey{Key: k})
@@ -1702,8 +1726,6 @@ func (s *Store) DeleteSpecWizard(id string) error {
 	_, err := s.db.Exec(`DELETE FROM spec_wizards WHERE id = ?`, id)
 	return err
 }
-
-
 
 func Float32ToByte(f []float32) []byte {
 	buf := make([]byte, len(f)*4)

@@ -725,9 +725,14 @@ func (s *Store) ListFixedModelRows() ([]FixedModel, error) {
 	out := []FixedModel{}
 	for rows.Next() {
 		var f FixedModel
-		if err := rows.Scan(&f.ID, &f.Name, &f.Provider, &f.Model); err != nil {
+		var provider sql.NullString
+		var model sql.NullString
+		if err := rows.Scan(&f.ID, &f.Name, &provider, &model); err != nil {
+			// don't abort the whole operation on a bad row; return the error
 			return nil, err
 		}
+		f.Provider = provider.String
+		f.Model = model.String
 		out = append(out, f)
 	}
 	// Debug: print loaded fixed models for visibility during startup/migration

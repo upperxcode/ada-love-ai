@@ -28,40 +28,66 @@ func NewTinyBrainRouter(model providers.LLMProvider) *TinyBrainRouter {
 }
 
 func (r *TinyBrainRouter) DetectIntent(ctx context.Context, userInput string) (Intent, error) {
-	systemPrompt := `You are an intent classifier for a coding assistant. Analyze the user's message and classify it into ONE of these categories:
+    // Prompt otimizado com Few-Shot e delimitação estrita
+    systemPrompt := `You are a strict binary and multi-class intent router for an AI assistant.
+Your ONLY job is to output one of these exact tokens: GENERAL, GO_PROGRAMMING, CODE_REVIEW, DEBUGGING, ARCHITECTURE.
 
-1. GENERAL - General questions, greetings, casual chat, non-coding topics
-2. GO_PROGRAMMING - Writing, creating, or implementing Go code (functions, structs, APIs, CLI tools, etc.)
-3. CODE_REVIEW - Asking for code review, improvements, best practices on existing code
-4. DEBUGGING - Help with errors, bugs, crashes, test failures, stack traces
-5. ARCHITECTURE - System design, patterns, project structure, scalability decisions
+CRITICAL RULES:
+- If the user asks for factual info, list of cities, geography, math, weather, history, or casual chat, you MUST respond with GENERAL.
+- Do NOT write code. Do NOT create software architectures for general questions.
 
-Respond ONLY with the category name (e.g., GO_PROGRAMMING). No explanation.`
+EXAMPLES:
+User: me dê as 5 cidades brasileiras com o maior idh
+Assistant: GENERAL
 
-	messages := []providers.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userInput},
-	}
+User: como tratar erros de forma idiomatica no go?
+Assistant: GO_PROGRAMMING
 
-	resp, err := r.model.Chat(ctx, messages, nil, "", map[string]any{
-		"temperature": 0.1,
-		"max_tokens":  10,
-	})
-	if err != nil {
-		return IntentGeneral, fmt.Errorf("tinybrain classification failed: %w", err)
-	}
+User: crie uma API com Echo para gerenciar condominio
+Assistant: GO_PROGRAMMING
 
-	result := strings.ToUpper(strings.TrimSpace(resp.Content))
-	switch result {
-	case "GO_PROGRAMMING":
-		return IntentGoProgramming, nil
-	case "CODE_REVIEW":
-		return IntentCodeReview, nil
-	case "DEBUGGING":
-		return IntentDebugging, nil
-	case "ARCHITECTURE":
-		return IntentArchitecture, nil
-	default:
-		return IntentGeneral, nil
-	}
+User: por que meu ponteiro da nil pointer aqui?
+Assistant: DEBUGGING
+
+User: o que achou da estrutura desse struct? alguma boa pratica?
+Assistant: CODE_REVIEW
+
+User: qual o valor da moto dominar 400?
+Assistant: GENERAL
+
+Respond ONLY with the category token. No markdown, no punctuation, no explanations.`
+
+    messages := []providers.Message{
+        {Role: "system", Content: systemPrompt},
+        {Role: "user", Content: userInput},
+    }
+
+    // Forçamos a temperatura para 0.0 absoluto
+    resp, err := r.model.Chat(ctx, messages, nil, "", map[string]any{
+        "temperature": 0.0,
+        "max_tokens":  6, // Reduzido para 6 pois o maior token é GO_PROGRAMMING (aprox. 4-5 tokens)
+    })
+    if err != nil {
+        return IntentGeneral, fmt.Errorf("tinybrain classification failed: %w", err)
+    }
+
+    // Sanitização defensiva da string
+    result := strings.ToUpper(strings.TrimSpace(resp.Content))
+
+    // Usando Contains para blindar contra pontuações ou prefixos como "1. GENERAL"
+    if strings.Contains(result, "GO_PROGRAMMING") {
+        return IntentGoProgramming, nil
+    }
+    if strings.Contains(result, "CODE_REVIEW") {
+        return IntentCodeReview, nil
+    }
+    if strings.Contains(result, "DEBUGGING") {
+        return IntentDebugging, nil
+    }
+    if strings.Contains(result, "ARCHITECTURE") {
+        return IntentArchitecture, nil
+    }
+
+    // Qualquer outra coisa (ou falha) cai com segurança no GENERAL
+    return IntentGeneral, nil
 }

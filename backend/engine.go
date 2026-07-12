@@ -434,9 +434,9 @@ func NewEngine() (*Engine, error) {
 	fmt.Println("[Engine] Orchestrator inicializado (personality-based)")
 
 	// Initialize Greeting System (SQLite-based zero-token responses)
-	dbPath := filepath.Join(configDir, "greetings.db")
+	greetDBPath := filepath.Join(configDir, "greetings.db")
 	var greetingSysLocal *greeting.GreetingSystem
-	greetingSysLocal, err = greeting.NewGreetingSystem(dbPath)
+	greetingSysLocal, err = greeting.NewGreetingSystem(greetDBPath)
 	if err != nil {
 		fmt.Printf("[Engine] Aviso: falha ao inicializar Greeting System: %v\n", err)
 	} else {

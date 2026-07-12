@@ -252,6 +252,11 @@ func NewEngine() (*Engine, error) {
 		}
 	}
 
+	// If TinyBrain isn't configured in fixed_models/providers, log an explicit warning
+	if adaCfg.TinyBrain.Provider == "" || adaCfg.TinyBrain.ModelName == "" {
+		fmt.Printf("[Engine] Warn: TinyBrain appears not fully configured: provider=%q model=%q. Check fixed_models and provider_models tables.\n", adaCfg.TinyBrain.Provider, adaCfg.TinyBrain.ModelName)
+	}
+
 	// Migração e saneamento básico
 	if adaCfg.ProviderBases == nil {
 		adaCfg.ProviderBases = make(map[string]string)

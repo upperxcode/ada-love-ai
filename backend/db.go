@@ -697,25 +697,25 @@ func (s *Store) SaveFixedModelRow(f FixedModel) (int64, error) {
 }
 
 func (s *Store) ListFixedModelRows() ([]FixedModel, error) {
-		rows, err := s.db.Query(`SELECT id, name, provider, model FROM fixed_models`)
-		if err != nil {
+	rows, err := s.db.Query(`SELECT id, name, provider, model FROM fixed_models`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FixedModel{}
+	for rows.Next() {
+		var f FixedModel
+		if err := rows.Scan(&f.ID, &f.Name, &f.Provider, &f.Model); err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-		out := []FixedModel{}
-		for rows.Next() {
-			var f FixedModel
-			if err := rows.Scan(&f.ID, &f.Name, &f.Provider, &f.Model); err != nil {
-				return nil, err
-			}
-			out = append(out, f)
-		}
-		// Debug: print loaded fixed models for visibility during startup/migration
-		for _, f := range out {
-			fmt.Printf("[DB] fixed_model loaded: id=%d name=%q provider=%q model=%q\n", f.ID, f.Name, f.Provider, f.Model)
-		}
-		return out, nil
+		out = append(out, f)
 	}
+	// Debug: print loaded fixed models for visibility during startup/migration
+	for _, f := range out {
+		fmt.Printf("[DB] fixed_model loaded: id=%d name=%q provider=%q model=%q\n", f.ID, f.Name, f.Provider, f.Model)
+	}
+	return out, nil
+}
 
 func (s *Store) DeleteFixedModelRowByName(name string) error {
 	var id int64

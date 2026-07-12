@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,11 +18,16 @@ import (
 	"ada-love-ai/pkg/agent/interfaces"
 	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/config"
+	"ada-love-ai/pkg/contextloader"
+	"ada-love-ai/pkg/greeting"
 	"ada-love-ai/pkg/orchestrator"
+	"ada-love-ai/pkg/profiles"
 	"ada-love-ai/pkg/providers"
 	"ada-love-ai/pkg/skills"
+	"ada-love-ai/pkg/tinybrain"
 	adatools "ada-love-ai/pkg/tools"
 	"ada-love-ai/pkg/tools/integration"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -56,6 +62,10 @@ type Engine struct {
 	summarizer *SummarizerWorker
 	// Orchestrator for multi-agent routing
 	orchestrator *orchestrator.Orchestrator
+	// Routing & Injection components
+	greetingSystem  *greeting.GreetingSystem
+	tinyBrainRouter *tinybrain.TinyBrainRouter
+	profiles        map[string]string
 }
 
 func NewEngine() (*Engine, error) {
@@ -424,6 +434,44 @@ func NewEngine() (*Engine, error) {
 		orchCfg, "", orchCfg.WorkspaceRoot,
 	)
 	fmt.Println("[Engine] Orchestrator inicializado (personality-based)")
+
+	// Initialize Greeting System (SQLite-based zero-token responses)
+	dbPath := filepath.Join(configDir, "greetings.db")
+	greetingSys, err := greeting.NewGreetingSystem(dbPath)
+	if err != nil {
+		fmt.Printf("[Engine] Aviso: falha ao inicializar Greeting System: %v\n", err)
+	} else {
+		greetingSys.Seed()
+		e.greetingSystem = greetingSys
+		fmt.Println("[Engine] Greeting System inicializado (SQLite-based zero-token responses)")
+	}
+
+	// Initialize TinyBrain Router for intent classification using the TinyBrain model
+	if e.adaCfg.TinyBrain.ModelName != "" && e.adaCfg.TinyBrain.Provider != "" {
+		// Create a provider for the TinyBrain model
+		tinyBrainProvider, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
+			Provider:  e.adaCfg.TinyBrain.Provider,
+			ModelName: e.adaCfg.TinyBrain.ModelName,
+			Model:     e.adaCfg.TinyBrain.ModelName,
+			Enabled:   true,
+		})
+		if err == nil && tinyBrainProvider != nil {
+			tinyBrainRouter := tinybrain.NewTinyBrainRouter(tinyBrainProvider)
+			e.tinyBrainRouter = tinyBrainRouter
+			fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
+		} else {
+			fmt.Printf("[Engine] Aviso: falha ao criar provider para TinyBrain: %v\n", err)
+		}
+	} else {
+		fmt.Println("[Engine] TinyBrain não configurado — classificação de intenção desabilitada")
+	}
+
+	// Context Loader - using package functions directly (no struct needed)
+	fmt.Println("[Engine] Context Loader disponível (file injection via pkg/contextloader)")
+
+	// Load Specialist Profiles
+	e.profiles = profiles.GetAllProfiles()
+	fmt.Printf("[Engine] %d Specialist Profiles carregados\n", len(e.profiles))
 
 	// Seed workspace templates se a tabela estiver vazia
 	if e.db != nil {

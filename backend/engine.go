@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"ada-love-ai/pkg/agent/interfaces"
 	"ada-love-ai/pkg/bus"
 	"ada-love-ai/pkg/config"
-	"ada-love-ai/pkg/contextloader"
 	"ada-love-ai/pkg/greeting"
 	"ada-love-ai/pkg/orchestrator"
 	"ada-love-ai/pkg/profiles"

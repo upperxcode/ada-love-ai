@@ -82,6 +82,19 @@ func (w *StreamingWrapper) Chat(ctx context.Context, messages []providers.Messag
 					res, _ := results[0].Interface().(*providers.LLMResponse)
 					err, _ := results[1].Interface().(error)
 
+					// Diagnostic: log provider reflection call results
+					fmt.Printf("[StreamingWrapper] Chat (reflect): provider=%T err=%v res_finish=%v content_len=%d\n", w.base, err, func() string {
+						if res == nil {
+							return "<nil>"
+						}
+						return res.FinishReason
+					}(), func() int {
+						if res == nil {
+							return 0
+						}
+						return len(res.Content)
+					}())
+
 					// Sincronização final: garante que qualquer conteúdo que não foi enviado via delta
 					// durante o streaming seja enviado agora.
 					if err == nil && res != nil && len(res.Content) > lastLen {
@@ -90,6 +103,7 @@ func (w *StreamingWrapper) Chat(ctx context.Context, messages []providers.Messag
 
 					return res, err
 				}
+
 			}
 		}
 	}

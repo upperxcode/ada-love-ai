@@ -28,7 +28,7 @@ func TestEstimateMessageTokens(t *testing.T) {
 
 	t.Run("message with reasoning", func(t *testing.T) {
 		msg := providers.Message{
-			Content:         "answer",
+			Content:          "answer",
 			ReasoningContent: "thinking step by step",
 		}
 		got := EstimateMessageTokens(msg)

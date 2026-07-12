@@ -59,9 +59,9 @@ func (m *mockOrchestratorProvider) GetDefaultModel() string {
 
 func TestLLMRoute_ValidJSON(t *testing.T) {
 	decision := RoutingDecision{
-		Reasoning:   "Tarefa envolve backend Go",
-		NextAgent:   AgentTypeGoLang,
-		Task:        "Criar handler HTTP para login",
+		Reasoning:    "Tarefa envolve backend Go",
+		NextAgent:    AgentTypeGoLang,
+		Task:         "Criar handler HTTP para login",
 		RelatedFiles: []string{"handler.go"},
 		RequiresTest: true,
 	}
@@ -92,9 +92,9 @@ func TestLLMRoute_ValidJSON(t *testing.T) {
 
 func TestLLMRoute_ValidJSONWithMarkdown(t *testing.T) {
 	decision := RoutingDecision{
-		Reasoning:  "Frontend React",
-		NextAgent:  AgentTypeReact,
-		Task:       "Criar componente",
+		Reasoning: "Frontend React",
+		NextAgent: AgentTypeReact,
+		Task:      "Criar componente",
 	}
 	jsonBytes, _ := json.Marshal(decision)
 	// Simula LLM que envolve JSON em code block

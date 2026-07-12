@@ -10,15 +10,15 @@ import (
 
 // BaseSubAgent provides common functionality for sub-agents
 type BaseSubAgent struct {
-	agentType      AgentType
-	model          string
-	systemPrompt   string
-	capabilities   []AgentCapability
-	tools          []string
-	maxIterations  int
-	temperature    float64
-	provider       providers.LLMProvider
-	workspaceRoot  string
+	agentType     AgentType
+	model         string
+	systemPrompt  string
+	capabilities  []AgentCapability
+	tools         []string
+	maxIterations int
+	temperature   float64
+	provider      providers.LLMProvider
+	workspaceRoot string
 }
 
 func NewBaseSubAgent(agentType AgentType, config SubAgentConfig, workspaceRoot string) *BaseSubAgent {
@@ -98,9 +98,9 @@ func (b *BaseSubAgent) Execute(ctx context.Context, task string, layers PromptLa
 		Success: true,
 		Output:  resp.Content,
 		Metadata: map[string]any{
-			"model":        b.model,
-			"iterations":   1,
-			"tokens_used":  resp.Usage.TotalTokens,
+			"model":       b.model,
+			"iterations":  1,
+			"tokens_used": resp.Usage.TotalTokens,
 		},
 	}, nil
 }

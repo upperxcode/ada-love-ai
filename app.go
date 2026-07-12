@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	gortime "runtime"
 	"os"
 	"path/filepath"
+	gortime "runtime"
 	"strings"
 
 	"ada-love-ai/backend"
@@ -304,112 +304,111 @@ func (a *App) DeleteDBProvider(name string) error {
 	return a.engine.DeleteDBProvider(name)
 }
 
-	// SpecWizards
-	func (a *App) GetSpecWizards() []backend.SpecWizardConfig {
-		wizards, _ := a.engine.DB().GetSpecWizards()
-		return wizards
-	}
+// SpecWizards
+func (a *App) GetSpecWizards() []backend.SpecWizardConfig {
+	wizards, _ := a.engine.DB().GetSpecWizards()
+	return wizards
+}
 
-	func (a *App) GetSpecWizard(id string) *backend.SpecWizardConfig {
-		w, _ := a.engine.DB().GetSpecWizardByID(id)
-		return w
-	}
+func (a *App) GetSpecWizard(id string) *backend.SpecWizardConfig {
+	w, _ := a.engine.DB().GetSpecWizardByID(id)
+	return w
+}
 
-	func (a *App) SaveSpecWizard(w backend.SpecWizardConfig) error {
-		return a.engine.DB().SaveSpecWizard(w)
-	}
+func (a *App) SaveSpecWizard(w backend.SpecWizardConfig) error {
+	return a.engine.DB().SaveSpecWizard(w)
+}
 
-	func (a *App) DeleteSpecWizard(id string) error {
-		return a.engine.DB().DeleteSpecWizard(id)
-	}
+func (a *App) DeleteSpecWizard(id string) error {
+	return a.engine.DB().DeleteSpecWizard(id)
+}
 
-	// Fixed models API (row-based) exposed to frontend
-	func (a *App) ListFixedModels() []backend.FixedModel {
-		if a.engine == nil || a.engine.DB() == nil {
-			return nil
-		}
-		rows, err := a.engine.DB().ListFixedModelRows()
-		if err != nil {
-			fmt.Printf("[App] ListFixedModels: db error: %v\n", err)
-			return nil
-		}
-		return rows
+// Fixed models API (row-based) exposed to frontend
+func (a *App) ListFixedModels() []backend.FixedModel {
+	if a.engine == nil || a.engine.DB() == nil {
+		return nil
 	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		fmt.Printf("[App] ListFixedModels: db error: %v\n", err)
+		return nil
+	}
+	return rows
+}
 
-	func (a *App) SaveFixedModel(name, provider, model string) backend.FixedModel {
-		var out backend.FixedModel
-		if a.engine == nil || a.engine.DB() == nil {
-			return out
-		}
-		id, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{ID: 0, Name: name, Provider: provider, Model: model})
-		if err != nil {
-			fmt.Printf("[App] SaveFixedModel: error saving: %v\n", err)
-			return out
-		}
-		rows, _ := a.engine.DB().ListFixedModelRows()
-		for _, r := range rows {
-			if r.ID == id {
-				return r
-			}
-		}
+func (a *App) SaveFixedModel(name, provider, model string) backend.FixedModel {
+	var out backend.FixedModel
+	if a.engine == nil || a.engine.DB() == nil {
 		return out
 	}
-
-	func (a *App) SetFixedModelTools(modelName string, tools []string) bool {
-		if a.engine == nil || a.engine.DB() == nil {
-			return false
-		}
-		rows, err := a.engine.DB().ListFixedModelRows()
-		if err != nil {
-			return false
-		}
-		var id int64 = 0
-		for _, r := range rows {
-			if r.Name == modelName {
-				id = r.ID
-				break
-			}
-		}
-		if id == 0 {
-			// create row
-			newID, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{Name: modelName, Provider: "", Model: ""})
-			if err != nil {
-				return false
-			}
-			id = newID
-		}
-		if err := a.engine.DB().SetFixedModelRowTools(id, tools); err != nil {
-			fmt.Printf("[App] SetFixedModelTools: error setting tools: %v\n", err)
-			return false
-		}
-		return true
+	id, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{ID: 0, Name: name, Provider: provider, Model: model})
+	if err != nil {
+		fmt.Printf("[App] SaveFixedModel: error saving: %v\n", err)
+		return out
 	}
-
-	func (a *App) GetFixedModelTools(modelName string) []string {
-		if a.engine == nil || a.engine.DB() == nil {
-			return nil
+	rows, _ := a.engine.DB().ListFixedModelRows()
+	for _, r := range rows {
+		if r.ID == id {
+			return r
 		}
-		rows, err := a.engine.DB().ListFixedModelRows()
-		if err != nil {
-			return nil
-		}
-		var id int64
-		for _, r := range rows {
-			if r.Name == modelName {
-				id = r.ID
-				break
-			}
-		}
-		if id == 0 {
-			return nil
-		}
-		tools, err := a.engine.DB().GetFixedModelRowTools(id)
-		if err != nil {
-			return nil
-		}
-		return tools
 	}
+	return out
+}
 
+func (a *App) SetFixedModelTools(modelName string, tools []string) bool {
+	if a.engine == nil || a.engine.DB() == nil {
+		return false
+	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		return false
+	}
+	var id int64 = 0
+	for _, r := range rows {
+		if r.Name == modelName {
+			id = r.ID
+			break
+		}
+	}
+	if id == 0 {
+		// create row
+		newID, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{Name: modelName, Provider: "", Model: ""})
+		if err != nil {
+			return false
+		}
+		id = newID
+	}
+	if err := a.engine.DB().SetFixedModelRowTools(id, tools); err != nil {
+		fmt.Printf("[App] SetFixedModelTools: error setting tools: %v\n", err)
+		return false
+	}
+	return true
+}
+
+func (a *App) GetFixedModelTools(modelName string) []string {
+	if a.engine == nil || a.engine.DB() == nil {
+		return nil
+	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		return nil
+	}
+	var id int64
+	for _, r := range rows {
+		if r.Name == modelName {
+			id = r.ID
+			break
+		}
+	}
+	if id == 0 {
+		return nil
+	}
+	tools, err := a.engine.DB().GetFixedModelRowTools(id)
+	if err != nil {
+		return nil
+	}
+	return tools
+}
 
 // FetchProviderModels queries a provider's /models endpoint and returns the
 func (a *App) FetchProviderModels(name, apiKey, apiBase, connectionType string) ([]backend.ProviderModel, error) {
@@ -508,11 +507,11 @@ func (a *App) SetSessionConfig(sessionID, model, provider, mode, thinking string
 
 // CommandInfo mirrors commands.Definition for JSON serialization to the frontend.
 type CommandInfo struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Usage       string            `json:"usage"`
-	Aliases     []string          `json:"aliases"`
-	SubCommands []SubCommandInfo  `json:"sub_commands"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Usage       string           `json:"usage"`
+	Aliases     []string         `json:"aliases"`
+	SubCommands []SubCommandInfo `json:"sub_commands"`
 }
 
 // SubCommandInfo mirrors commands.SubCommand for JSON serialization.

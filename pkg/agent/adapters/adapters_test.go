@@ -21,10 +21,10 @@ func TestMessageBusAdapterPublishInbound(t *testing.T) {
 
 	ctx := context.Background()
 	msg := bus.InboundMessage{
-		Channel:   "test",
-		ChatID:    "chat1",
-		SenderID:  "user1",
-		Content:   "hello",
+		Channel:    "test",
+		ChatID:     "chat1",
+		SenderID:   "user1",
+		Content:    "hello",
 		SessionKey: "session1",
 	}
 
@@ -40,9 +40,9 @@ func TestMessageBusAdapterPublishOutbound(t *testing.T) {
 
 	ctx := context.Background()
 	msg := bus.OutboundMessage{
-		Channel:  "test",
-		ChatID:   "chat1",
-		Content:  "hello",
+		Channel: "test",
+		ChatID:  "chat1",
+		Content: "hello",
 	}
 
 	err := adapter.PublishOutbound(ctx, msg)

@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -12,19 +13,19 @@ import (
 
 // ContextLogEntry represents a log entry for what a chat sent as context
 type ContextLogEntry struct {
-	Timestamp     time.Time `json:"timestamp"`
-	SessionID     string    `json:"session_id"`
-	WorkspaceID   string    `json:"workspace_id"`
-	WorkerName    string    `json:"worker_name"`
-	Model         string    `json:"model"`
-	Provider      string    `json:"provider"`
-	Mode          string    `json:"mode"`
-	Thinking      string    `json:"thinking"`
-	UserMessage   string    `json:"user_message"`
-	FullPrompt    string    `json:"full_prompt"`
-	HistoryCount  int       `json:"history_count"`
-	MessageCount  int       `json:"message_count"`
-	Error         string    `json:"error,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+	SessionID    string    `json:"session_id"`
+	WorkspaceID  string    `json:"workspace_id"`
+	WorkerName   string    `json:"worker_name"`
+	Model        string    `json:"model"`
+	Provider     string    `json:"provider"`
+	Mode         string    `json:"mode"`
+	Thinking     string    `json:"thinking"`
+	UserMessage  string    `json:"user_message"`
+	FullPrompt   string    `json:"full_prompt"`
+	HistoryCount int       `json:"history_count"`
+	MessageCount int       `json:"message_count"`
+	Error        string    `json:"error,omitempty"`
 }
 
 // SessionStats contains statistics for a single session
@@ -63,7 +64,7 @@ func main() {
 
 	// Group by session
 	sessions := groupBySession(entries)
-	
+
 	// Print session summaries
 	fmt.Println("--- Sessions Summary ---")
 	for _, sess := range sessions {
@@ -131,7 +132,7 @@ func readLogEntries(path string) ([]ContextLogEntry, error) {
 
 	decoder := json.NewDecoder(file)
 	var entries []ContextLogEntry
-	
+
 	for {
 		var entry ContextLogEntry
 		if err := decoder.Decode(&entry); err != nil {
@@ -139,28 +140,28 @@ func readLogEntries(path string) ([]ContextLogEntry, error) {
 		}
 		entries = append(entries, entry)
 	}
-	
+
 	return entries, nil
 }
 
 func groupBySession(entries []ContextLogEntry) []*SessionStats {
 	sessionMap := make(map[string]*SessionStats)
-	
+
 	for _, entry := range entries {
 		sess, ok := sessionMap[entry.SessionID]
 		if !ok {
 			sess = &SessionStats{
-				SessionID:       entry.SessionID,
-				WorkerName:      entry.WorkerName,
-				WorkspaceID:     entry.WorkspaceID,
-				Model:           entry.Model,
-				Provider:        entry.Provider,
-				Mode:            entry.Mode,
-				UserMessages:    make([]string, 0),
+				SessionID:    entry.SessionID,
+				WorkerName:   entry.WorkerName,
+				WorkspaceID:  entry.WorkspaceID,
+				Model:        entry.Model,
+				Provider:     entry.Provider,
+				Mode:         entry.Mode,
+				UserMessages: make([]string, 0),
 			}
 			sessionMap[entry.SessionID] = sess
 		}
-		
+
 		sess.TotalMessages += entry.MessageCount
 		sess.FirstMessage = minTime(sess.FirstMessage, entry.Timestamp)
 		sess.LastMessage = maxTime(sess.LastMessage, entry.Timestamp)
@@ -172,16 +173,16 @@ func groupBySession(entries []ContextLogEntry) []*SessionStats {
 		}
 		sess.UserMessages = append(sess.UserMessages, entry.UserMessage)
 	}
-	
+
 	result := make([]*SessionStats, 0, len(sessionMap))
 	for _, sess := range sessionMap {
 		result = append(result, sess)
 	}
-	
+
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].LastMessage.After(result[j].LastMessage)
 	})
-	
+
 	return result
 }
 

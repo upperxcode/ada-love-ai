@@ -26,7 +26,7 @@ type ApprovalRequest struct {
 type ToolCategory string
 
 const (
-	ToolCategoryRead ToolCategory = "read"
+	ToolCategoryRead  ToolCategory = "read"
 	ToolCategoryWrite ToolCategory = "write"
 )
 
@@ -36,12 +36,12 @@ type ApprovalRegistry struct {
 	pending   map[string]chan ApprovalDecision // requestID -> response channel
 	onApprove func(req ApprovalRequest)
 	resolver  func(opaqueKey string) string
-	
+
 	// cachedApprovals stores previously approved tools by session and category
 	// Key: "sessionId:toolName" for read tools, "sessionId:write" for write tools in current iteration
 	cachedApprovals map[string]bool
 	// writeApprovalIteration tracks the current iteration for write approvals
-	currentWriteIteration int
+	currentWriteIteration        int
 	lastApprovedToolForIteration string
 }
 
@@ -155,7 +155,7 @@ func GetToolCategory(tool string) ToolCategory {
 func (ar *ApprovalRegistry) IsCachedApproval(sessionID, tool string) bool {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	key := fmt.Sprintf("%s:%s", sessionID, tool)
 	return ar.cachedApprovals[key]
 }
@@ -164,7 +164,7 @@ func (ar *ApprovalRegistry) IsCachedApproval(sessionID, tool string) bool {
 func (ar *ApprovalRegistry) CacheApproval(sessionID, tool string) {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	key := fmt.Sprintf("%s:%s", sessionID, tool)
 	ar.cachedApprovals[key] = true
 }
@@ -174,7 +174,7 @@ func (ar *ApprovalRegistry) CacheApproval(sessionID, tool string) {
 func (ar *ApprovalRegistry) StartNewWriteIteration(sessionID string) {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	// Clear write tool approvals for this session (they expire per iteration)
 	ar.currentWriteIteration++
 	ar.lastApprovedToolForIteration = ""
@@ -185,7 +185,7 @@ func (ar *ApprovalRegistry) StartNewWriteIteration(sessionID string) {
 func (ar *ApprovalRegistry) IsWriteToolApproved(sessionID string) bool {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	// If we have a cached approval for a write tool in this iteration
 	if ar.lastApprovedToolForIteration != "" {
 		return true
@@ -197,7 +197,7 @@ func (ar *ApprovalRegistry) IsWriteToolApproved(sessionID string) bool {
 func (ar *ApprovalRegistry) CacheWriteApproval(sessionID string) {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	ar.currentWriteIteration++
 	ar.lastApprovedToolForIteration = sessionID + ":write"
 }
@@ -206,7 +206,7 @@ func (ar *ApprovalRegistry) CacheWriteApproval(sessionID string) {
 func (ar *ApprovalRegistry) ClearCachedApprovals(sessionID string) {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
-	
+
 	ar.cachedApprovals = make(map[string]bool)
 }
 

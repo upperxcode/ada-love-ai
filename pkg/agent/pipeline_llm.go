@@ -606,7 +606,7 @@ func logFullChatContext(ctx context.Context, ts *turnState, messages []providers
 	// Extract session info from context
 	sessionKey := ts.sessionKey
 	agentID := ts.agent.ID
-	
+
 	// Get mode from context
 	mode := bus.GetOverride(ctx, bus.OverrideModeKey)
 	if mode == "" {
@@ -615,7 +615,7 @@ func logFullChatContext(ctx context.Context, ts *turnState, messages []providers
 
 	// Build a summary of what's being sent
 	var systemContent, userContent strings.Builder
-	
+
 	for i, msg := range messages {
 		if i == 0 && msg.Role == "system" {
 			systemContent.WriteString(msg.Content)

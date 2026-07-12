@@ -440,36 +440,36 @@ func (o *Orchestrator) LLMRoute(ctx context.Context, userInput string, routingRu
 		raw = strings.TrimSpace(raw)
 	}
 
-var decision RoutingDecision
-		if err := json.Unmarshal([]byte(raw), &decision); err != nil {
-			return o.heuristicRoute(userInput), fmt.Errorf("falha ao parsear JSON do LLM: %w (resposta: %s)", err, raw)
-		}
+	var decision RoutingDecision
+	if err := json.Unmarshal([]byte(raw), &decision); err != nil {
+		return o.heuristicRoute(userInput), fmt.Errorf("falha ao parsear JSON do LLM: %w (resposta: %s)", err, raw)
+	}
 
-		// Se o JSON foi parseado mas os campos estão vazios, tenta com nomes de campos em português
-		if decision.NextAgent == "" && decision.Task == "" {
-			ptBR := strings.NewReplacer(
-				"pensamento", "reasoning",
-				"proximo_agente", "next_agent",
-				"tarefa_extraida", "task",
-				"arquivos_relacionados", "related_files",
-				"requer_testes", "requires_test",
-				"sub_tarefas", "sub_tasks",
-			)
-			translated := ptBR.Replace(raw)
-			if translated != raw {
-				if err := json.Unmarshal([]byte(translated), &decision); err == nil && decision.NextAgent != "" {
-					return decision, nil
-				}
+	// Se o JSON foi parseado mas os campos estão vazios, tenta com nomes de campos em português
+	if decision.NextAgent == "" && decision.Task == "" {
+		ptBR := strings.NewReplacer(
+			"pensamento", "reasoning",
+			"proximo_agente", "next_agent",
+			"tarefa_extraida", "task",
+			"arquivos_relacionados", "related_files",
+			"requer_testes", "requires_test",
+			"sub_tarefas", "sub_tasks",
+		)
+		translated := ptBR.Replace(raw)
+		if translated != raw {
+			if err := json.Unmarshal([]byte(translated), &decision); err == nil && decision.NextAgent != "" {
+				return decision, nil
 			}
 		}
+	}
 
-		// Normaliza nomes de agent (GOLANG_AGENT → golang, etc.)
-		decision.NextAgent = normalizeAgentType(string(decision.NextAgent))
-		for i := range decision.SubTasks {
-			decision.SubTasks[i].Agent = normalizeAgentType(string(decision.SubTasks[i].Agent))
-		}
+	// Normaliza nomes de agent (GOLANG_AGENT → golang, etc.)
+	decision.NextAgent = normalizeAgentType(string(decision.NextAgent))
+	for i := range decision.SubTasks {
+		decision.SubTasks[i].Agent = normalizeAgentType(string(decision.SubTasks[i].Agent))
+	}
 
-		return decision, nil
+	return decision, nil
 }
 
 // normalizeAgentType mapeia variações de nomes de agent (ex: "GOLANG_AGENT") para o AgentType correto do registry.
@@ -503,9 +503,9 @@ func (o *Orchestrator) heuristicRoute(userInput string) RoutingDecision {
 	for _, kw := range reactKeywords {
 		if strings.Contains(input, kw) {
 			return RoutingDecision{
-				Reasoning:   "Detected frontend/UI related request",
-				NextAgent:   AgentTypeReact,
-				Task:        "Implement frontend feature",
+				Reasoning:    "Detected frontend/UI related request",
+				NextAgent:    AgentTypeReact,
+				Task:         "Implement frontend feature",
 				RelatedFiles: []string{},
 				RequiresTest: true,
 				SubTasks:     nil,
@@ -518,9 +518,9 @@ func (o *Orchestrator) heuristicRoute(userInput string) RoutingDecision {
 	for _, kw := range testKeywords {
 		if strings.Contains(input, kw) {
 			return RoutingDecision{
-				Reasoning:   "Detected testing/QA related request",
-				NextAgent:   AgentTypeTester,
-				Task:        "Validate implementation and write tests",
+				Reasoning:    "Detected testing/QA related request",
+				NextAgent:    AgentTypeTester,
+				Task:         "Validate implementation and write tests",
 				RelatedFiles: []string{},
 				RequiresTest: true,
 				SubTasks:     nil,
@@ -530,9 +530,9 @@ func (o *Orchestrator) heuristicRoute(userInput string) RoutingDecision {
 
 	// Default to GoLang agent for backend tasks
 	return RoutingDecision{
-		Reasoning:   "Defaulting to Go backend agent for general development task",
-		NextAgent:   AgentTypeGoLang,
-		Task:        userInput,
+		Reasoning:    "Defaulting to Go backend agent for general development task",
+		NextAgent:    AgentTypeGoLang,
+		Task:         userInput,
 		RelatedFiles: []string{},
 		RequiresTest: false,
 		SubTasks:     nil,

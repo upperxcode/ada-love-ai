@@ -668,7 +668,6 @@ func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
 	return false, fmt.Errorf("GetGlobalConfig is deprecated; use normalized tables instead (key=%s)", key)
 }
 
-
 // --- Fixed Models (embedding/image/spec/tinybrain) ---
 // fixed_models: id, name, provider, model
 // fixed_model_tools: id, fixed_model_id, tool

@@ -12,7 +12,7 @@ var ToolProfiles = map[string]ToolProfile{
 	"development": {
 		Name:        "Development",
 		Description: "Tools for software development workflow",
-		Tools: []Tool{
+		Tools:       []Tool{
 			// File system tools
 			// These will be populated by the caller with actual tool instances
 		},
@@ -20,14 +20,14 @@ var ToolProfiles = map[string]ToolProfile{
 	"web_search": {
 		Name:        "Web Search",
 		Description: "Tools for web search and information retrieval",
-		Tools: []Tool{
+		Tools:       []Tool{
 			// Web search tools
 		},
 	},
 	"full": {
 		Name:        "Full",
 		Description: "All available tools",
-		Tools: []Tool{},
+		Tools:       []Tool{},
 	},
 }
 

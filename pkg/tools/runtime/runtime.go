@@ -23,7 +23,7 @@ func NewRunTestsTool(workspace string) *RunTestsTool {
 	return &RunTestsTool{workspace: workspace}
 }
 
-func (t *RunTestsTool) Name() string        { return "run_tests" }
+func (t *RunTestsTool) Name() string { return "run_tests" }
 func (t *RunTestsTool) Description() string {
 	return "Run the project's test suite and return structured results. Auto-detects the test framework (go test, pytest, jest, npm test, cargo test, etc.) or uses a custom command."
 }
@@ -128,7 +128,7 @@ func (t *RunTestsTool) Execute(ctx context.Context, args map[string]any) *toolsh
 func detectTestCommand(dir string) string {
 	// Check for common test config files
 	checks := []struct {
-		file   string
+		file    string
 		command string
 	}{
 		{"go.mod", "go test ./..."},
@@ -174,7 +174,7 @@ func NewRunLinterFormatterTool(workspace string) *RunLinterFormatterTool {
 	return &RunLinterFormatterTool{workspace: workspace}
 }
 
-func (t *RunLinterFormatterTool) Name() string        { return "run_linter_formatter" }
+func (t *RunLinterFormatterTool) Name() string { return "run_linter_formatter" }
 func (t *RunLinterFormatterTool) Description() string {
 	return "Run linters and formatters to check or fix code style. Auto-detects tools (gofmt, ruff, prettier, eslint, etc.) or uses a custom command. Set fix=true to auto-fix issues."
 }
@@ -267,9 +267,9 @@ func (t *RunLinterFormatterTool) Execute(ctx context.Context, args map[string]an
 
 func detectLinterCommand(dir string, fix bool) string {
 	type detector struct {
-		files   []string
-		check   string
-		fix     string
+		files []string
+		check string
+		fix   string
 	}
 
 	detectors := []detector{
@@ -305,7 +305,7 @@ func NewCheckPortStatusTool(workspace string) *CheckPortStatusTool {
 	return &CheckPortStatusTool{workspace: workspace}
 }
 
-func (t *CheckPortStatusTool) Name() string        { return "check_port_status" }
+func (t *CheckPortStatusTool) Name() string { return "check_port_status" }
 func (t *CheckPortStatusTool) Description() string {
 	return "Check if a TCP port is open (listening) or closed on localhost. Useful for verifying if a server started by the agent is running."
 }

@@ -22,7 +22,7 @@ func NewGetAgentMemoryTool(workspace string, memStore interfaces.MemoryStore) *G
 	}
 }
 
-func (t *GetAgentMemoryTool) Name() string        { return "get_agent_memory" }
+func (t *GetAgentMemoryTool) Name() string { return "get_agent_memory" }
 func (t *GetAgentMemoryTool) Description() string {
 	return "Retrieve previously saved memories (facts, preferences, decisions) from the long-term memory database. Returns memories sorted by importance."
 }

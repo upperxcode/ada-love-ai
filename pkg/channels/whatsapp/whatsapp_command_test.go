@@ -87,9 +87,9 @@ func TestWhatsAppSplitMessage(t *testing.T) {
 func TestNewWhatsAppChannel(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		bc := &config.Channel{
-			Enabled:    true,
-			Type:       "whatsapp",
-			AllowFrom:  []string{"*"},
+			Enabled:   true,
+			Type:      "whatsapp",
+			AllowFrom: []string{"*"},
 		}
 		cfg := &config.WhatsAppSettings{
 			BridgeURL: "ws://localhost:8080",

@@ -136,10 +136,10 @@ func (t *TesterAgent) WriteUnitTests(ctx context.Context, code string, language 
 	task := fmt.Sprintf("Escreva testes unitários completos para código %s:\n%s\n\nREQUISITOS:\n- Table-driven tests / parametrized tests\n- Coverage >= 80%%\n- Mocks adequados (gomock/testify for Go, vi.fn/MSW for TS)\n- Edge cases + error paths\n- Race detector clean (Go)\n- Nomes descritivos: Test<Function>_<Scenario>_<Expected>", language, code)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -149,10 +149,10 @@ func (t *TesterAgent) WriteIntegrationTests(ctx context.Context, spec string, la
 	task := fmt.Sprintf("Escreva testes de integração para: %s\n\nREQUISITOS:\n- Testcontainers para DB/Redis\n- Setup/teardown automático\n- Isolamento entre testes\n- Testes de API endpoints\n- Testes de repositórios DB\n- Cleanup automático entre testes", spec)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -162,10 +162,10 @@ func (t *TesterAgent) WriteE2ETests(ctx context.Context, spec string, layers Pro
 	task := fmt.Sprintf("Escreva testes E2E para: %s\n\nREQUISITOS:\n- Playwright (Go) ou Playwright/Cypress (TS)\n- Fluxos críticos de usuário\n- Login, fluxos críticos\n- Dados de teste isolados\n- Screenshots/video on failure\n- CI/CD integration", spec)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -175,10 +175,10 @@ func (t *TesterAgent) WriteContractTests(ctx context.Context, spec string, layer
 	task := fmt.Sprintf("Escreva testes de contrato para: %s\n\nREQUISITOS:\n- Pact consumer-driven contracts\n- Provider verification\n- Schema validation (OpenAPI)\n- Schema registry (se aplicável)\n- CI/CD integration", spec)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -188,10 +188,10 @@ func (t *TesterAgent) WriteBenchmarks(ctx context.Context, code string, layers P
 	task := fmt.Sprintf("Escreva benchmarks para:\n%s\n\nREQUISITOS:\n- go test -bench=.\n- Benchmark functions com b.N\n- b.ResetTimer() / b.StopTimer()\n- b.ReportAllocs()\n- Compare implementations\n- Memory allocations (b.ReportAllocs)", code)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -201,10 +201,10 @@ func (t *TesterAgent) RunTests(ctx context.Context, path string, layers PromptLa
 	task := fmt.Sprintf("Execute testes e relate resultados para: %s\n\nEXECUTE:\n- go test -v -race -coverprofile=coverage.out ./...\n- go test -bench=. -benchmem\n- go test -coverprofile=coverage.out\n- go tool cover -html=coverage.out\n- Relate: pass/fail, coverage %%, race issues, benchmarks", path)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -214,10 +214,10 @@ func (t *TesterAgent) AnalyzeCoverage(ctx context.Context, coveragePath string, 
 	task := fmt.Sprintf("Analise coverage report em: %s\n\nRELATE:\n- Overall coverage %%\n- Per-package coverage\n- Uncovered critical paths\n- Suggestions to improve", coveragePath)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -227,10 +227,10 @@ func (t *TesterAgent) WriteMutationTests(ctx context.Context, code string, layer
 	task := fmt.Sprintf("Configure mutation testing para:\n%s\n\nREQUISITOS:\n- go-mutesting (Go) ou stryker (TS)\n- Mutation score >= 80%%\n- Identify equivalent mutants\n- CI integration", code)
 
 	newLayers := PromptLayers{
-		SystemPersona:  layers.SystemPersona,
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           task,
+		SystemPersona: layers.SystemPersona,
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          task,
 	}
 
 	return t.Execute(ctx, task, newLayers)
@@ -249,10 +249,10 @@ func (t *TesterAgent) ValidateAndFix(ctx context.Context, implementation string,
 
 	// If failed, try to fix
 	fixLayers := PromptLayers{
-		SystemPersona:  "Você é um Engenheiro Sênior. Corrija a implementação baseada nos issues encontrados.",
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           fmt.Sprintf("CORRIGIR IMPLEMENTAÇÃO\n\nISSUES ENCONTRADOS:\n%s\n\nIMPLEMENTAÇÃO ATUAL:\n%s\n\nESPECIFICAÇÃO:\n%s\n\nForneça implementação corrigida completa.", validation.Report, implementation, spec),
+		SystemPersona: "Você é um Engenheiro Sênior. Corrija a implementação baseada nos issues encontrados.",
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          fmt.Sprintf("CORRIGIR IMPLEMENTAÇÃO\n\nISSUES ENCONTRADOS:\n%s\n\nIMPLEMENTAÇÃO ATUAL:\n%s\n\nESPECIFICAÇÃO:\n%s\n\nForneça implementação corrigida completa.", validation.Report, implementation, spec),
 	}
 
 	return t.Execute(ctx, "fix implementation", fixLayers)
@@ -260,10 +260,10 @@ func (t *TesterAgent) ValidateAndFix(ctx context.Context, implementation string,
 
 func (t *TesterAgent) ValidateImplementation(ctx context.Context, implementation string, spec string, layers PromptLayers) (*ValidationResult, error) {
 	validationLayers := PromptLayers{
-		SystemPersona:  "Você é um Engenheiro de QA Sênior. Valide a implementação contra a especificação. Identifique gaps, bugs, missing tests, security issues, performance issues, code smells.",
-		GlobalContext:  layers.GlobalContext,
-		State:          layers.State,
-		Task:           fmt.Sprintf("Valide:\nSPEC:\n%s\n\nIMPL:\n%s\n\nForneça relatório detalhado com: issues encontrados (Critical/High/Medium/Low), testes faltando, security issues, performance issues, code smells.", spec, implementation),
+		SystemPersona: "Você é um Engenheiro de QA Sênior. Valide a implementação contra a especificação. Identifique gaps, bugs, missing tests, security issues, performance issues, code smells.",
+		GlobalContext: layers.GlobalContext,
+		State:         layers.State,
+		Task:          fmt.Sprintf("Valide:\nSPEC:\n%s\n\nIMPL:\n%s\n\nForneça relatório detalhado com: issues encontrados (Critical/High/Medium/Low), testes faltando, security issues, performance issues, code smells.", spec, implementation),
 	}
 
 	result, err := t.Execute(ctx, "validate", validationLayers)
@@ -272,12 +272,12 @@ func (t *TesterAgent) ValidateImplementation(ctx context.Context, implementation
 	}
 
 	return &ValidationResult{
-		Passed:          result.Success,
-		Issues:          parseIssues(result.Output),
-		Coverage:        extractCoverage(result.Output),
-		MissingTests:    extractMissingTests(result.Output),
-		SecurityIssues:  extractSecurityIssues(result.Output),
-		Report:          result.Output,
+		Passed:         result.Success,
+		Issues:         parseIssues(result.Output),
+		Coverage:       extractCoverage(result.Output),
+		MissingTests:   extractMissingTests(result.Output),
+		SecurityIssues: extractSecurityIssues(result.Output),
+		Report:         result.Output,
 	}, nil
 }
 

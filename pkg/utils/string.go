@@ -65,6 +65,7 @@ func DerefStr(s *string, fallback string) string {
 	}
 	return *s
 }
+
 // StripThoughtTags removes reasoning blocks wrapped in <thought>...</thought>
 // or [THOUGHT]...[/THOUGHT] tags. This prevents internal reasoning from
 // leaking into the final UI response or summaries.

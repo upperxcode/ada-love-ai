@@ -28,16 +28,16 @@ func (a AgentType) String() string {
 type AgentCapability string
 
 const (
-	CapabilityGoBackend       AgentCapability = "golang_backend"
-	CapabilityDatabase        AgentCapability = "database"
-	CapabilityAPI             AgentCapability = "api"
-	CapabilityConcurrency     AgentCapability = "concurrency"
-	CapabilityReactFrontend   AgentCapability = "react_frontend"
-	CapabilityUIComponents    AgentCapability = "ui_components"
-	CapabilityStateManagement AgentCapability = "state_management"
-	CapabilityAPIIntegration  AgentCapability = "api_integration"
-	CapabilityTesting         AgentCapability = "testing"
-	CapabilityCodeReview      AgentCapability = "code_review"
+	CapabilityGoBackend        AgentCapability = "golang_backend"
+	CapabilityDatabase         AgentCapability = "database"
+	CapabilityAPI              AgentCapability = "api"
+	CapabilityConcurrency      AgentCapability = "concurrency"
+	CapabilityReactFrontend    AgentCapability = "react_frontend"
+	CapabilityUIComponents     AgentCapability = "ui_components"
+	CapabilityStateManagement  AgentCapability = "state_management"
+	CapabilityAPIIntegration   AgentCapability = "api_integration"
+	CapabilityTesting          AgentCapability = "testing"
+	CapabilityCodeReview       AgentCapability = "code_review"
 	CapabilityQualityAssurance AgentCapability = "quality_assurance"
 )
 
@@ -76,12 +76,12 @@ type AgentResult struct {
 
 // ValidationResult represents the result of a validation
 type ValidationResult struct {
-	Passed          bool
-	Issues          []Issue
-	Coverage        float64
-	MissingTests    []string
-	SecurityIssues  []SecurityIssue
-	Report          string
+	Passed         bool
+	Issues         []Issue
+	Coverage       float64
+	MissingTests   []string
+	SecurityIssues []SecurityIssue
+	Report         string
 }
 
 // Issue represents a validation issue
@@ -96,20 +96,20 @@ type Issue struct {
 
 // SubTask represents a sub-task in the orchestration
 type SubTask struct {
-	ID         string    `json:"id"`
-	Agent      AgentType `json:"agent"`
-	Task       string    `json:"task"`
-	DependsOn  []string  `json:"depends_on,omitempty"` // Task IDs this depends on
+	ID        string    `json:"id"`
+	Agent     AgentType `json:"agent"`
+	Task      string    `json:"task"`
+	DependsOn []string  `json:"depends_on,omitempty"` // Task IDs this depends on
 }
 
 // RoutingDecision represents the orchestrator's routing decision
 type RoutingDecision struct {
-	Reasoning   string     `json:"reasoning"`
-	NextAgent   AgentType  `json:"next_agent"`
-	Task        string     `json:"task"`
+	Reasoning    string    `json:"reasoning"`
+	NextAgent    AgentType `json:"next_agent"`
+	Task         string    `json:"task"`
 	RelatedFiles []string  `json:"related_files"`
 	RequiresTest bool      `json:"requires_test"`
-	SubTasks    []SubTask  `json:"sub_tasks,omitempty"`
+	SubTasks     []SubTask `json:"sub_tasks,omitempty"`
 }
 
 // SecurityIssue represents a security vulnerability
@@ -133,19 +133,19 @@ type OrchestrationStep struct {
 
 // SubTaskResult represents the result of a sub-task
 type SubTaskResult struct {
-	SubTask SubTask       `json:"sub_task"`
-	Result    *AgentResult `json:"result"`
-	Duration  time.Duration
-	Metadata  map[string]any
+	SubTask  SubTask      `json:"sub_task"`
+	Result   *AgentResult `json:"result"`
+	Duration time.Duration
+	Metadata map[string]any
 }
 
 // AgentResult extends the base with agent-specific metadata
 type ExtendedAgentResult struct {
 	AgentResult
-	AgentType   AgentType
-	Duration    time.Duration
-	TokensUsed  int
-	Iterations  int
+	AgentType  AgentType
+	Duration   time.Duration
+	TokensUsed int
+	Iterations int
 }
 
 // SubAgent interface defines the interface for sub-agents

@@ -66,9 +66,9 @@ func TestMaixCamMessageParsing(t *testing.T) {
 			wantOK:   true,
 		},
 		{
-			name:   "invalid json",
+			name:    "invalid json",
 			jsonStr: `{invalid`,
-			wantOK: false,
+			wantOK:  false,
 		},
 	}
 

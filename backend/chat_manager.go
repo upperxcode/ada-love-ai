@@ -286,7 +286,6 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Injetar o sessionID no contexto para o scope do orchestrate usar.
 	ctx = context.WithValue(ctx, "session_id", sessionID)
 
-
 	// If session not in SessionMgr, load from DB (handles sessions from previous app runs)
 	if sess == nil && sessionID != "" && e.db != nil {
 		fmt.Printf("[SendMessage] session %q not in SessionMgr, loading from DB\n", sessionID)

@@ -8,15 +8,15 @@ import (
 
 func TestIsTransientAssistantThoughtMessage(t *testing.T) {
 	tests := []struct {
-		name  string
-		msg   protocoltypes.Message
-		want  bool
+		name string
+		msg  protocoltypes.Message
+		want bool
 	}{
 		{
 			name: "transient thought message",
 			msg: protocoltypes.Message{
-				Role:            "assistant",
-				Content:         "",
+				Role:             "assistant",
+				Content:          "",
 				ReasoningContent: "thinking...",
 			},
 			want: true,
@@ -40,8 +40,8 @@ func TestIsTransientAssistantThoughtMessage(t *testing.T) {
 		{
 			name: "assistant with content and reasoning",
 			msg: protocoltypes.Message{
-				Role:            "assistant",
-				Content:         "answer",
+				Role:             "assistant",
+				Content:          "answer",
 				ReasoningContent: "thinking...",
 			},
 			want: false,
@@ -49,18 +49,18 @@ func TestIsTransientAssistantThoughtMessage(t *testing.T) {
 		{
 			name: "assistant with tool calls",
 			msg: protocoltypes.Message{
-				Role:       "assistant",
-				Content:    "",
+				Role:             "assistant",
+				Content:          "",
 				ReasoningContent: "thinking...",
-				ToolCalls:   []protocoltypes.ToolCall{{Name: "tool1"}},
+				ToolCalls:        []protocoltypes.ToolCall{{Name: "tool1"}},
 			},
 			want: false,
 		},
 		{
 			name: "assistant with tool call id",
 			msg: protocoltypes.Message{
-				Role:            "assistant",
-				Content:         "",
+				Role:             "assistant",
+				Content:          "",
 				ReasoningContent: "thinking...",
 				ToolCallID:       "call_123",
 			},
@@ -89,14 +89,14 @@ func TestIsTransientAssistantThoughtMessage(t *testing.T) {
 
 func TestFilterInvalidHistoryMessages(t *testing.T) {
 	tests := []struct {
-		name     string
-		history  []protocoltypes.Message
-		wantLen  int
+		name    string
+		history []protocoltypes.Message
+		wantLen int
 	}{
 		{
-			name:     "empty history",
-			history:  []protocoltypes.Message{},
-			wantLen:  0,
+			name:    "empty history",
+			history: []protocoltypes.Message{},
+			wantLen: 0,
 		},
 		{
 			name: "no transient messages",

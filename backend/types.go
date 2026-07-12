@@ -17,8 +17,8 @@ type WorkerConfig struct {
 	// Conexão (binding) — como o worker se comunica
 	ConnectionType string `json:"connection_type"` // "websocket", "http_command", "cli", "mcp"
 	Command        string `json:"command"`         // comando/preset (ex: "Crush", "OpenCode")
-	Arguments      string `json:"arguments"`        // JSON array de argumentos
-	Environment    string `json:"environment"`      // JSON array de variaveis/paths
+	Arguments      string `json:"arguments"`       // JSON array de argumentos
+	Environment    string `json:"environment"`     // JSON array de variaveis/paths
 	// Campos legados mantidos para compatibilidade de API (mapeados p/ command/arguments)
 	ConnectionName   string `json:"connection_name,omitempty"`
 	ConnectionConfig string `json:"connection_config,omitempty"`
@@ -36,20 +36,20 @@ type WorkerConfig struct {
 // autonomous task executors: they receive a task, work on it (possibly using
 // tools or sub-models), and deliver a result.
 type AgentConfig struct {
-	ID            int64    `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Provider      string   `json:"provider"`       // nome do provider (resolvido p/ provider_id)
-	Model         string   `json:"model"`          // nome do modelo (resolvido p/ model_id)
-	ProviderID    int64    `json:"provider_id,omitempty"`
-	ModelID       int64    `json:"model_id,omitempty"`
-	Type          string   `json:"type"`           // "executor", "delegator", "reviewer", "research"
-	Icon          string   `json:"icon"`
-	Color         string   `json:"color"`
-	MaxIterations int      `json:"max_iterations,omitempty"`
-	Temperature   float64  `json:"temperature,omitempty"`
-	Delegates     []string `json:"delegates,omitempty"`
-	SystemPrompt  string   `json:"system_prompt,omitempty"`
+	ID            int64            `json:"id"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Provider      string           `json:"provider"` // nome do provider (resolvido p/ provider_id)
+	Model         string           `json:"model"`    // nome do modelo (resolvido p/ model_id)
+	ProviderID    int64            `json:"provider_id,omitempty"`
+	ModelID       int64            `json:"model_id,omitempty"`
+	Type          string           `json:"type"` // "executor", "delegator", "reviewer", "research"
+	Icon          string           `json:"icon"`
+	Color         string           `json:"color"`
+	MaxIterations int              `json:"max_iterations,omitempty"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	Delegates     []string         `json:"delegates,omitempty"`
+	SystemPrompt  string           `json:"system_prompt,omitempty"`
 	Subagents     *SubagentsConfig `json:"subagents,omitempty"`
 }
 
@@ -61,29 +61,29 @@ type SubagentsConfig struct {
 // SpecWizardConfig defines a specification wizard for generating project specs
 // with configurable architecture, patterns, and technology stack.
 type SpecWizardConfig struct {
-	ID                          string    `json:"id"`
-	Name                        string    `json:"name"`
-	Description                 string    `json:"description,omitempty"`
-	ExpertLanguagePlugin        string    `json:"expert_language_plugin,omitempty"`
-	PRD                         string    `json:"prd,omitempty"`
-	FunctionalRequirements      []string  `json:"functional_requirements,omitempty"`
-	NonFunctionalRequirements   []string  `json:"non_functional_requirements,omitempty"`
-	Persistence                 string    `json:"persistence,omitempty"`
-	Architecture                string    `json:"architecture,omitempty"`
-	EngineeringPhilosophies     []string  `json:"engineering_philosophies,omitempty"`
-	DesignPatterns              []string  `json:"design_patterns,omitempty"`
-	DataPatterns                []string  `json:"data_patterns,omitempty"`
-	StackConfig                 []StackItem `json:"stack_config,omitempty"`
-	BusinessStateManagement     string    `json:"business_state_management,omitempty"`
-	BusinessAPIContract         string    `json:"business_api_contract,omitempty"`
-	BusinessCustomizationDetails string    `json:"business_customization_details,omitempty"`
-	BusinessFinalAdjustments    string    `json:"business_final_adjustments,omitempty"`
-	BusinessArchitectureRecommendations string `json:"business_architecture_recommendations,omitempty"`
-	Color                       string    `json:"color"`
-	Icon                        string    `json:"icon"`
-	ArchitectureHealth          int       `json:"architecture_health"`
-	CreatedAt                   time.Time `json:"created_at"`
-	UpdatedAt                   time.Time `json:"updated_at"`
+	ID                                  string      `json:"id"`
+	Name                                string      `json:"name"`
+	Description                         string      `json:"description,omitempty"`
+	ExpertLanguagePlugin                string      `json:"expert_language_plugin,omitempty"`
+	PRD                                 string      `json:"prd,omitempty"`
+	FunctionalRequirements              []string    `json:"functional_requirements,omitempty"`
+	NonFunctionalRequirements           []string    `json:"non_functional_requirements,omitempty"`
+	Persistence                         string      `json:"persistence,omitempty"`
+	Architecture                        string      `json:"architecture,omitempty"`
+	EngineeringPhilosophies             []string    `json:"engineering_philosophies,omitempty"`
+	DesignPatterns                      []string    `json:"design_patterns,omitempty"`
+	DataPatterns                        []string    `json:"data_patterns,omitempty"`
+	StackConfig                         []StackItem `json:"stack_config,omitempty"`
+	BusinessStateManagement             string      `json:"business_state_management,omitempty"`
+	BusinessAPIContract                 string      `json:"business_api_contract,omitempty"`
+	BusinessCustomizationDetails        string      `json:"business_customization_details,omitempty"`
+	BusinessFinalAdjustments            string      `json:"business_final_adjustments,omitempty"`
+	BusinessArchitectureRecommendations string      `json:"business_architecture_recommendations,omitempty"`
+	Color                               string      `json:"color"`
+	Icon                                string      `json:"icon"`
+	ArchitectureHealth                  int         `json:"architecture_health"`
+	CreatedAt                           time.Time   `json:"created_at"`
+	UpdatedAt                           time.Time   `json:"updated_at"`
 }
 
 // StackItem represents an item in the technology stack
@@ -117,33 +117,33 @@ type SearchResult struct {
 }
 
 type WorkspaceConfig struct {
-	ID            int64  `json:"id" db:"id"`
-	Nome          string `json:"nome" db:"nome"`
-	Description   string `json:"description" db:"description"`
-	MaxPrompt     int    `json:"max_prompt" db:"max_prompt"`
-	MaxContent    int    `json:"max_content" db:"max_content"`
-	Commit        bool   `json:"commit" db:"commit"`
-	SpecProvider  string `json:"spec_provider" db:"spec_provider"`
-	SpecWizardID  string `json:"spec_wizard_id" db:"spec_wizard_id"`
-	Personality   string `json:"personality" db:"personality"`
-	Color         string `json:"color" db:"color"`
-	Icon          string `json:"icon" db:"icon"`
-	Title          string   `json:"title"`
-	Summary        string   `json:"summary"`
-	Path           string   `json:"path"`
-	Folders        []string `json:"folders"`
-	Knowledge      []string `json:"knowledge"`
-	WorkerNames    []string `json:"worker_names"`
-	Agents         []string `json:"agents"`
-	Skills         []string `json:"skills"`
-	Tools          []string `json:"tools"`
-	Enabled        bool   `json:"enabled"`
-	MaxPromptSend  int    `json:"max_prompt_send"`
-	CommitChanges  bool   `json:"commit_changes"`
-	MaxContextLength int   `json:"max_context_length"`
-	SpecWizard     string `json:"spec_wizard"`
-	EmbeddingModel string `json:"embedding_model"`
-	EmbeddingProvider string `json:"embedding_provider"`
+	ID                int64    `json:"id" db:"id"`
+	Nome              string   `json:"nome" db:"nome"`
+	Description       string   `json:"description" db:"description"`
+	MaxPrompt         int      `json:"max_prompt" db:"max_prompt"`
+	MaxContent        int      `json:"max_content" db:"max_content"`
+	Commit            bool     `json:"commit" db:"commit"`
+	SpecProvider      string   `json:"spec_provider" db:"spec_provider"`
+	SpecWizardID      string   `json:"spec_wizard_id" db:"spec_wizard_id"`
+	Personality       string   `json:"personality" db:"personality"`
+	Color             string   `json:"color" db:"color"`
+	Icon              string   `json:"icon" db:"icon"`
+	Title             string   `json:"title"`
+	Summary           string   `json:"summary"`
+	Path              string   `json:"path"`
+	Folders           []string `json:"folders"`
+	Knowledge         []string `json:"knowledge"`
+	WorkerNames       []string `json:"worker_names"`
+	Agents            []string `json:"agents"`
+	Skills            []string `json:"skills"`
+	Tools             []string `json:"tools"`
+	Enabled           bool     `json:"enabled"`
+	MaxPromptSend     int      `json:"max_prompt_send"`
+	CommitChanges     bool     `json:"commit_changes"`
+	MaxContextLength  int      `json:"max_context_length"`
+	SpecWizard        string   `json:"spec_wizard"`
+	EmbeddingModel    string   `json:"embedding_model"`
+	EmbeddingProvider string   `json:"embedding_provider"`
 }
 
 type ToolUIInfo struct {
@@ -225,13 +225,13 @@ type ProviderApiKey struct {
 
 // ProviderConfig represents a unified provider configuration.
 type ProviderConfig struct {
-	Icon           string                    `json:"icon"`
-	Color          string                    `json:"color"`
-	ApiUrl         string                    `json:"api_url"`
-	ApiKey         string                    `json:"api_key,omitempty"`        // Legacy single key
-	ApiKeys        []ProviderApiKey           `json:"api_keys,omitempty"`      // New format: array of keys
-	TypeConnection string                    `json:"type_connection"`
-	Models         map[string]ModelSettings  `json:"models"`
+	Icon           string                   `json:"icon"`
+	Color          string                   `json:"color"`
+	ApiUrl         string                   `json:"api_url"`
+	ApiKey         string                   `json:"api_key,omitempty"`  // Legacy single key
+	ApiKeys        []ProviderApiKey         `json:"api_keys,omitempty"` // New format: array of keys
+	TypeConnection string                   `json:"type_connection"`
+	Models         map[string]ModelSettings `json:"models"`
 }
 
 // GetAPIKey returns the first API key from the provider config.
@@ -300,11 +300,11 @@ type ModelSettings struct {
 type ProviderModel struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Vision    bool   `json:"vision,omitempty"`   // accepts image input
+	Vision    bool   `json:"vision,omitempty"`    // accepts image input
 	Embedding bool   `json:"embedding,omitempty"` // produces embeddings
 	Tools     bool   `json:"tools,omitempty"`     // supports tool/function calling
 	Free      bool   `json:"free,omitempty"`      // free / open-weight / no per-token cost
-	Thinking  bool   `json:"thinking,omitempty"` // reasoning / chain-of-thought
+	Thinking  bool   `json:"thinking,omitempty"`  // reasoning / chain-of-thought
 }
 
 // WorkspaceCount returns the number of workspaces.
@@ -385,11 +385,11 @@ type ErrorPayload struct {
 }
 
 type OrchestratorDecisionPayload struct {
-	Reasoning  string   `json:"reasoning"`
-	NextAgent  string   `json:"next_agent"`
-	Task       string   `json:"task"`
-	SubTasks   int      `json:"sub_tasks"`
-	AgentCount int      `json:"agent_count"`
+	Reasoning    string   `json:"reasoning"`
+	NextAgent    string   `json:"next_agent"`
+	Task         string   `json:"task"`
+	SubTasks     int      `json:"sub_tasks"`
+	AgentCount   int      `json:"agent_count"`
 	RelatedFiles []string `json:"related_files"`
 }
 

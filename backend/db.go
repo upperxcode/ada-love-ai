@@ -1078,16 +1078,33 @@ func (s *Store) DeleteWorker(id int64) error {
 // --- Operações de Agent ---
 
 func (s *Store) SaveAgent(a AgentConfig) (int64, error) {
+	// If no explicit ID provided, insert a fresh row and let SQLite assign the PK.
+	if a.ID <= 0 {
+		res, err := s.db.Exec(`
+				INSERT INTO agents (name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon)
+		if err != nil {
+			return 0, err
+		}
+		if id, err := res.LastInsertId(); err == nil && id > 0 {
+			return id, nil
+		}
+		// Fallback: try to lookup by name (best-effort)
+		var id int64
+		s.db.QueryRow(`SELECT id FROM agents WHERE name = ?`, a.Name).Scan(&id)
+		return id, nil
+	}
+
+	// If caller provided an ID, do an upsert by ID (preserve explicit id semantics).
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO agents (id, name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			INSERT OR REPLACE INTO agents (id, name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon)
 	if err != nil {
 		return 0, err
 	}
-	var id int64
-	s.db.QueryRow(`SELECT id FROM agents WHERE name = ?`, a.Name).Scan(&id)
-	return id, nil
+	return a.ID, nil
 }
 
 func (s *Store) GetAgents() ([]AgentConfig, error) {

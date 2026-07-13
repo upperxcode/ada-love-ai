@@ -337,16 +337,32 @@ func (o *Orchestrator) executeSubTasksConcurrent(
 
 				agent, ok := o.registry.Get(st.Agent)
 				if !ok {
-					// Agente não configurado — fallback para genérico
-					fmt.Printf("[Orchestrator] ⚠️ Sub-task agent %q não encontrado, usando fallback genérico\n", st.Agent)
-					if genericAgent, gok := o.registry.Get(AgentTypeGeneric); gok {
-						agent = genericAgent
-					} else {
-						err := fmt.Errorf("agent %s not found and no generic fallback available", st.Agent)
-						if onEvent != nil {
-							onEvent("error", st, err)
+					// Attempt capability-based selection when the explicit agent is not registered.
+					desired := agentTypeToCapabilities(st.Agent)
+					inferred := decideCapsFromTask(st.Task)
+					// merge desired + inferred
+					if len(inferred) > 0 {
+						desired = append(desired, inferred...)
+					}
+					if len(desired) > 0 {
+						if byCap, found := o.chooseAgentByCapabilities(desired); found {
+							agent = byCap
+							ok = true
+							fmt.Printf("[Orchestrator] Selected sub-agent %s by capabilities for subtask %s\n", agent.Type(), st.ID)
 						}
-						return err
+					}
+					if !ok {
+						// Agente não configurado — fallback para genérico
+						fmt.Printf("[Orchestrator] ⚠️ Sub-task agent %q não encontrado, usando fallback genérico\n", st.Agent)
+						if genericAgent, gok := o.registry.Get(AgentTypeGeneric); gok {
+							agent = genericAgent
+						} else {
+							err := fmt.Errorf("agent %s not found and no generic fallback available", st.Agent)
+							if onEvent != nil {
+								onEvent("error", st, err)
+							}
+							return err
+						}
 					}
 				}
 
@@ -492,6 +508,102 @@ func normalizeAgentType(raw string) AgentType {
 	default:
 		return AgentType(s)
 	}
+}
+
+// chooseAgentByCapabilities selects the best registered SubAgent that matches the
+// provided desired capabilities. It scores agents by how many desired capabilities
+// they expose and returns the highest-scoring agent (first tie wins).
+func (o *Orchestrator) chooseAgentByCapabilities(desired []AgentCapability) (SubAgent, bool) {
+	if o == nil || o.registry == nil || len(desired) == 0 {
+		return nil, false
+	}
+
+	best := SubAgent(nil)
+	bestScore := 0
+	for _, at := range o.registry.List() {
+		sub, ok := o.registry.Get(at)
+		if !ok || sub == nil {
+			continue
+		}
+		caps := sub.Capabilities()
+		score := 0
+		for _, want := range desired {
+			for _, have := range caps {
+				if have == want {
+					score++
+					break
+				}
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = sub
+		}
+	}
+	if bestScore > 0 {
+		return best, true
+	}
+	return nil, false
+}
+
+// agentTypeToCapabilities maps an AgentType hint to a prioritized list of capabilities
+// that are appropriate for that agent type.
+func agentTypeToCapabilities(a AgentType) []AgentCapability {
+	switch a {
+	case AgentTypeGoLang:
+		return []AgentCapability{CapabilityGoBackend, CapabilityAPI, CapabilityDatabase}
+	case AgentTypeReact:
+		return []AgentCapability{CapabilityReactFrontend, CapabilityUIComponents}
+	case AgentTypeTester:
+		return []AgentCapability{CapabilityTesting, CapabilityQualityAssurance}
+	default:
+		return nil
+	}
+}
+
+// decideCapsFromTask returns a best-effort list of capabilities inferred from the task text.
+func decideCapsFromTask(task string) []AgentCapability {
+	if task == "" {
+		return nil
+	}
+	lower := strings.ToLower(task)
+	set := make(map[AgentCapability]bool)
+	// Frontend/UI
+	if strings.Contains(lower, "react") || strings.Contains(lower, "frontend") || strings.Contains(lower, "tela") || strings.Contains(lower, "ui") || strings.Contains(lower, "component") || strings.Contains(lower, "hook") {
+		set[CapabilityReactFrontend] = true
+		set[CapabilityUIComponents] = true
+	}
+	// Database
+	if strings.Contains(lower, "db") || strings.Contains(lower, "database") || strings.Contains(lower, "sql") || strings.Contains(lower, "postgres") || strings.Contains(lower, "mysql") {
+		set[CapabilityDatabase] = true
+	}
+	// Testing / QA
+	if strings.Contains(lower, "test") || strings.Contains(lower, "teste") || strings.Contains(lower, "validate") || strings.Contains(lower, "bug") || strings.Contains(lower, "debug") {
+		set[CapabilityTesting] = true
+		set[CapabilityQualityAssurance] = true
+	}
+	// API
+	if strings.Contains(lower, "api") || strings.Contains(lower, "endpoint") || strings.Contains(lower, "rest") || strings.Contains(lower, "graphql") || strings.Contains(lower, "grpc") {
+		set[CapabilityAPI] = true
+	}
+	// Concurrency / performance
+	if strings.Contains(lower, "concurr") || strings.Contains(lower, "goroutine") || strings.Contains(lower, "mutex") || strings.Contains(lower, "performance") {
+		set[CapabilityConcurrency] = true
+	}
+	// Code review / refactor
+	if strings.Contains(lower, "review") || strings.Contains(lower, "refactor") || strings.Contains(lower, "refator") {
+		set[CapabilityCodeReview] = true
+	}
+
+	if len(set) == 0 {
+		// Default to backend capability
+		return []AgentCapability{CapabilityGoBackend}
+	}
+	out := make([]AgentCapability, 0, len(set))
+	for c := range set {
+		out = append(out, c)
+	}
+	return out
 }
 
 // heuristicRoute uses simple keyword heuristics to route when LLM is unavailable.

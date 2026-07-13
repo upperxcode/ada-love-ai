@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -305,6 +304,38 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 		}
 	}
 
+	// Also include any files under workspace/memory as part of the static prompt.
+	// Tests expect that user-created memory files are surfaced into the system
+	// prompt and cause the cache to invalidate when modified.
+	memRoot := filepath.Join(cb.workspace, "memory")
+	if info, err := os.Stat(memRoot); err == nil && info.IsDir() {
+		var sb strings.Builder
+		sb.WriteString("## Workspace Memory Files\n\n")
+		_ = filepath.WalkDir(memRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				// ignore unreadable entries
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			rel := relativeWorkspacePath(cb.workspace, path)
+			fmt.Fprintf(&sb, "### %s\n%s\n\n", rel, string(data))
+			return nil
+		})
+		if sb.Len() > 23 { // header length to ensure something meaningful
+			if memoryContext != "" {
+				memoryContext = memoryContext + "\n\n" + sb.String()
+			} else {
+				memoryContext = sb.String()
+			}
+		}
+	}
+
 	if memoryContext != "" {
 		add(PromptPart{
 			ID:      "context.memory",
@@ -443,6 +474,23 @@ func (cb *ContextBuilder) InvalidateCache() {
 func (cb *ContextBuilder) sourcePaths() []string {
 	agentDefinition := cb.LoadAgentDefinition()
 	paths := agentDefinition.trackedPaths(cb.workspace)
+
+	// Also include any files under the workspace "memory" folder so changes to
+	// memory files invalidate the system prompt cache as tests expect.
+	memRoot := filepath.Join(cb.workspace, "memory")
+	if info, err := os.Stat(memRoot); err == nil && info.IsDir() {
+		_ = filepath.WalkDir(memRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				// ignore unreadable files but mark change conservatively elsewhere
+				return nil
+			}
+			if !d.IsDir() {
+				paths = append(paths, path)
+			}
+			return nil
+		})
+	}
+
 	return uniquePaths(paths)
 }
 
@@ -530,9 +578,12 @@ func (cb *ContextBuilder) sourceFilesChangedLocked() bool {
 		return true
 	}
 
-	// Check tracked source files (bootstrap + memory).
-	if slices.ContainsFunc(cb.sourcePaths(), cb.fileChangedSince) {
-		return true
+	// Check tracked source files (bootstrap + memory). If any tracked path was
+	// created/removed/modified since the cache baseline, invalidate.
+	for _, p := range cb.sourcePaths() {
+		if cb.fileChangedSince(p) {
+			return true
+		}
 	}
 
 	// --- Skill roots (workspace/global/builtin) ---

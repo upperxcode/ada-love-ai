@@ -223,7 +223,17 @@ func TestMtimeAutoInvalidation(t *testing.T) {
 
 			cb := NewContextBuilder(tmpDir, nil)
 
+			// Debug: log tracked source paths and baseline cache state
+			t.Logf("initial sourcePaths: %v", cb.sourcePaths())
 			sp1 := cb.BuildSystemPromptWithCache()
+			t.Logf("cachedAt after initial build: %v", cb.cachedAt)
+			if cb.existedAtCache != nil {
+				keys := make([]string, 0, len(cb.existedAtCache))
+				for k := range cb.existedAtCache {
+					keys = append(keys, k)
+				}
+				t.Logf("existedAtCache keys: %v", keys)
+			}
 
 			// Overwrite file and set future mtime to ensure detection.
 			// Use 2s offset for filesystem mtime resolution safety (some FS
@@ -232,11 +242,22 @@ func TestMtimeAutoInvalidation(t *testing.T) {
 			os.WriteFile(fullPath, []byte(tt.contentV2), 0o644)
 			future := time.Now().Add(2 * time.Second)
 			os.Chtimes(fullPath, future, future)
+			if info, err := os.Stat(fullPath); err == nil {
+				t.Logf("after write: fullPath mtime=%v", info.ModTime())
+			} else {
+				t.Logf("after write: stat error: %v", err)
+			}
 
 			// Verify sourceFilesChangedLocked detects the mtime change
 			cb.systemPromptMutex.RLock()
+			// Also log per-path fileChangedSince results for debugging
+			for _, p := range cb.sourcePaths() {
+				changedP := cb.fileChangedSince(p)
+				t.Logf("fileChangedSince(%s) => %v", p, changedP)
+			}
 			changed := cb.sourceFilesChangedLocked()
 			cb.systemPromptMutex.RUnlock()
+			t.Logf("sourceFilesChangedLocked() => %v", changed)
 			if !changed {
 				t.Fatalf("sourceFilesChangedLocked() should detect %s change", tt.file)
 			}
@@ -250,6 +271,7 @@ func TestMtimeAutoInvalidation(t *testing.T) {
 				t.Errorf("rebuilt prompt missing expected content %q", tt.checkField)
 			}
 		})
+
 	}
 
 	// Skills directory mtime change

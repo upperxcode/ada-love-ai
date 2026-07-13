@@ -110,6 +110,20 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		}
 	}
 
+	// When the frontend did not pass an explicit model override, use the chat's
+	// own configured model/provider (sess.Model / sess.Provider) for generation.
+	// This makes GENERAL responses use the model the user selected for that chat
+	// rather than the agent's hardcoded default.
+	if modelOverride == "" && sess != nil && sess.Model != "" {
+		if provName := sess.Provider; provName != "" {
+			ctx = bus.WithOverrides(ctx, provName+"/"+sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q provider=%q\n", sess.Model, provName)
+		} else {
+			ctx = bus.WithOverrides(ctx, sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q (no provider)\n", sess.Model)
+		}
+	}
+
 	// Sync the agent's folders/personality with the session's workspace WITHOUT
 	// reloading the agent loop (reloading mid-send crashes the app because
 	// goroutines from the old loop are still running). Instead we patch
@@ -301,6 +315,20 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		}
 	}
 
+	// When the frontend did not pass an explicit model override, use the chat's
+	// own configured model/provider (sess.Model / sess.Provider) for generation.
+	// This makes GENERAL responses use the model the user selected for that chat
+	// rather than the agent's hardcoded default.
+	if modelOverride == "" && sess != nil && sess.Model != "" {
+		if provName := sess.Provider; provName != "" {
+			ctx = bus.WithOverrides(ctx, provName+"/"+sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q provider=%q\n", sess.Model, provName)
+		} else {
+			ctx = bus.WithOverrides(ctx, sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q (no provider)\n", sess.Model)
+		}
+	}
+
 	// Sync the agent's folders/personality with the session's workspace WITHOUT
 	// reloading the agent loop (reloading mid-send crashes the app because
 	// goroutines from the old loop are still running). Instead we patch
@@ -404,13 +432,14 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Orchestrator should only run for non-GENERAL intents. If TinyBrain classified
 	// the message as GENERAL (or the router is not configured), bypass the orchestrator
 	// and let the normal agent loop handle the message.
-	if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
-		routingRules := e.resolveWorkspaceRoutingRules(sessionID)
-		if routingRules != "" {
-			fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
-			return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride)
-		}
-	} else {
+if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
+			routingRules := e.resolveWorkspaceRoutingRules(sessionID)
+			if routingRules != "" {
+				fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
+				return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride, string(tinybrainIntent))
+			}
+		} else {
+
 		// Explicit bypass log to make it clear when the orchestrator is skipped.
 		fmt.Printf("[SendMessage] Orchestrator bypassed: tinybrain_intent=%q isRetry=%v isCommand=%v orchestrator_present=%v\n", tinybrainIntent, isRetry, isCommand, e.orchestrator != nil)
 	}
@@ -465,26 +494,50 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		}
 	}
 
-	// If GENERAL intent, temporarily swap the default agent persona to a lightweight
-	// general-purpose assistant instead of the heavy golang_agent system prompt.
-	// This avoids wasting tokens on code-focused context when the user asks a
-	// general knowledge question. The persona is applied just for this turn via
-	// ContextBuilder, so subsequent turns restore the workspace personality.
+	// If GENERAL intent, temporarily swap the default agent persona to the
+	// workspace's default worker persona (instead of the heavy golang_agent
+	// system prompt). This avoids wasting tokens on code-focused context when
+	// the user asks a general knowledge question. The persona is applied just
+	// for this turn via ContextBuilder, so subsequent turns restore the
+	// workspace personality.
+	servedBy := &ServedByMeta{
+		Intent:   string(tinybrainIntent),
+		RoutedBy: "default",
+		Agent:    "default",
+	}
 	if tinybrainIntent == tinybrain.IntentGeneral && e.agentLoop != nil {
 		if reg := e.agentLoop.GetRegistry(); reg != nil {
 			if defAgent := reg.GetDefaultAgent(); defAgent != nil && defAgent.ContextBuilder != nil {
-				generalPersona := `Você é uma assistente de IA amigável e prestativa.
+				workerPersona := e.resolveWorkerPersona(sessionID)
+				if workerPersona == "" {
+					workerPersona = `Você é uma assistente de IA amigável e prestativa.
 Responda perguntas de forma clara e direta. Você pode falar sobre qualquer assunto: cultura, geografia, história, tecnologia, programação ou entretenimento.
 Seja educada, natural e use português brasileiro.`
-				defAgent.ContextBuilder.WithPersonality(generalPersona)
+				}
+				defAgent.ContextBuilder.WithPersonality(workerPersona)
 				defAgent.ContextBuilder.InvalidateCache()
-				fmt.Printf("[SendMessage] GENERAL intent: swapped to lightweight general persona\n")
+				servedBy.Persona = "worker:" + sess.WorkerName
+				if sess.WorkerName == "" {
+					servedBy.Persona = "worker:" + e.resolveDefaultWorkerName(sess.WorkspaceID)
+					if servedBy.Persona == "worker:" {
+						servedBy.Persona = "worker:default"
+					}
+				}
+				servedBy.RoutedBy = "intent:general"
+				fmt.Printf("[SendMessage] GENERAL intent: swapped to default worker persona (%s)\n", servedBy.Persona)
 			}
 		}
 	}
 
 	fmt.Printf("[SendMessage] step=pre-ProcessDirect sessionID=%q agentLoop=%v\n", sessionID, e.agentLoop != nil)
-	resp, err := e.agentLoop.ProcessDirect(ctx, finalPrompt, sessionKey)
+
+	// Apply an explicit generation timeout so a slow/remote provider (e.g. OpenRouter)
+	// cannot block the whole turn indefinitely. The 120s provider http.Client.Timeout
+	// is a last-resort safety net; this gives a clear, bounded failure path.
+	genCtx, genCancel := context.WithTimeout(ctx, 90*time.Second)
+	defer genCancel()
+
+	resp, err := e.agentLoop.ProcessDirect(genCtx, finalPrompt, sessionKey)
 	fmt.Printf("[SendMessage] step=post-ProcessDirect sessionID=%q err=%v resp_len=%d\n", sessionID, err, len(resp))
 	if err != nil {
 		// Rollback: remove mensagem do usuário que acabou de adicionar (skip for commands)
@@ -497,7 +550,29 @@ Seja educada, natural e use português brasileiro.`
 
 	// 2. Adiciona resposta do assistente ao histórico
 	if !isCommand {
-		e.SessionMgr.AddMessage(sessionID, "assistant", resp)
+		// Auditing: record the model/provider actually used for this turn.
+		if cached != nil {
+			if prov, ok := cached.(interface{ Name() string }); ok {
+				servedBy.Provider = prov.Name()
+			}
+		}
+		if resolvedModelID != "" {
+			servedBy.Model = resolvedModelID
+		} else if modelOverride != "" {
+			servedBy.Model = modelOverride
+		}
+		if sess != nil {
+			if servedBy.Model == "" {
+				servedBy.Model = sess.Model
+			}
+			if servedBy.Provider == "" {
+				servedBy.Provider = sess.Provider
+			}
+			if servedBy.Agent == "default" && sess.WorkerName != "" {
+				servedBy.Agent = "worker:" + sess.WorkerName
+			}
+		}
+		e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", resp, servedBy)
 
 		// 3. Só agora persiste TUDO no DB (user + assistant)
 		if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {

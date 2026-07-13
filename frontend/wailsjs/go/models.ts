@@ -518,6 +518,28 @@ export namespace backend {
 		}
 	}
 	
+	export class ServedByMeta {
+	    agent: string;
+	    persona: string;
+	    intent: string;
+	    model: string;
+	    provider: string;
+	    routed_by: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServedByMeta(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agent = source["agent"];
+	        this.persona = source["persona"];
+	        this.intent = source["intent"];
+	        this.model = source["model"];
+	        this.provider = source["provider"];
+	        this.routed_by = source["routed_by"];
+	    }
+	}
 	export class ToolCall {
 	    id: string;
 	    type: string;
@@ -561,6 +583,7 @@ export namespace backend {
 	    tool_call_id?: string;
 	    // Go type: time
 	    time: any;
+	    served_by?: ServedByMeta;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -574,6 +597,7 @@ export namespace backend {
 	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
 	        this.tool_call_id = source["tool_call_id"];
 	        this.time = this.convertValues(source["time"], null);
+	        this.served_by = this.convertValues(source["served_by"], ServedByMeta);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -784,6 +808,7 @@ export namespace backend {
 	        this.score = source["score"];
 	    }
 	}
+	
 	export class SkillFullInfo {
 	    name: string;
 	    description?: string;

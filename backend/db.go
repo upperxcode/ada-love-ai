@@ -182,9 +182,11 @@ func (s *Store) init() error {
 				color TEXT DEFAULT '',
 				icon TEXT DEFAULT ''
 			)`,
-			`CREATE TABLE IF NOT EXISTS router_configs (
+		`CREATE TABLE IF NOT EXISTS router_configs (
 				name TEXT PRIMARY KEY,
 				endpoint TEXT NOT NULL,
+				router_type TEXT DEFAULT 'http-classifier',
+				backend_model TEXT DEFAULT '',
 				labels_json TEXT NOT NULL,
 				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 			)`,
@@ -352,17 +354,20 @@ func (s *Store) init() error {
 
 	// Ensure router_configs table exists for storing router endpoint and labels
 	// (keeps model selection configurable at runtime).
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS router_configs (
-			name TEXT PRIMARY KEY,
-			endpoint TEXT NOT NULL,
-			labels_json TEXT NOT NULL,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`); err != nil {
-		return fmt.Errorf("erro ao criar tabela router_configs: %v", err)
-	}
+		if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS router_configs (
+				name TEXT PRIMARY KEY,
+				endpoint TEXT NOT NULL,
+				labels_json TEXT NOT NULL,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`); err != nil {
+			return fmt.Errorf("erro ao criar tabela router_configs: %v", err)
+		}
 
+		// Best-effort add new columns for router metadata (older DBs may lack them)
+		s.db.Exec(`ALTER TABLE router_configs ADD COLUMN router_type TEXT DEFAULT 'http-classifier'`)
+		s.db.Exec(`ALTER TABLE router_configs ADD COLUMN backend_model TEXT DEFAULT ''`)
 
-	indexes := []string{
+		indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_workspaces_nome ON workspaces(nome)`,
 		`CREATE INDEX IF NOT EXISTS idx_workspaces_path ON workspaces(path)`,
 		`CREATE INDEX IF NOT EXISTS idx_workers_name ON workers(name)`,
@@ -650,6 +655,18 @@ func (s *Store) init() error {
 			} else {
 				fmt.Printf("[DB] Migration %d applied\n", migrationV2)
 			}
+		}
+	}
+
+	// Migration V3: add served_by audit column to messages table.
+	const migrationV3 = 3
+	if curVersion < migrationV3 {
+		// Best-effort: ignore "duplicate column" errors on already-migrated DBs.
+		s.db.Exec(`ALTER TABLE messages ADD COLUMN served_by TEXT`)
+		if _, err := s.db.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, migrationV3); err != nil {
+			fmt.Printf("[DB] Warn: failed to record migration %d: %v\n", migrationV3, err)
+		} else {
+			fmt.Printf("[DB] Migration %d applied\n", migrationV3)
 		}
 	}
 
@@ -1553,23 +1570,31 @@ func (s *Store) GetWorkspaceKnowledge(workspaceID int64) []string {
 	// Router configs: persistable configurations for the internal/local router
 	// name is a logical identifier (e.g. 'default'). labels_json stores the
 	// candidate labels as JSON array.
-	func (s *Store) SaveRouterConfig(name, endpoint string, labelsJSON string) error {
-		_, err := s.db.Exec(`INSERT INTO router_configs (name, endpoint, labels_json, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET endpoint=excluded.endpoint, labels_json=excluded.labels_json, updated_at=CURRENT_TIMESTAMP`, name, endpoint, labelsJSON)
+func (s *Store) SaveRouterConfig(name, endpoint string, labelsJSON string, routerType string, backendModel string) error {
+		if routerType == "" {
+			routerType = "http-classifier"
+		}
+		if backendModel == "" {
+			backendModel = ""
+		}
+		_, err := s.db.Exec(`INSERT INTO router_configs (name, endpoint, labels_json, router_type, backend_model, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET endpoint=excluded.endpoint, labels_json=excluded.labels_json, router_type=excluded.router_type, backend_model=excluded.backend_model, updated_at=CURRENT_TIMESTAMP`, name, endpoint, labelsJSON, routerType, backendModel)
 		return err
 	}
 
-	func (s *Store) GetRouterConfig(name string) (endpoint string, labelsJSON string, found bool, err error) {
-		row := s.db.QueryRow(`SELECT endpoint, labels_json FROM router_configs WHERE name = ?`, name)
-		var ep sql.NullString
-		var lj sql.NullString
-		if err = row.Scan(&ep, &lj); err != nil {
-			if err == sql.ErrNoRows {
-				return "", "", false, nil
-			}
-			return "", "", false, err
+func (s *Store) GetRouterConfig(name string) (endpoint string, labelsJSON string, routerType string, backendModel string, found bool, err error) {
+	row := s.db.QueryRow(`SELECT endpoint, labels_json, router_type, backend_model FROM router_configs WHERE name = ?`, name)
+	var ep sql.NullString
+	var lj sql.NullString
+	var rt sql.NullString
+	var bm sql.NullString
+	if err = row.Scan(&ep, &lj, &rt, &bm); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", "", "", false, nil
 		}
-		return ep.String, lj.String, true, nil
+		return "", "", "", "", false, err
 	}
+	return ep.String, lj.String, rt.String, bm.String, true, nil
+}
 
 
 type StoredProvider struct {
@@ -1769,25 +1794,39 @@ func (s *Store) SaveSession(sess ChatSession) error {
 	if _, err = tx.Exec(`DELETE FROM messages WHERE session_id = ?`, sess.ID); err != nil {
 		return err
 	}
-	for i, msg := range sess.Messages {
-		res, err := tx.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
-			sess.ID, msg.Role, msg.Content, msg.Time)
-		if err != nil {
-			log.Printf("Erro ao salvar mensagem: %v", err)
-			continue
+		for i, msg := range sess.Messages {
+			var servedByJSON string
+			if msg.ServedBy != nil {
+				if b, err := json.Marshal(msg.ServedBy); err == nil {
+					servedByJSON = string(b)
+				}
+			}
+			res, err := tx.Exec(`INSERT INTO messages (session_id, role, content, time, served_by) VALUES (?, ?, ?, ?, ?)`,
+				sess.ID, msg.Role, msg.Content, msg.Time, servedByJSON)
+			if err != nil {
+				log.Printf("Erro ao salvar mensagem: %v", err)
+				continue
+			}
+			if id, err := res.LastInsertId(); err == nil {
+				sess.Messages[i].ID = id
+			}
 		}
-		if id, err := res.LastInsertId(); err == nil {
-			sess.Messages[i].ID = id
-		}
-	}
 	return tx.Commit()
 }
 
 func (s *Store) AddMessageToSession(sessionID string, role string, content string) error {
-	_, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
-		sessionID, role, content, time.Now())
-	return err
-}
+		// Ensure assistant messages have a served_by JSON (best-effort) so auditing
+		// downstream doesn't see NULL. Use empty JSON object as placeholder.
+		if role == "assistant" {
+			servedByJSON := "{}"
+			_, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time, served_by) VALUES (?, ?, ?, ?, ?)`,
+				sessionID, role, content, time.Now(), servedByJSON)
+			return err
+		}
+		_, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
+			sessionID, role, content, time.Now())
+		return err
+	}
 
 func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
 	rows, err := s.db.Query(`

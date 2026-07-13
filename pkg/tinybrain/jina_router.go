@@ -17,9 +17,19 @@ type JinaRouter struct {
 	client   *http.Client
 }
 
+// DefaultJinaEndpoint is the local classifier microservice URL.
+const DefaultJinaEndpoint = "http://127.0.0.1:8008/classify"
+
 func NewJinaRouter() *JinaRouter {
+	return NewJinaRouterWithEndpoint(DefaultJinaEndpoint)
+}
+
+func NewJinaRouterWithEndpoint(endpoint string) *JinaRouter {
+	if endpoint == "" {
+		endpoint = DefaultJinaEndpoint
+	}
 	return &JinaRouter{
-		endpoint: "http://127.0.0.1:8008/classify",
+		endpoint: endpoint,
 		client:   &http.Client{Timeout: 2 * time.Second},
 	}
 }

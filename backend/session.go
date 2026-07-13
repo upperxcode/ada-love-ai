@@ -2,6 +2,7 @@ package backend
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,13 +18,26 @@ type ToolCall struct {
 	} `json:"function"`
 }
 
+// ServedByMeta records, for auditing, how a given assistant message was produced.
+// It captures the effective agent/persona, the routing intent, and the model/provider
+// actually used to generate the response. Persisted as JSON in messages.served_by.
+type ServedByMeta struct {
+	Agent    string `json:"agent"`     // resolved agent id (e.g. "golang_agent", "general-worker")
+	Persona  string `json:"persona"`   // short label of the persona used (e.g. "worker:Ada-Worker")
+	Intent   string `json:"intent"`    // TinyBrain intent (e.g. "GENERAL", "GO_PROGRAMMING")
+	Model    string `json:"model"`     // effective model name used
+	Provider string `json:"provider"`  // effective provider used
+	RoutedBy string `json:"routed_by"` // how the agent was chosen (e.g. "intent:general", "default")
+}
+
 type ChatMessage struct {
-	ID         int64      `json:"id"`
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Time       time.Time  `json:"time"`
+	ID         int64         `json:"id"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content"`
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Time       time.Time     `json:"time"`
+	ServedBy   *ServedByMeta `json:"served_by,omitempty"`
 }
 
 type ChatSession struct {
@@ -231,6 +245,16 @@ func (s *SessionManager) AddMessage(id, role, content string) (int, bool) {
 	})
 }
 
+// AddMessageWithMeta adiciona uma mensagem de assistente carregando metadados de
+// auditoria (ServedBy), registrando qual persona/agente/modelo/provider respondeu.
+func (s *SessionManager) AddMessageWithMeta(id, role, content string, servedBy *ServedByMeta) (int, bool) {
+	return s.AddRichMessage(id, ChatMessage{
+		Role:      role,
+		Content:   content,
+		ServedBy: servedBy,
+	})
+}
+
 // AddRichMessage adiciona ou atualiza uma mensagem em uma sessão de forma incremental.
 // Em vez de apagar todas e reinserir, faz UPSERT por ID para reduzir bloqueios.
 func (s *SessionManager) AddRichMessage(id string, msg ChatMessage) (int, bool) {
@@ -297,17 +321,23 @@ func (s *SessionManager) SaveSession(sess ChatSession) error {
 
 	// UPSERT incremental de mensagens em transação curta
 	for _, msg := range sess.Messages {
+		var servedByJSON string
+		if msg.ServedBy != nil {
+			if b, err := json.Marshal(msg.ServedBy); err == nil {
+				servedByJSON = string(b)
+			}
+		}
 		// Tenta UPDATE
-		res, err := s.db.Exec(`UPDATE messages SET role=?, content=?, time=? WHERE id=?`,
-			msg.Role, msg.Content, msg.Time, msg.ID)
+		res, err := s.db.Exec(`UPDATE messages SET role=?, content=?, time=?, served_by=? WHERE id=?`,
+			msg.Role, msg.Content, msg.Time, servedByJSON, msg.ID)
 		if err != nil {
 			return err
 		}
 		rows, _ := res.RowsAffected()
 		if rows == 0 {
 			// Insere nova mensagem
-			_, err = s.db.Exec(`INSERT INTO messages (id, session_id, role, content, time) VALUES (?,?,?,?,?)`,
-				msg.ID, sess.ID, msg.Role, msg.Content, msg.Time)
+			_, err = s.db.Exec(`INSERT INTO messages (id, session_id, role, content, time, served_by) VALUES (?,?,?,?,?,?)`,
+				msg.ID, sess.ID, msg.Role, msg.Content, msg.Time, servedByJSON)
 			if err != nil {
 				return err
 			}

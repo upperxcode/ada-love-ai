@@ -415,30 +415,6 @@ func NewEngine() (*Engine, error) {
 	// Sincroniza o workspace ativo com a configuração antes de iniciar
 	e.syncActiveWorkspaceToAgent()
 
-	// Provide accessor for tinyBrainRouter for local inspection and tests
-	// (not exported; used only by inspection binaries)
-	func (e *Engine) GetRouter() tinybrain.Router { return e.tinyBrainRouter }
-
-	// SetRouterConfig updates the router configuration in runtime and persists it to DB.
-	func (e *Engine) SetRouterConfig(name, endpoint string, labels []string) error {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		// update in-memory router
-		r := tinybrain.NewInternalRouter(endpoint, labels, 2*time.Second)
-		ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
-		defer cancel()
-		if _, err := r.DetectIntent(ctx, "health check: ping"); err != nil {
-			return fmt.Errorf("failed to validate router config: %w", err)
-		}
-		e.tinyBrainRouter = r
-		// persist
-		bj, _ := json.Marshal(labels)
-		if _, err := e.db.SaveRouterConfig(name, endpoint, string(bj)); err != nil {
-			return err
-		}
-		fmt.Printf("[Engine] SetRouterConfig: persisted and activated router %q -> %s\n", name, endpoint)
-		return nil
-	}
 
 	// Sincroniza agentes do ada_config.json com cfg.Agents.List
 	syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
@@ -480,59 +456,39 @@ func NewEngine() (*Engine, error) {
 		fmt.Println("[Engine] Greeting System inicializado (SQLite-based zero-token responses)")
 	}
 
-	// Initialize routing: prefer the internal router (local, fast).
-	// Load persisted router config if available, otherwise use default.
+	// Initialize intent routing: prefer persisted router config (if present),
+	// otherwise try the default local HTTP classifier. Never fall back to the LLM
+	// coder for classification.
+	var initialized bool
 	if e.db != nil {
-		if ep, lj, found, err := e.db.GetRouterConfig("default"); err == nil && found {
-			// try to unmarshal labels
+		if ep, lj, rt, bm, found, err := e.db.GetRouterConfig("default"); err == nil && found {
+			// try to unmarshal labels (labels optional for HTTP classifier)
 			var labels []string
-			if err := json.Unmarshal([]byte(lj), &labels); err == nil {
-				r := tinybrain.NewInternalRouter(ep, labels, 2*time.Second)
+			if lj != "" {
+				json.Unmarshal([]byte(lj), &labels)
+			}
+			if rt == "" || rt == "http-classifier" {
+				r := tinybrain.NewJinaRouterWithEndpoint(ep)
 				ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
 				defer cancelhc()
 				if _, err := r.DetectIntent(ctxhc, "health check: ping"); err == nil {
 					e.tinyBrainRouter = r
-					fmt.Println("[Engine] TinyBrain InternalRouter inicializado from DB config (local classifier)")
+					fmt.Printf("[Engine] JinaRouter inicializado from DB config (local classifier) -> %s (backend=%s)\n", ep, bm)
+					initialized = true
 				}
 			}
 		}
 	}
-
-	if e.tinyBrainRouter == nil {
-		// fallback to in-memory default internal router
-		r := tinybrain.NewInternalRouterDefault()
+	// If not initialized from DB, try default local classifier endpoint
+	if !initialized {
+		r := tinybrain.NewJinaRouter()
 		ctxhc, cancelhc := context.WithTimeout(context.Background(), 800*time.Millisecond)
 		defer cancelhc()
 		if _, err := r.DetectIntent(ctxhc, "health check: ping"); err == nil {
 			e.tinyBrainRouter = r
-			fmt.Println("[Engine] TinyBrain InternalRouter inicializado (default local classifier)")
-		}
-	}
-
-	if e.tinyBrainRouter == nil {
-		// Fall back to LLM-based TinyBrain if configured
-		if e.adaCfg.TinyBrain.ModelName != "" && e.adaCfg.TinyBrain.Provider != "" {
-			// Create a provider for the TinyBrain model
-			tinyBrainProvAny, _, err := e.CreateProviderFromModelConfig(&config.ModelConfig{
-				Provider:  e.adaCfg.TinyBrain.Provider,
-				ModelName: e.adaCfg.TinyBrain.ModelName,
-				Model:     e.adaCfg.TinyBrain.ModelName,
-				Enabled:   true,
-			})
-			if err == nil && tinyBrainProvAny != nil {
-				if tp, ok := tinyBrainProvAny.(providers.LLMProvider); ok {
-					tinyBrainRouter := tinybrain.NewTinyBrainRouter(tp, adaCfg.TinyBrain.ModelName)
-					e.tinyBrainRouter = tinyBrainRouter
-					fmt.Println("[Engine] TinyBrain Router inicializado (intent classification)")
-				} else {
-					fmt.Printf("[Engine] Aviso: tinyBrain provider não implementa providers.LLMProvider: %T\n", tinyBrainProvAny)
-				}
-
-			} else {
-				fmt.Printf("[Engine] Aviso: falha ao criar provider para TinyBrain: %v\n", err)
-			}
+			fmt.Println("[Engine] JinaRouter inicializado (default local classifier)")
 		} else {
-			fmt.Println("[Engine] TinyBrain não configurado — classificação de intenção desabilitada")
+			fmt.Println("[Engine] Aviso: classifier http local (:8008) indisponível — classificação desabilitada (default GENERAL)")
 		}
 	}
 
@@ -1221,6 +1177,46 @@ func (e *Engine) GetProvidersConfig() map[string]ProviderConfig {
 	return e.adaCfg.Providers
 }
 
+// GetRouter returns the currently active intent router (may be nil).
+func (e *Engine) GetRouter() tinybrain.Router {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.tinyBrainRouter
+}
+
+// SetRouterConfig updates the router configuration in runtime and persists it to DB.
+func (e *Engine) SetRouterConfig(name, endpoint string, labels []string, routerType string, backendModel string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	// create and validate new router according to routerType
+	var r tinybrain.Router
+	switch routerType {
+	case "http-classifier", "":
+		// local HTTP classifier (default)
+		r = tinybrain.NewJinaRouterWithEndpoint(endpoint)
+	default:
+		// unknown router type: attempt http-classifier as default
+		r = tinybrain.NewJinaRouterWithEndpoint(endpoint)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancel()
+	if _, err := r.DetectIntent(ctx, "health check: ping"); err != nil {
+		return fmt.Errorf("failed to validate router config: %w", err)
+	}
+	// activate
+	e.tinyBrainRouter = r
+	// persist labels and metadata as JSON
+	bj, _ := json.Marshal(labels)
+	if err := e.db.SaveRouterConfig(name, endpoint, string(bj), routerType, backendModel); err != nil {
+		return err
+	}
+	fmt.Printf("[Engine] SetRouterConfig: persisted and activated router %q -> %s (type=%s backend=%s)\n", name, endpoint, routerType, backendModel)
+	return nil
+}
+
 func (e *Engine) ReloadAgentLoop() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1684,16 +1680,52 @@ func (e *Engine) resolveWorkerPersona(sessionID string) string {
 		return ""
 	}
 
+	// If the session pins a worker, use it directly.
 	if sess.WorkerName != "" {
 		if worker, err := e.db.GetWorkerByName(sess.WorkerName); err == nil && worker != nil {
 			return FullPersona(*worker)
+		}
+	}
+
+	// Otherwise fall back to the workspace's default worker (first linked worker),
+	// so GENERAL responses still use the worker persona even for sessions without an
+	// explicit worker assigned.
+	if sess.WorkspaceID != "" {
+		if name := e.resolveDefaultWorkerName(sess.WorkspaceID); name != "" {
+			if worker, err := e.db.GetWorkerByName(name); err == nil && worker != nil {
+				return FullPersona(*worker)
+			}
+		}
+	}
+	return ""
+}
+
+// resolveDefaultWorkerName returns the name of the workspace's default (first
+// linked) worker for the given workspace identifier (path or title).
+func (e *Engine) resolveDefaultWorkerName(workspaceID string) string {
+	if workspaceID == "" || e.db == nil {
+		return ""
+	}
+	e.mu.RLock()
+	var wsID int64
+	for i := range e.adaCfg.Workspaces {
+		if e.adaCfg.Workspaces[i].Path == workspaceID || e.adaCfg.Workspaces[i].Title == workspaceID {
+			wsID = e.adaCfg.Workspaces[i].ID
+			break
+		}
+	}
+	e.mu.RUnlock()
+	if wsID > 0 {
+		names := e.db.GetWorkspaceWorkerNames(wsID)
+		if len(names) > 0 {
+			return names[0]
 		}
 	}
 	return ""
 }
 
 // ProcessOrchestrated processa uma requisição através do orquestrador multi-agent.
-func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string) (string, error) {
+func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID string, modelOverride string, detectedIntent string) (string, error) {
 	fmt.Printf("[ProcessOrchestrated] step=start sessionID=%q modelOverride=%q\n", sessionID, modelOverride)
 
 	// 0. Garante que a sessão está no SessionMgr (pode ter vindo direto do DB via frontend)
@@ -1806,7 +1838,17 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 	// 8. Execução (concorrente para sub-tasks)
 	fmt.Printf("[ProcessOrchestrated] calling ExecuteRouting: decision={NextAgent=%s Task=%q SubTasks=%d}\n",
 		decision.NextAgent, decision.Task, len(decision.SubTasks))
-	output, err := e.orchestrator.ExecuteRouting(ctx, decision, state, onEvent)
+	// Execute routing with a safety timeout to avoid indefinitely blocking the engine.
+	// Use a per-invocation ceiling (60s) to keep UI responsive; the orchestrator
+	// config timeout still governs the overall operation, but we don't want
+	// a single orchestration to hang the process forever.
+	safeTimeout := 60 * time.Second
+	if oT := e.orchestrator.Config().Timeout; oT > 0 && oT < safeTimeout {
+		safeTimeout = oT
+	}
+	subCtx, subCancel := context.WithTimeout(ctx, safeTimeout)
+	defer subCancel()
+	output, err := e.orchestrator.ExecuteRouting(subCtx, decision, state, onEvent)
 	fmt.Printf("[ProcessOrchestrated] ExecuteRouting returned: outputLen=%d err=%v\n", len(output), err)
 	if err != nil {
 		// Se o erro for de "agent not found" (NextAgent vazio), trata como resposta educada
@@ -1839,14 +1881,34 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		}
 	}
 
-	// 9. Salva na sessão
-	e.SessionMgr.AddMessage(sessionID, "user", text)
-	e.SessionMgr.AddMessage(sessionID, "assistant", output)
-	if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
-		e.db.SaveSession(*sess)
-	}
+		// 9. Salva na sessão (com auditoria served_by)
+		servedBy := &ServedByMeta{
+			Intent:   detectedIntent,
+			RoutedBy: "orchestrator",
+			Agent:    "",
+		}
+		if decision.NextAgent != "" {
+			servedBy.Agent = string(decision.NextAgent)
+		} else {
+			servedBy.Agent = "orchestrator"
+		}
+		// Determine provider/model if available
+		if provider != nil {
+			if p, ok := provider.(interface{ Name() string }); ok {
+				servedBy.Provider = p.Name()
+			}
+		}
+		if modelName != "" {
+			servedBy.Model = modelName
+		}
 
-	return output, nil
+		e.SessionMgr.AddMessage(sessionID, "user", text)
+		e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", output, servedBy)
+		if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
+			e.db.SaveSession(*sess)
+		}
+
+		return output, nil
 }
 
 // resolveProviderForSession resolve o LLMProvider a partir do modelOverride do frontend.

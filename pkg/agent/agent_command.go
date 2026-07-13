@@ -54,15 +54,39 @@ func (al *AgentLoop) handleCommand(
 	switch result.Outcome {
 	case commands.OutcomeHandled:
 		if result.Err != nil {
+			// Still surface the error output in the dedicated panel.
+			al.emitCommandResult(opts, result.Command, mapCommandError(result))
 			return mapCommandError(result), true
 		}
 		if commandReply != "" {
+			al.emitCommandResult(opts, result.Command, commandReply)
 			return commandReply, true
 		}
 		return "", true
 	default: // OutcomePassthrough — let the message fall through to LLM
 		return "", false
 	}
+}
+
+// emitCommandResult broadcasts a handled command's output through the agent
+// event bus so the backend bridge can forward it to the frontend command panel.
+func (al *AgentLoop) emitCommandResult(opts *processOptions, command, output string) {
+	normalizeProcessOptionsInPlace(opts)
+	sessionKey := ""
+	if opts != nil {
+		sessionKey = opts.Dispatch.SessionKey
+	}
+	var scope turnEventScope
+	if agent := al.GetRegistry().GetDefaultAgent(); agent != nil {
+		scope = al.newTurnEventScope(agent.ID, sessionKey, nil)
+	} else {
+		scope = al.newTurnEventScope("", sessionKey, nil)
+	}
+	al.emitEvent(
+		EventKindCommandResult,
+		scope.meta(0, "command", "handleCommand"),
+		CommandResultPayload{Command: command, Output: output},
+	)
 }
 
 func (al *AgentLoop) applyExplicitSkillCommand(
@@ -282,6 +306,18 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return fmt.Errorf("reload not configured")
 		}
 		return al.reloadFunc()
+	}
+	rt.WorkspaceHealth = func() (string, error) {
+		if al.healthFunc == nil {
+			return "", fmt.Errorf("health check not configured")
+		}
+		return al.healthFunc()
+	}
+	rt.TestConnections = func() (string, error) {
+		if al.testConnFunc == nil {
+			return "", fmt.Errorf("connection test not configured")
+		}
+		return al.testConnFunc()
 	}
 	if agent != nil {
 		if agent.ContextBuilder != nil {

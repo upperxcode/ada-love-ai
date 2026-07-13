@@ -409,6 +409,16 @@ func (al *AgentLoop) InterruptGraceful(hint string) error {
 		return fmt.Errorf("turn %s cannot accept graceful interrupt", ts.turnID)
 	}
 
+	// If a provider is currently executing, cancel its context to stop streaming
+	// immediately while preserving the graceful interrupt semantics.
+	ts.mu.RLock()
+	provCancel := ts.providerCancel
+	ts.mu.RUnlock()
+	if provCancel != nil {
+		fmt.Printf("[AgentLoop] InterruptGraceful: canceling provider for turn=%s session=%s hint=%q\n", ts.turnID, ts.sessionKey, hint)
+		provCancel()
+	}
+
 	al.emitEvent(
 		EventKindInterruptReceived,
 		ts.eventMeta("InterruptGraceful", "turn.interrupt.received"),

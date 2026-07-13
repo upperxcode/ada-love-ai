@@ -14,11 +14,11 @@ import (
 
 // SummarizerWorker gerencia a sumarização assíncrona de sessões de chat
 type SummarizerWorker struct {
-	engine    *Engine
-	mu        sync.Mutex
-	running   map[string]bool // sessionID -> running
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	engine  *Engine
+	mu      sync.Mutex
+	running map[string]bool // sessionID -> running
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 // NewSummarizerWorker cria um novo worker de sumarização
@@ -127,7 +127,7 @@ func (sw *SummarizerWorker) estimateTokens(msgs []ChatMessage) int {
 // summarizeSession executa a sumarização da sessão
 func (sw *SummarizerWorker) summarizeSession(sessionID string) {
 	ctx := context.Background()
-	
+
 	sess, err := sw.engine.db.GetSession(sessionID)
 	if err != nil {
 		log.Printf("[Summarizer] Erro ao carregar sessão %s: %v", sessionID, err)
@@ -164,8 +164,8 @@ func (sw *SummarizerWorker) summarizeSession(sessionID string) {
 
 	// Constrói prompt de sumarização incremental
 	prompt := sw.buildSummarizationPrompt(sess, *ws)
-	
-	log.Printf("[Summarizer] Sessão %s: sumarizando (tokens estimados: %d, max: %d)", 
+
+	log.Printf("[Summarizer] Sessão %s: sumarizando (tokens estimados: %d, max: %d)",
 		sessionID, sw.estimateTokens(sess.Messages), ws.MaxContextLength)
 
 	// Chama o modelo
@@ -199,7 +199,7 @@ func (sw *SummarizerWorker) summarizeSession(sessionID string) {
 		return
 	}
 
-	log.Printf("[Summarizer] Sessão %s: sumarização concluída (contexto: %d chars)", 
+	log.Printf("[Summarizer] Sessão %s: sumarização concluída (contexto: %d chars)",
 		sessionID, len(newContext))
 }
 

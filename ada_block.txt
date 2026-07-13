@@ -1,0 +1,34 @@
+PID=3034607 — amostrando 16x a cada 400ms (~6s)...
+===== amostra 1 (19:41:26) =====
+Threads: 42
+===== amostra 2 (19:41:27) =====
+Threads: 42
+===== amostra 3 (19:41:27) =====
+Threads: 42
+===== amostra 4 (19:41:28) =====
+Threads: 42
+===== amostra 5 (19:41:28) =====
+Threads: 42
+===== amostra 6 (19:41:29) =====
+Threads: 42
+===== amostra 7 (19:41:29) =====
+Threads: 42
+===== amostra 8 (19:41:30) =====
+Threads: 42
+===== amostra 9 (19:41:30) =====
+Threads: 42
+===== amostra 10 (19:41:31) =====
+Threads: 42
+===== amostra 11 (19:41:31) =====
+Threads: 42
+===== amostra 12 (19:41:32) =====
+Threads: 42
+===== amostra 13 (19:41:32) =====
+Threads: 42
+===== amostra 14 (19:41:33) =====
+Threads: 42
+===== amostra 15 (19:41:33) =====
+Threads: 42
+===== amostra 16 (19:41:34) =====
+Threads: 42
+Pronto. Leia: /home/data/aux/dev/projects/go/ada-love-ai/ada_block.txt

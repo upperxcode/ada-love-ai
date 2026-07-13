@@ -38,7 +38,7 @@ func NewGitInitTool(workspace string) *GitInitTool {
 	return &GitInitTool{workspace: workspace}
 }
 
-func (t *GitInitTool) Name() string        { return "git_init" }
+func (t *GitInitTool) Name() string { return "git_init" }
 func (t *GitInitTool) Description() string {
 	return "Initialize a new Git repository in the workspace directory."
 }
@@ -68,7 +68,7 @@ func NewGitStatusTool(workspace string) *GitStatusTool {
 	return &GitStatusTool{workspace: workspace}
 }
 
-func (t *GitStatusTool) Name() string        { return "git_status" }
+func (t *GitStatusTool) Name() string { return "git_status" }
 func (t *GitStatusTool) Description() string {
 	return "Show the working tree status: modified, added, deleted, and untracked files."
 }
@@ -157,7 +157,7 @@ func NewGitDiffTool(workspace string) *GitDiffTool {
 	return &GitDiffTool{workspace: workspace}
 }
 
-func (t *GitDiffTool) Name() string        { return "git_diff" }
+func (t *GitDiffTool) Name() string { return "git_diff" }
 func (t *GitDiffTool) Description() string {
 	return "Show the diff of changes. By default shows unstaged changes. Set staged=true to see staged changes."
 }
@@ -220,7 +220,7 @@ func NewGitCreateBranchTool(workspace string) *GitCreateBranchTool {
 	return &GitCreateBranchTool{workspace: workspace}
 }
 
-func (t *GitCreateBranchTool) Name() string        { return "git_create_branch" }
+func (t *GitCreateBranchTool) Name() string { return "git_create_branch" }
 func (t *GitCreateBranchTool) Description() string {
 	return "Create a new Git branch and optionally switch to it."
 }
@@ -280,7 +280,7 @@ func NewGitSwitchBranchTool(workspace string) *GitSwitchBranchTool {
 	return &GitSwitchBranchTool{workspace: workspace}
 }
 
-func (t *GitSwitchBranchTool) Name() string        { return "git_switch_branch" }
+func (t *GitSwitchBranchTool) Name() string { return "git_switch_branch" }
 func (t *GitSwitchBranchTool) Description() string {
 	return "Switch to an existing Git branch."
 }
@@ -321,7 +321,7 @@ func NewGitCommitTool(workspace string) *GitCommitTool {
 	return &GitCommitTool{workspace: workspace}
 }
 
-func (t *GitCommitTool) Name() string        { return "git_commit" }
+func (t *GitCommitTool) Name() string { return "git_commit" }
 func (t *GitCommitTool) Description() string {
 	return "Stage all changes and create a commit with the given message."
 }
@@ -381,7 +381,7 @@ func NewGitLogTool(workspace string) *GitLogTool {
 	return &GitLogTool{workspace: workspace}
 }
 
-func (t *GitLogTool) Name() string        { return "git_log" }
+func (t *GitLogTool) Name() string { return "git_log" }
 func (t *GitLogTool) Description() string {
 	return "Show recent commit history with hash, author, date, and message."
 }
@@ -438,7 +438,7 @@ func NewGitResetTool(workspace string) *GitResetTool {
 	return &GitResetTool{workspace: workspace}
 }
 
-func (t *GitResetTool) Name() string        { return "git_reset" }
+func (t *GitResetTool) Name() string { return "git_reset" }
 func (t *GitResetTool) Description() string {
 	return "Reset the repository state. Use 'mixed' (default) to unstage changes, 'soft' to keep changes staged, or 'hard' to discard all changes. Use 'commit_ref' to reset to a specific commit."
 }

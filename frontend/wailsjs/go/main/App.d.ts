@@ -8,7 +8,7 @@ export function AddToolToWorkspace(arg1:string,arg2:string):Promise<boolean>;
 
 export function AddToolsToProfile(arg1:number,arg2:Array<string>):Promise<boolean>;
 
-export function AddWorkspace(arg1:string,arg2:string,arg3:string):Promise<void>;
+export function AddWorkspace(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function AnswerApproval(arg1:string,arg2:boolean,arg3:string):Promise<void>;
 
@@ -24,9 +24,13 @@ export function DeleteDBProvider(arg1:string):Promise<void>;
 
 export function DeleteSession(arg1:string):Promise<void>;
 
+export function DeleteSpecWizard(arg1:string):Promise<void>;
+
 export function DeleteToolProfile(arg1:number):Promise<boolean>;
 
 export function DeleteWorkspace(arg1:string):Promise<void>;
+
+export function DeleteWorkspaceTemplate(arg1:number):Promise<void>;
 
 export function FetchProviderModels(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<backend.ProviderModel>>;
 
@@ -41,6 +45,8 @@ export function GetArchitectures():Promise<Array<main.architecture>>;
 export function GetAvailableTools():Promise<Array<backend.ToolUIInfo>>;
 
 export function GetExperts():Promise<Array<registry.ExpertPlugin>>;
+
+export function GetFixedModelTools(arg1:string):Promise<Array<string>>;
 
 export function GetInstalledSkills():Promise<Array<string>>;
 
@@ -58,6 +64,10 @@ export function GetSkillDetails(arg1:string):Promise<string>;
 
 export function GetSkillFullInfo(arg1:string):Promise<backend.SkillFullInfo>;
 
+export function GetSpecWizard(arg1:string):Promise<backend.SpecWizardConfig>;
+
+export function GetSpecWizards():Promise<Array<backend.SpecWizardConfig>>;
+
 export function GetStacks(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function GetToolProfile(arg1:number):Promise<backend.ToolProfile>;
@@ -68,13 +78,19 @@ export function GetWorkerCategories():Promise<Array<string>>;
 
 export function GetWorkers():Promise<Array<backend.WorkerConfig>>;
 
+export function GetWorkspaceTemplates():Promise<Array<backend.WorkspaceTemplate>>;
+
 export function GetWorkspaces():Promise<Array<backend.WorkspaceConfig>>;
 
 export function InstallSkill(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function IsOrchestratorEnabled():Promise<boolean>;
+
 export function ListChatProviders():Promise<Array<string>>;
 
 export function ListCommands():Promise<Array<main.CommandInfo>>;
+
+export function ListFixedModels():Promise<Array<backend.FixedModel>>;
 
 export function OpenDirectoryDialog():Promise<string>;
 
@@ -94,7 +110,13 @@ export function SaveCustomSkill(arg1:string,arg2:string,arg3:string,arg4:string)
 
 export function SaveDBProvider(arg1:string,arg2:backend.ProviderConfig):Promise<void>;
 
+export function SaveFixedModel(arg1:string,arg2:string,arg3:string):Promise<backend.FixedModel>;
+
 export function SaveProvidersConfig():Promise<void>;
+
+export function SaveSpecWizard(arg1:backend.SpecWizardConfig):Promise<void>;
+
+export function SaveWorkspaceTemplate(arg1:backend.WorkspaceTemplate):Promise<void>;
 
 export function SearchSkills(arg1:string):Promise<Array<backend.SearchResult>>;
 
@@ -107,6 +129,8 @@ export function SetAdaConfig(arg1:backend.AdaConfig):Promise<void>;
 export function SetAgentCategories(arg1:Array<string>):Promise<void>;
 
 export function SetAgents(arg1:Array<backend.AgentConfig>):Promise<void>;
+
+export function SetFixedModelTools(arg1:string,arg2:Array<string>):Promise<boolean>;
 
 export function SetSessionConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 

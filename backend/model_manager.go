@@ -114,7 +114,7 @@ func (e *Engine) RemoveProvider(name string) {
 	e.SaveAdaConfig()
 	// Write-through: remove do DB
 	if e.db != nil {
-		if err := e.db.DeleteDBProvider(name); err != nil {
+		if err := e.db.DeleteProviderFull(name); err != nil {
 			fmt.Printf("[Engine] Erro ao remover provider %s do DB: %v\n", name, err)
 		}
 	}
@@ -149,7 +149,7 @@ func (e *Engine) PingProvider(name string) error {
 			return fmt.Errorf("URL base não configurada para %s", name)
 		}
 	}
-	
+
 	resp, err := http.Get(apiBase + "/models")
 	if err != nil {
 		return err
@@ -242,9 +242,9 @@ func fetchOpenAIModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		Data []struct {
 			ID           string `json:"id"`
 			Architecture *struct {
-				Modality          string `json:"modality"`
-				InputModalities   any    `json:"input_modalities"`
-				OutputModalities  any    `json:"output_modalities"`
+				Modality         string `json:"modality"`
+				InputModalities  any    `json:"input_modalities"`
+				OutputModalities any    `json:"output_modalities"`
 			} `json:"architecture"`
 		} `json:"data"`
 	}
@@ -257,9 +257,9 @@ func fetchOpenAIModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		if m.ID == "" {
 			continue
 		}
-			vision, embedding := detectCapabilities(m.ID, m.Architecture)
-			free, thinking := classifyChatModel(m.ID, embedding)
-			models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
+		vision, embedding := detectCapabilities(m.ID, m.Architecture)
+		free, thinking := classifyChatModel(m.ID, embedding)
+		models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
 	}
 	return models, nil
 }
@@ -284,17 +284,17 @@ func fetchAnthropicModels(apiBase, apiKey string) ([]ProviderModel, error) {
 		return nil, fmt.Errorf("falha ao decodificar resposta /models: %w", err)
 	}
 
-		models := make([]ProviderModel, 0, len(resp.Data))
-		for _, m := range resp.Data {
-			if m.ID == "" {
-				continue
-			}
-				vision, embedding := detectCapabilities(m.ID, nil)
-				free, thinking := classifyChatModel(m.ID, embedding)
-				models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
+	models := make([]ProviderModel, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		if m.ID == "" {
+			continue
 		}
-		return models, nil
+		vision, embedding := detectCapabilities(m.ID, nil)
+		free, thinking := classifyChatModel(m.ID, embedding)
+		models = append(models, newProviderModel(m.ID, vision, embedding, free, thinking))
 	}
+	return models, nil
+}
 
 // fetchGeminiModels handles Google's Generative Language /v1beta/models shape:
 // { models: [{ name: "models/gemini-1.5-flash", supportedGenerationMethods: [...] }] },
@@ -329,11 +329,11 @@ func fetchGeminiModels(apiBase, apiKey string) ([]ProviderModel, error) {
 				embedding = true
 			}
 		}
-				free, thinking := classifyChatModel(id, embedding)
-				models = append(models, newProviderModel(id, vision, embedding, free, thinking))
-		}
-		return models, nil
+		free, thinking := classifyChatModel(id, embedding)
+		models = append(models, newProviderModel(id, vision, embedding, free, thinking))
 	}
+	return models, nil
+}
 
 // newProviderModel builds a ProviderModel with the given capabilities.
 // Chat models (non-embedding) default to Tools=true (most support function calling).
@@ -525,9 +525,25 @@ func (e *Engine) syncProviderToDB(name string) {
 	if !ok || e.db == nil {
 		return
 	}
-	if err := e.db.SaveDBProvider(name, cfg); err != nil {
+	cfg.ApiKeys = resolveAPIKeys(cfg.ApiKeys)
+	if err := e.db.SaveProviderFull(adaptProviderConfig(name, cfg)); err != nil {
 		fmt.Printf("[Engine] Erro ao sincronizar provider %s no DB: %v\n", name, err)
 	}
+}
+
+// resolveAPIKeys resolves environment variable references in API keys to their
+// literal values. The original env var name is preserved in UserKey.
+func resolveAPIKeys(keys []ProviderApiKey) []ProviderApiKey {
+	for i, k := range keys {
+		if k.Key == "" {
+			continue
+		}
+		if resolved := envutil.ResolveKey(k.Key); resolved != k.Key {
+			keys[i].Key = resolved
+			keys[i].UserKey = k.Key // store original env var name
+		}
+	}
+	return keys
 }
 
 // SaveDBProvider saves a single provider to DB and updates in-memory config.
@@ -536,10 +552,11 @@ func (e *Engine) SaveDBProvider(name string, cfg ProviderConfig) error {
 	if e.adaCfg.Providers == nil {
 		e.adaCfg.Providers = make(map[string]ProviderConfig)
 	}
+	cfg.ApiKeys = resolveAPIKeys(cfg.ApiKeys)
 	e.adaCfg.Providers[name] = cfg
 	e.mu.Unlock()
 	if e.db != nil {
-		if err := e.db.SaveDBProvider(name, cfg); err != nil {
+		if err := e.db.SaveProviderFull(adaptProviderConfig(name, cfg)); err != nil {
 			return fmt.Errorf("erro ao salvar provider %s no DB: %w", name, err)
 		}
 	}
@@ -552,7 +569,7 @@ func (e *Engine) DeleteDBProvider(name string) error {
 	delete(e.adaCfg.Providers, name)
 	e.mu.Unlock()
 	if e.db != nil {
-		if err := e.db.DeleteDBProvider(name); err != nil {
+		if err := e.db.DeleteProviderFull(name); err != nil {
 			return fmt.Errorf("erro ao remover provider %s do DB: %w", name, err)
 		}
 	}

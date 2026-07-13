@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	gortime "runtime"
 	"os"
 	"path/filepath"
+	gortime "runtime"
 	"strings"
 
 	"ada-love-ai/backend"
@@ -78,6 +78,57 @@ func (a *App) startEventBridge() {
 			runtime.EventsEmit(a.ctx, "chat:cleared", map[string]interface{}{
 				"session_id": ev.SessionID,
 			})
+		case backend.EventKindOrchestratorDecision:
+			if payload, ok := ev.Payload.(backend.OrchestratorDecisionPayload); ok {
+				runtime.EventsEmit(a.ctx, "orchestrator:decision", map[string]interface{}{
+					"session_id":    ev.SessionID,
+					"reasoning":     payload.Reasoning,
+					"next_agent":    payload.NextAgent,
+					"task":          payload.Task,
+					"sub_tasks":     payload.SubTasks,
+					"agent_count":   payload.AgentCount,
+					"related_files": payload.RelatedFiles,
+				})
+			}
+		case backend.EventKindSubTaskStart:
+			if payload, ok := ev.Payload.(backend.SubTaskPayload); ok {
+				runtime.EventsEmit(a.ctx, "orchestrator:subtask:start", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"id":         payload.ID,
+					"agent":      payload.Agent,
+					"task":       payload.Task,
+					"status":     "started",
+				})
+			}
+		case backend.EventKindSubTaskComplete:
+			if payload, ok := ev.Payload.(backend.SubTaskPayload); ok {
+				runtime.EventsEmit(a.ctx, "orchestrator:subtask:complete", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"id":         payload.ID,
+					"agent":      payload.Agent,
+					"task":       payload.Task,
+					"status":     "completed",
+				})
+			}
+		case backend.EventKindSubTaskError:
+			if payload, ok := ev.Payload.(backend.SubTaskPayload); ok {
+				runtime.EventsEmit(a.ctx, "orchestrator:subtask:error", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"id":         payload.ID,
+					"agent":      payload.Agent,
+					"task":       payload.Task,
+					"status":     "error",
+					"error":      payload.Error,
+				})
+			}
+		case backend.EventKindCommandResult:
+			if payload, ok := ev.Payload.(backend.CommandResultPayload); ok {
+				runtime.EventsEmit(a.ctx, "chat:commandResult", map[string]interface{}{
+					"session_id": ev.SessionID,
+					"command":    payload.Command,
+					"output":     payload.Output,
+				})
+			}
 		}
 	})
 }
@@ -108,6 +159,20 @@ func (a *App) GetAdaConfig() backend.AdaConfig {
 }
 func (a *App) SetAdaConfig(cfg backend.AdaConfig) {
 	a.engine.SetAdaConfig(cfg)
+}
+
+// Workspace Templates
+func (a *App) GetWorkspaceTemplates() ([]backend.WorkspaceTemplate, error) {
+	return a.engine.GetWorkspaceTemplates()
+}
+func (a *App) SaveWorkspaceTemplate(t backend.WorkspaceTemplate) error {
+	return a.engine.SaveWorkspaceTemplate(t)
+}
+func (a *App) DeleteWorkspaceTemplate(id int64) error {
+	return a.engine.DeleteWorkspaceTemplate(id)
+}
+func (a *App) IsOrchestratorEnabled() bool {
+	return a.engine.Orchestrator() != nil
 }
 
 // Workers
@@ -148,13 +213,14 @@ func (a *App) SetAgentCategories(categories []string) {
 func (a *App) GetWorkspaces() []backend.WorkspaceConfig {
 	return a.engine.ListWorkspaces()
 }
-func (a *App) AddWorkspace(title, path, personality string) error {
+func (a *App) AddWorkspace(title, path, personality, routingRules string) error {
 	w := backend.WorkspaceConfig{
-		Title:       title,
-		Path:        path,
-		Personality: personality,
-		Tools:       []string{},
-		Enabled:     true,
+		Title:        title,
+		Path:         path,
+		Personality:  personality,
+		RoutingRules: routingRules,
+		Tools:        []string{},
+		Enabled:      true,
 	}
 	return a.engine.AddWorkspace(w)
 }
@@ -238,9 +304,113 @@ func (a *App) DeleteDBProvider(name string) error {
 	return a.engine.DeleteDBProvider(name)
 }
 
+// SpecWizards
+func (a *App) GetSpecWizards() []backend.SpecWizardConfig {
+	wizards, _ := a.engine.DB().GetSpecWizards()
+	return wizards
+}
+
+func (a *App) GetSpecWizard(id string) *backend.SpecWizardConfig {
+	w, _ := a.engine.DB().GetSpecWizardByID(id)
+	return w
+}
+
+func (a *App) SaveSpecWizard(w backend.SpecWizardConfig) error {
+	return a.engine.DB().SaveSpecWizard(w)
+}
+
+func (a *App) DeleteSpecWizard(id string) error {
+	return a.engine.DB().DeleteSpecWizard(id)
+}
+
+// Fixed models API (row-based) exposed to frontend
+func (a *App) ListFixedModels() []backend.FixedModel {
+	if a.engine == nil || a.engine.DB() == nil {
+		return nil
+	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		fmt.Printf("[App] ListFixedModels: db error: %v\n", err)
+		return nil
+	}
+	return rows
+}
+
+func (a *App) SaveFixedModel(name, provider, model string) backend.FixedModel {
+	var out backend.FixedModel
+	if a.engine == nil || a.engine.DB() == nil {
+		return out
+	}
+	id, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{ID: 0, Name: name, Provider: provider, Model: model})
+	if err != nil {
+		fmt.Printf("[App] SaveFixedModel: error saving: %v\n", err)
+		return out
+	}
+	rows, _ := a.engine.DB().ListFixedModelRows()
+	for _, r := range rows {
+		if r.ID == id {
+			return r
+		}
+	}
+	return out
+}
+
+func (a *App) SetFixedModelTools(modelName string, tools []string) bool {
+	if a.engine == nil || a.engine.DB() == nil {
+		return false
+	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		return false
+	}
+	var id int64 = 0
+	for _, r := range rows {
+		if r.Name == modelName {
+			id = r.ID
+			break
+		}
+	}
+	if id == 0 {
+		// create row
+		newID, err := a.engine.DB().SaveFixedModelRow(backend.FixedModel{Name: modelName, Provider: "", Model: ""})
+		if err != nil {
+			return false
+		}
+		id = newID
+	}
+	if err := a.engine.DB().SetFixedModelRowTools(id, tools); err != nil {
+		fmt.Printf("[App] SetFixedModelTools: error setting tools: %v\n", err)
+		return false
+	}
+	return true
+}
+
+func (a *App) GetFixedModelTools(modelName string) []string {
+	if a.engine == nil || a.engine.DB() == nil {
+		return nil
+	}
+	rows, err := a.engine.DB().ListFixedModelRows()
+	if err != nil {
+		return nil
+	}
+	var id int64
+	for _, r := range rows {
+		if r.Name == modelName {
+			id = r.ID
+			break
+		}
+	}
+	if id == 0 {
+		return nil
+	}
+	tools, err := a.engine.DB().GetFixedModelRowTools(id)
+	if err != nil {
+		return nil
+	}
+	return tools
+}
+
 // FetchProviderModels queries a provider's /models endpoint and returns the
-// list enriched with detected capabilities (vision/embedding), keyed by
-// connectionType protocol ("openai" | "anthropic" | "gemini").
 func (a *App) FetchProviderModels(name, apiKey, apiBase, connectionType string) ([]backend.ProviderModel, error) {
 	return a.engine.FetchProviderModels(name, apiKey, apiBase, connectionType)
 }
@@ -254,17 +424,19 @@ func (a *App) TestProviderConnection(name, apiKey, apiBase, connectionType strin
 // Sessions / Chat
 func (a *App) CreateSession(workspaceID, workerName string) *backend.ChatSession {
 	fmt.Printf("[App] CreateSession: workspaceID=%q workerName=%q\n", workspaceID, workerName)
-	sess := a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, workerName, "")
-	fmt.Printf("[App] CreateSession: created sessionID=%q title=%q workspaceID=%q workerName=%q parent=%q\n",
-		sess.ID, sess.Title, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID)
+	sess := a.engine.SessionMgr.CreateSession("Nova Conversa", workspaceID, "")
+	sess.WorkerName = workerName
+	fmt.Printf("[App] CreateSession: created sessionID=%q title=%q workspaceID=%q parent=%q workerName=%q\n",
+		sess.ID, sess.Title, sess.WorkspaceID, sess.ParentSessionID, sess.WorkerName)
 	a.engine.SaveSessionDB(sess.ID)
 	return sess
 }
 
 func (a *App) CreateSummarizedSession(workspaceID, workerName, sourceSessionID string) *backend.ChatSession {
 	fmt.Printf("[App] CreateSummarizedSession: workspaceID=%q workerName=%q sourceSessionID=%q\n", workspaceID, workerName, sourceSessionID)
-	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, workerName, sourceSessionID)
-	fmt.Printf("[App] CreateSummarizedSession: created sessionID=%q parent=%q\n", sess.ID, sess.ParentSessionID)
+	sess := a.engine.SessionMgr.CreateSession("Resumo • "+workerName, workspaceID, sourceSessionID)
+	sess.WorkerName = workerName
+	fmt.Printf("[App] CreateSummarizedSession: created sessionID=%q parent=%q workerName=%q\n", sess.ID, sess.ParentSessionID, sess.WorkerName)
 	a.engine.SaveSessionDB(sess.ID)
 	return sess
 }
@@ -280,7 +452,7 @@ func (a *App) GetSessions(workspaceID string) []*backend.ChatSession {
 		}
 		fmt.Printf("[App] GetSessions: workspaceID=%q → %d sessions from DB\n", workspaceID, len(sessions))
 		for _, s := range sessions {
-			fmt.Printf("[App]   session=%q title=%q worker=%q messages=%d parent=%q\n", s.ID, s.Title, s.WorkerName, len(s.Messages), s.ParentSessionID)
+			fmt.Printf("[App]   session=%q title=%q messages=%d parent=%q\n", s.ID, s.Title, len(s.Messages), s.ParentSessionID)
 		}
 		return sessions
 	}
@@ -335,11 +507,11 @@ func (a *App) SetSessionConfig(sessionID, model, provider, mode, thinking string
 
 // CommandInfo mirrors commands.Definition for JSON serialization to the frontend.
 type CommandInfo struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Usage       string            `json:"usage"`
-	Aliases     []string          `json:"aliases"`
-	SubCommands []SubCommandInfo  `json:"sub_commands"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Usage       string           `json:"usage"`
+	Aliases     []string         `json:"aliases"`
+	SubCommands []SubCommandInfo `json:"sub_commands"`
 }
 
 // SubCommandInfo mirrors commands.SubCommand for JSON serialization.

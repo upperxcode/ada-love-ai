@@ -28,6 +28,20 @@ func checkCommand() Definition {
 					return req.Reply(fmt.Sprintf("Channel '%s' is available and enabled", value))
 				},
 			},
+			{
+				Name:        "providers",
+				Description: "Test real provider API connectivity",
+				Handler: func(_ context.Context, req Request, rt *Runtime) error {
+					if rt == nil || rt.TestConnections == nil {
+						return req.Reply(unavailableMsg)
+					}
+					report, err := rt.TestConnections()
+					if err != nil {
+						return req.Reply("Connection test failed: " + err.Error())
+					}
+					return req.Reply(report)
+				},
+			},
 		},
 	}
 }

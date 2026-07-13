@@ -23,7 +23,7 @@ func NewSearchKnowledgeBaseTool(workspace string) *SearchKnowledgeBaseTool {
 	return &SearchKnowledgeBaseTool{workspace: workspace}
 }
 
-func (t *SearchKnowledgeBaseTool) Name() string        { return "search_knowledge_base" }
+func (t *SearchKnowledgeBaseTool) Name() string { return "search_knowledge_base" }
 func (t *SearchKnowledgeBaseTool) Description() string {
 	return "Search local documentation and knowledge base files (markdown, text, docs/) for relevant information. Useful for finding answers in project docs, READMEs, wikis, or private documentation."
 }

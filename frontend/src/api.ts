@@ -79,6 +79,7 @@ declare global {
             title: string,
             path: string,
             personality: string,
+            routingRules: string,
           ): Promise<void>;
           DeleteWorkspace(path: string): Promise<void>;
           UpdateWorkspace(
@@ -128,6 +129,15 @@ declare global {
           GetExperts(): Promise<Record<string, any>[]>;
           GetStacks(lang: string): Promise<Record<string, any>[]>;
           SuggestFieldValue(fieldName: string, context: string, currentValue: string): Promise<string>;
+          // SpecWizard CRUD
+          GetSpecWizards(): Promise<backend.SpecWizardConfig[]>;
+          GetSpecWizard(id: string): Promise<backend.SpecWizardConfig | null>;
+          SaveSpecWizard(wizard: backend.SpecWizardConfig): Promise<void>;
+          DeleteSpecWizard(id: string): Promise<void>;
+          // Workspace Templates
+          GetWorkspaceTemplates(): Promise<backend.WorkspaceTemplate[]>;
+          SaveWorkspaceTemplate(t: backend.WorkspaceTemplate): Promise<void>;
+          DeleteWorkspaceTemplate(id: number): Promise<void>;
         };
       };
     };
@@ -499,61 +509,73 @@ export namespace backend {
     }
   }
 
-  export class SpecWizardConfig {
-    name: string = '';
-    description: string = '';
-    expert_language_plugin: string = '';
-    prd: string = '';
-    functional_requirements: string[] = [];
-    non_functional_requirements: string[] = [];
-    persistence: string = '';
-    architecture: string = '';
-    engineering_philosophies: string[] = [];
-    design_patterns: string[] = [];
-    data_patterns: string[] = [];
-    stack_config: StackItem[] = [];
-    business: {
-      state_management: string;
-      api_contract: string;
-      customization_details: string;
-      final_adjustments: string;
-      architecture_recommendations: string;
-    } = {
-      state_management: '',
-      api_contract: '',
-      customization_details: '',
-      final_adjustments: '',
-      architecture_recommendations: '',
-    };
+export class SpecWizardConfig {
+  id: string = '';
+  name: string = '';
+  description: string = '';
+  expert_language_plugin: string = '';
+  prd: string = '';
+  functional_requirements: string[] = [];
+  non_functional_requirements: string[] = [];
+  persistence: string = '';
+  architecture: string = '';
+  engineering_philosophies: string[] = [];
+  design_patterns: string[] = [];
+  data_patterns: string[] = [];
+  stack_config: StackItem[] = [];
+  business: {
+    state_management: string;
+    api_contract: string;
+    customization_details: string;
+    final_adjustments: string;
+    architecture_recommendations: string;
+  } = {
+    state_management: '',
+    api_contract: '',
+    customization_details: '',
+    final_adjustments: '',
+    architecture_recommendations: '',
+  };
+  color: string = '#3b82f6';
+  icon: string = '📝';
+  architecture_health: number = 0;
+  created_at: string = '';
+  updated_at: string = '';
 
-    constructor(source: any = {}) {
-      if (typeof source === 'string') source = JSON.parse(source);
-      this.name = source['name'] ?? '';
-      this.description = source['description'] ?? '';
-      this.expert_language_plugin = source['expert_language_plugin'] ?? '';
-      this.prd = source['prd'] ?? '';
-      this.functional_requirements = source['functional_requirements'] ?? [];
-      this.non_functional_requirements =
-        source['non_functional_requirements'] ?? [];
-      this.persistence = source['persistence'] ?? '';
-      this.architecture = source['architecture'] ?? '';
-      this.engineering_philosophies = source['engineering_philosophies'] ?? [];
-      this.design_patterns = source['design_patterns'] ?? [];
-      this.data_patterns = source['data_patterns'] ?? [];
-      this.stack_config = (source['stack_config'] ?? []).map(
-        (s: any) => new StackItem(s),
-      );
-      this.business = {
-        state_management: source['business']?.['state_management'] ?? '',
-        api_contract: source['business']?.['api_contract'] ?? '',
-        customization_details:
-          source['business']?.['customization_details'] ?? '',
-        final_adjustments: source['business']?.['final_adjustments'] ?? '',
-        architecture_recommendations:
-          source['business']?.['architecture_recommendations'] ?? '',
-      };
-    }
+  constructor(source: any = {}) {
+    if (typeof source === 'string') source = JSON.parse(source);
+    this.id = source['id'] ?? '';
+    this.name = source['name'] ?? '';
+    this.description = source['description'] ?? '';
+    this.expert_language_plugin = source['expert_language_plugin'] ?? '';
+    this.prd = source['prd'] ?? '';
+    this.functional_requirements = source['functional_requirements'] ?? [];
+    this.non_functional_requirements =
+      source['non_functional_requirements'] ?? [];
+    this.persistence = source['persistence'] ?? '';
+    this.architecture = source['architecture'] ?? '';
+    this.engineering_philosophies = source['engineering_philosophies'] ?? [];
+    this.design_patterns = source['design_patterns'] ?? [];
+    this.data_patterns = source['data_patterns'] ?? [];
+    this.stack_config = (source['stack_config'] ?? []).map(
+      (s: any) => new StackItem(s),
+    );
+    this.business = {
+      state_management: source['business']?.['state_management'] ?? '',
+      api_contract: source['business']?.['api_contract'] ?? '',
+      customization_details:
+        source['business']?.['customization_details'] ?? '',
+      final_adjustments: source['business']?.['final_adjustments'] ?? '',
+      architecture_recommendations:
+        source['business']?.['architecture_recommendations'] ?? '',
+    };
+    this.color = source['color'] ?? '#3b82f6';
+    this.icon = source['icon'] ?? '📝';
+    this.architecture_health = source['architecture_health'] ?? 0;
+    this.created_at = source['created_at'] ?? '';
+    this.updated_at = source['updated_at'] ?? '';
   }
+}
 
   export class WorkspaceConfig {
     id: number = 0;
@@ -562,8 +584,9 @@ export namespace backend {
     path: string = '';
     folders: string[] = [];
     personality: string = '';
+    routing_rules: string = '';
     knowledge: string[] = [];
-    workers: WorkerConfig[] = [];
+    worker_names: string[] = [];
     skills: string[] = [];
     tools: string[] = [];
     enabled: boolean = true;
@@ -573,6 +596,7 @@ export namespace backend {
     commit_changes: boolean = true;
     max_context_length: number = 0;
     spec_wizard: string = '';
+    spec_wizard_id: string = '';
     agents: string[] = [];
 
     constructor(source: any = {}) {
@@ -583,12 +607,14 @@ export namespace backend {
       this.path = source['path'] ?? '';
       this.folders = source['folders'] ?? [];
       this.personality = source['personality'] ?? '';
+      this.routing_rules = source['routing_rules'] ?? '';
       this.knowledge = source['knowledge'] ?? [];
-      this.workers = (
-        source['workspace_agents'] ??
+      this.worker_names = (
+        source['worker_names'] ??
         source['workers'] ??
+        source['workspace_agents'] ??
         []
-      ).map((w: any) => new WorkerConfig(w));
+      ).map((w: any) => typeof w === 'string' ? w : w.name).filter(Boolean);
       this.skills = source['skills'] ?? [];
       this.tools = source['tools'] ?? [];
       this.enabled = source['enabled'] ?? true;
@@ -597,7 +623,8 @@ export namespace backend {
       this.max_prompt_send = source['max_prompt_send'] ?? 0;
       this.commit_changes = source['commit_changes'] ?? true;
       this.max_context_length = source['max_context_length'] ?? 0;
-      this.spec_wizard = source['spec_wizard'] ?? '';
+      this.spec_wizard = source['spec_wizard'] ?? source['spec_wizard_id'] ?? '';
+      this.spec_wizard_id = source['spec_wizard_id'] ?? source['spec_wizard'] ?? '';
       this.agents = source['agents'] ?? [];
     }
   }
@@ -620,9 +647,10 @@ export namespace backend {
     embedding_provider: string = '';
     image_model: string = '';
     image_provider: string = '';
-    spec_model: string = '';
-    spec_provider: string = '';
-    mcp_servers: Record<string, MCPServerUI> = {};
+	    spec_model: string = '';
+	    spec_provider: string = '';
+	    spec_tools: string[] = [];
+	    mcp_servers: Record<string, MCPServerUI> = {};
 
     constructor(source: any = {}) {
       if (typeof source === 'string') source = JSON.parse(source);
@@ -649,9 +677,31 @@ export namespace backend {
       this.embedding_provider = source['embedding_provider'] ?? '';
       this.image_model = source['image_model'] ?? '';
       this.image_provider = source['image_provider'] ?? '';
-      this.spec_model = source['spec_model'] ?? '';
-      this.spec_provider = source['spec_provider'] ?? '';
-      this.mcp_servers = source['mcp_servers'] ?? {};
+	      this.spec_model = source['spec_model'] ?? '';
+	      this.spec_provider = source['spec_provider'] ?? '';
+	      this.spec_tools = source['spec_tools'] ?? [];
+	      this.mcp_servers = source['mcp_servers'] ?? {};
+    }
+  }
+
+  export class WorkspaceTemplate {
+    id: number = 0;
+    name: string = '';
+    description: string = '';
+    personality: string = '';
+    created_at: string = '';
+
+    static createFrom(source: any = {}) {
+      return new WorkspaceTemplate(source);
+    }
+
+    constructor(source: any = {}) {
+      if (typeof source === 'string') source = JSON.parse(source);
+      this.id = source['id'] ?? 0;
+      this.name = source['name'] ?? '';
+      this.description = source['description'] ?? '';
+      this.personality = source['personality'] ?? '';
+      this.created_at = source['created_at'] ?? '';
     }
   }
 
@@ -988,11 +1038,12 @@ export async function addWorkspace(
   title: string,
   path: string,
   personality: string,
+  routingRules: string,
 ): Promise<void> {
   const app = getApp();
   if (!app) return;
   try {
-    await app.AddWorkspace(title, path, personality);
+    await app.AddWorkspace(title, path, personality, routingRules);
   } catch {}
 }
 
@@ -1011,7 +1062,7 @@ export async function updateWorkspace(
   const app = getApp();
   if (!app) return;
   try {
-    console.log(`[api] updateWorkspace: originalPath="${originalPath}" workers=${JSON.stringify((ws as any).workers ?? (ws as any).workspace_agents)?.substring(0, 100)}`);
+    console.log(`[api] updateWorkspace: originalPath="${originalPath}" worker_names=${JSON.stringify((ws as any).worker_names ?? []).substring(0, 100)}`);
     await app.UpdateWorkspace(originalPath, ws);
   } catch (e) {
     console.error('[api] updateWorkspace error:', e);
@@ -1023,6 +1074,34 @@ export async function setActiveWorkspace(path: string): Promise<void> {
   if (!app) return;
   try {
     await app.SetActiveWorkspace(path);
+  } catch {}
+}
+
+// --- Workspace Templates ---
+
+export async function getWorkspaceTemplates(): Promise<backend.WorkspaceTemplate[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    return await app.GetWorkspaceTemplates();
+  } catch {
+    return [];
+  }
+}
+
+export async function saveWorkspaceTemplate(t: backend.WorkspaceTemplate): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.SaveWorkspaceTemplate(t);
+  } catch {}
+}
+
+export async function deleteWorkspaceTemplate(id: number): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.DeleteWorkspaceTemplate(id);
   } catch {}
 }
 
@@ -1163,7 +1242,12 @@ export function onChatEvent(
     | 'chat:question'
     | 'chat:questionAnswered'
     | 'chat:toolApproval'
-    | 'chat:cleared',
+    | 'chat:cleared'
+    | 'orchestrator:decision'
+    | 'orchestrator:subtask:start'
+    | 'orchestrator:subtask:complete'
+    | 'orchestrator:subtask:error'
+    | 'chat:commandResult',
   callback: (payload: any) => void,
 ): () => void {
   const runtime = (window as any).runtime;
@@ -1181,7 +1265,12 @@ export function offChatEvent(
     | 'chat:question'
     | 'chat:questionAnswered'
     | 'chat:toolApproval'
-    | 'chat:cleared',
+    | 'chat:cleared'
+    | 'orchestrator:decision'
+    | 'orchestrator:subtask:start'
+    | 'orchestrator:subtask:complete'
+    | 'orchestrator:subtask:error'
+    | 'chat:commandResult',
 ): void {
   const runtime = (window as any).runtime;
   if (!runtime?.EventsOff) return;
@@ -1397,7 +1486,39 @@ export async function saveCustomSkill(
   } catch {}
 }
 
-// --- Slash Commands ---
+// --- Spec Wizard ---
+
+export async function getSpecWizards(): Promise<backend.SpecWizardConfig[]> {
+  const app = getApp();
+  if (!app) return [];
+  try {
+    const raw = await app.GetSpecWizards();
+    return (raw ?? []).map((w: any) => new backend.SpecWizardConfig(w));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSpecWizard(
+  wizard: backend.SpecWizardConfig,
+): Promise<backend.SpecWizardConfig | null> {
+  const app = getApp();
+  if (!app) return null;
+  try {
+    await app.SaveSpecWizard(wizard);
+    return wizard;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteSpecWizard(id: string): Promise<void> {
+  const app = getApp();
+  if (!app) return;
+  try {
+    await app.DeleteSpecWizard(id);
+  } catch {}
+}
 
 export async function listCommands(): Promise<backend.CommandInfo[]> {
   const app = getApp();

@@ -110,17 +110,17 @@ func (e *Engine) GetSkillFullInfo(name string) (*SkillFullInfo, error) {
 		info.CharCount = len(data)
 		info.LineCount = strings.Count(info.Raw, "\n") + 1
 
-			// Extract frontmatter fields (name, description, tags)
-			fmName, fmDesc, fmTags := extractFrontmatter(data)
-			if fmName != "" {
-				info.Name = fmName
-			}
-			if fmDesc != "" {
-				info.Description = fmDesc
-			}
-			if len(fmTags) > 0 {
-				info.Tags = fmTags
-			}
+		// Extract frontmatter fields (name, description, tags)
+		fmName, fmDesc, fmTags := extractFrontmatter(data)
+		if fmName != "" {
+			info.Name = fmName
+		}
+		if fmDesc != "" {
+			info.Description = fmDesc
+		}
+		if len(fmTags) > 0 {
+			info.Tags = fmTags
+		}
 	}
 
 	// 2. Read SKILL.json (Picoclaw manifest) — overrides frontmatter

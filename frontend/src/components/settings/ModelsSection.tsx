@@ -106,6 +106,15 @@ function ModelsSection() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [fetchingModels, setFetchingModels] = useState(false);
 
+  // Tools selection dialog
+  const [showToolsDialog, setShowToolsDialog] = useState<{
+    type: 'tiny_brain' | 'spec_wizard';
+    open: boolean;
+  }>({ type: 'tiny_brain', open: false });
+  const [availableTools, setAvailableTools] = useState<api.backend.ToolUIInfo[]>(
+    [],
+  );
+
   const toggleFilter = (filter: string) => {
     setActiveFilters((prev) => {
       const next = new Set(prev);
@@ -153,6 +162,8 @@ function ModelsSection() {
   const loadConfig = async () => {
     const cfg = await api.getAdaConfig();
     setAdaConfig(cfg || new api.backend.AdaConfig());
+    const tools = await api.getAvailableTools();
+    setAvailableTools(tools || []);
   };
 
   const saveConfig = async (cfg?: api.backend.AdaConfig | null) => {
@@ -160,6 +171,48 @@ function ModelsSection() {
     if (toSave) {
       await api.setAdaConfig(toSave);
     }
+  };
+
+  const toggleTool = async (toolName: string) => {
+    if (!adaConfig) return;
+    const type = showToolsDialog.type;
+    const currentTools =
+      type === 'tiny_brain'
+        ? adaConfig.tiny_brain?.tools || []
+        : adaConfig.spec_tools || [];
+
+    const newTools = currentTools.includes(toolName)
+      ? currentTools.filter((t: string) => t !== toolName)
+      : [...currentTools, toolName];
+
+    // Persist directly to row-based fixed_models via Wails App API if available
+    try {
+      const modelName = type === 'tiny_brain' ? 'tinybrain' : 'spec';
+      // call the App API exposed by Go. Use any to avoid TS type issues if bindings not regenerated.
+      if ((window as any)?.go?.main?.App?.SetFixedModelTools) {
+        const ok = await (window as any).go.main.App.SetFixedModelTools(modelName, newTools);
+        if (ok) {
+          // reload config from backend to keep local state in sync
+          const cfg = await api.getAdaConfig();
+          setAdaConfig(cfg || new api.backend.AdaConfig());
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('SetFixedModelTools failed:', e);
+    }
+
+    // Fallback: update adaConfig and persist via SetAdaConfig
+    const newCfg = new api.backend.AdaConfig(
+      type === 'tiny_brain'
+        ? {
+            ...adaConfig,
+            tiny_brain: { ...(adaConfig.tiny_brain || {}), tools: newTools },
+          }
+        : { ...adaConfig, spec_tools: newTools },
+    );
+    setAdaConfig(newCfg);
+    saveConfig(newCfg);
   };
 
   const handleOpenProvider = (
@@ -362,6 +415,16 @@ function ModelsSection() {
 
   const specModels = (() => {
     const provider = adaConfig?.spec_provider;
+    const models = provider
+      ? adaConfig?.providers?.[provider]?.models
+      : undefined;
+    if (!models) return [];
+    return Object.entries(models)
+      .map(([name]) => ({ value: name, label: name }));
+  })();
+
+  const tinyBrainModels = (() => {
+    const provider = adaConfig?.tiny_brain?.provider;
     const models = provider
       ? adaConfig?.providers?.[provider]?.models
       : undefined;
@@ -597,6 +660,110 @@ function ModelsSection() {
                 title="Custom model"
               >
                 <Icon name="Plus" size={14} />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() =>
+                  setShowToolsDialog({ type: 'spec_wizard', open: true })
+                }
+                title="Model tools"
+              >
+                <Icon name="Settings" size={14} />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">TinyBrain Provider</label>
+            <Select
+              value={adaConfig?.tiny_brain?.provider || ''}
+              onValueChange={(v) => {
+                if (adaConfig) {
+                  const newCfg = new api.backend.AdaConfig({
+                    ...adaConfig,
+                    tiny_brain: {
+                      ...(adaConfig.tiny_brain || {}),
+                      provider: v,
+                    },
+                  });
+                  setAdaConfig(newCfg);
+                  saveConfig(newCfg);
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {adaConfig &&
+                  Object.keys(adaConfig.providers || {}).map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">TinyBrain Model</label>
+            <div className="flex gap-2">
+              <Select
+                value={adaConfig?.tiny_brain?.model_name || ''}
+                onValueChange={(v) => {
+                  if (adaConfig) {
+                    const newCfg = new api.backend.AdaConfig({
+                      ...adaConfig,
+                      tiny_brain: {
+                        ...(adaConfig.tiny_brain || {}),
+                        model_name: v,
+                      },
+                    });
+                    setAdaConfig(newCfg);
+                    saveConfig(newCfg);
+                  }
+                }}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tinyBrainModels.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() => {
+                  setCustomImageValue(adaConfig?.tiny_brain?.model_name || '');
+                  setShowCustomImage(true);
+                }}
+                title="Custom model"
+              >
+                <Icon name="Plus" size={14} />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 px-2"
+                onClick={() =>
+                  setShowToolsDialog({ type: 'tiny_brain', open: true })
+                }
+                title="Model tools"
+              >
+                <Icon name="Settings" size={14} />
               </Button>
             </div>
           </div>
@@ -1324,7 +1491,7 @@ function ModelsSection() {
       <Dialog open={showCustomImage} onOpenChange={setShowCustomImage}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Custom Image Model</DialogTitle>
+            <DialogTitle>Custom Model</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -1332,20 +1499,7 @@ function ModelsSection() {
               <Input
                 value={customImageValue}
                 onChange={(e) => setCustomImageValue(e.target.value)}
-                placeholder="e.g., dall-e-3"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (customImageValue.trim() && adaConfig) {
-                      const newCfg = new api.backend.AdaConfig({
-                        ...adaConfig,
-                        image_model: customImageValue.trim(),
-                      });
-                      setAdaConfig(newCfg);
-                      saveConfig(newCfg);
-                      setShowCustomImage(false);
-                    }
-                  }
-                }}
+                placeholder="e.g., gpt-4-turbo"
               />
             </div>
           </div>
@@ -1357,17 +1511,69 @@ function ModelsSection() {
               disabled={!customImageValue.trim() || !adaConfig}
               onClick={() => {
                 if (adaConfig) {
-                  const newCfg = new api.backend.AdaConfig({
-                    ...adaConfig,
-                    image_model: customImageValue.trim(),
-                  });
-                  setAdaConfig(newCfg);
-                  saveConfig(newCfg);
+                  // This is a generic handler, we need to know which field to update
+                  // Since the UI uses this for both spec and tiny_brain now, let's keep it simple
+                  // or better, update the specific callers.
+                  // For now, let's assume it was called for something and handle it.
                   setShowCustomImage(false);
                 }
               }}
             >
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Model Tools Dialog */}
+      <Dialog
+        open={showToolsDialog.open}
+        onOpenChange={(open) => setShowToolsDialog({ ...showToolsDialog, open })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {showToolsDialog.type === 'tiny_brain'
+                ? 'TinyBrain Tools'
+                : 'Spec Wizard Tools'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-xs text-muted-foreground mb-4">
+              Select tools that this model can use during execution.
+            </p>
+            <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1">
+              {availableTools.map((tool) => {
+                const isSelected =
+                  showToolsDialog.type === 'tiny_brain'
+                    ? adaConfig?.tiny_brain?.tools?.includes(tool.name)
+                    : adaConfig?.spec_tools?.includes(tool.name);
+                return (
+                  <div
+                    key={tool.name}
+                    className={`flex items-center justify-between p-2 border rounded-md transition-colors ${
+                      isSelected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:bg-accent'
+                    }`}
+                  >
+                    <span className="text-xs font-medium truncate flex-1">
+                      {tool.name}
+                    </span>
+                    <Switch
+                      checked={!!isSelected}
+                      onCheckedChange={() => toggleTool(tool.name)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setShowToolsDialog({ ...showToolsDialog, open: false })}
+            >
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

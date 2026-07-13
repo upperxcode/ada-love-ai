@@ -62,18 +62,18 @@ func (h *FrontendApprovalHook) ApproveTool(ctx context.Context, req *agent.ToolA
 		if !ok {
 			return agent.ApprovalDecision{Approved: false, Reason: "User did not respond in time"}, nil
 		}
-		
+
 		// Cache the approval for this read tool
 		if decision.Approved {
 			h.registry.CacheApproval(sessionID, req.Tool)
 		}
-		
+
 		return agent.ApprovalDecision{Approved: decision.Approved, Reason: decision.Reason}, nil
 	}
 
 	// Write tools - ask user about writing to file
 	requestID := integration.GenerateApprovalID()
-	
+
 	// Build a more descriptive message for write tools
 	toolDesc := req.Tool
 	if req.Tool == "write_file" {
@@ -93,11 +93,11 @@ func (h *FrontendApprovalHook) ApproveTool(ctx context.Context, req *agent.ToolA
 	if !ok {
 		return agent.ApprovalDecision{Approved: false, Reason: "User did not respond in time"}, nil
 	}
-	
+
 	// If approved, cache write permission for this iteration
 	if decision.Approved {
 		h.registry.CacheWriteApproval(sessionID)
 	}
-	
+
 	return agent.ApprovalDecision{Approved: decision.Approved, Reason: decision.Reason}, nil
 }

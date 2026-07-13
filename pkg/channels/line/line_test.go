@@ -364,7 +364,7 @@ func TestNewLINEChannel(t *testing.T) {
 			Type:    "line",
 		}
 		cfg := &config.LINESettings{
-			ChannelSecret:     *config.NewSecureString("secret"),
+			ChannelSecret:      *config.NewSecureString("secret"),
 			ChannelAccessToken: *config.NewSecureString("token"),
 		}
 		ch, err := NewLINEChannel(bc, cfg, bus.NewMessageBus())
@@ -386,7 +386,7 @@ func TestLineMaxMessageLength(t *testing.T) {
 		Type:    "line",
 	}
 	cfg := &config.LINESettings{
-		ChannelSecret:     *config.NewSecureString("secret"),
+		ChannelSecret:      *config.NewSecureString("secret"),
 		ChannelAccessToken: *config.NewSecureString("token"),
 	}
 	ch, err := NewLINEChannel(bc, cfg, bus.NewMessageBus())

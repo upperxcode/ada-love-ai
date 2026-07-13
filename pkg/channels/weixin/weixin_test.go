@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	basechannels "ada-love-ai/pkg/channels"
 	"ada-love-ai/pkg/bus"
+	basechannels "ada-love-ai/pkg/channels"
 	"ada-love-ai/pkg/config"
 )
 
@@ -386,7 +386,7 @@ func TestNewWeixinChannel(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		bc := &config.Channel{
 			Enabled:   true,
-			Type:     "weixin",
+			Type:      "weixin",
 			AllowFrom: []string{"*"},
 		}
 		cfg := &config.WeixinSettings{

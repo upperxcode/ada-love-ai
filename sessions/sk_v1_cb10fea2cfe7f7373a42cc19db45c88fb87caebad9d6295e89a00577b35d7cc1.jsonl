@@ -1,4 +1,10 @@
-{"role":"user","content":"me diga o caminho dos diretórios que você tem acesso"}
-{"role":"assistant","content":"Como uma inteligência artificial, não tenho acesso físico ao sistema ou a um diretório específico. No entanto, em termos de dados disponíveis para mim:\n\n1. **Workspace**: `/home/data/aux/dev/projetos/go/ia/ada-love-ai`\n   - `memory/MEMORY.md`\n   - `YYYYMM/YYYYMMDD.md` (Arquivos diários de memória)\n   - `skills/{skill-name}/SKILL.md`\n\n2. **Project Folders**:\n   - `/home/data/aux/dev/projetos/go/ia/ada-love-ai`\n   - `/home/data/aux/dev/projetos/go/ia/picoclaw`\n\nSe você tiver alguma outra pergunta ou precisar de informações sobre qualquer um desses diretórios, sinta-se à vontade para perguntar!"}
 {"role":"user","content":"olá"}
-{"role":"assistant","content":"Olá! Como posso ajudar você hoje?"}
+{"role":"user","content":"OLA"}
+{"role":"user","content":"olá"}
+{"role":"user","content":"olá"}
+{"role":"user","content":"olá"}
+{"role":"user","content":"me dê um lista das 20 maiores cidade brasileiras"}
+{"role":"user","content":"me dê um lista das 20 maiores cidade brasileiras"}
+{"role":"assistant","content":"Olá! 👋 Tudo bem?\n\nAqui está a lista das 20 maiores cidades brasileiras por população (dados do Censo IBGE 2022):\n\n1. **São Paulo** (SP) — 11.443.347\n2. **Rio de Janeiro** (RJ) — 6.688.927\n3. **Brasília** (DF) — 2.982.818\n4. **Salvador** (BA) — 2.900.319\n5. **Fortaleza** (CE) — 2.686.612\n6. **Belo Horizonte** (MG) — 2.521.564\n7. **Manaus** (AM) — 2.219.580\n8. **Curitiba** (PR) — 1.948.626\n9. **Recife** (PE) — 1.653.461\n10. **Porto Alegre** (RS) — 1.492.530\n11. **Belém** (PA) — 1.485.732\n12. **Goiânia** (GO) — 1.437.365\n13. **Guarulhos** (SP) — 1.379.182\n14. **Campinas** (SP) — 1.195.292\n15. **São Luís** (MA) — 1.108.975\n16. **São Gonçalo** (RJ) — 1.022.411\n17. **Maceió** (AL) — 1.005.319\n18. **Duque de Caxias** (RJ) — 924.624\n19. **Natal** (RN) — 896.708\n20. **Teresina** (PI) — 870.183\n\nSe quiser, posso formatar isso em uma tabela, gerar um arquivo CSV/JSON no workspace ou filtrar por região. É só avisar! 🦞"}
+{"role":"user","content":"olá"}
+{"role":"assistant","content":"Olá! 👋 Tudo bem?\n\nSou a Ada Love, sua assistente de orquestração de desenvolvimento. Posso te ajudar a:\n\n- 🐹 Criar ou modificar **backend** em Go (chamo o GOLANG_AGENT)\n- ⚛️ Desenvolver **frontend** em React (chamo o REACT_AGENT)\n- 🧪 Escrever **testes** e validar código (chamo o TESTER_AGENT)\n\nSe tiver alguma tarefa de desenvolvimento, é só me dizer! Caso contrário, se quiser conversar ou pedir informações gerais, também estou por aqui. 🦞"}

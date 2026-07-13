@@ -80,6 +80,10 @@ type AgentLoop struct {
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
 	// Reload function for hot config reload
 	reloadFunc func() error
+	// Health function for workspace health check
+	healthFunc func() (string, error)
+	// Connection test function for real provider API tests
+	testConnFunc func() (string, error)
 }
 
 // processOptions configures how a message is processed

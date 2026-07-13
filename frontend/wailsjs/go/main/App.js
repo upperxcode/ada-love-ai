@@ -10,8 +10,8 @@ export function AddToolsToProfile(arg1, arg2) {
   return window['go']['main']['App']['AddToolsToProfile'](arg1, arg2);
 }
 
-export function AddWorkspace(arg1, arg2, arg3) {
-  return window['go']['main']['App']['AddWorkspace'](arg1, arg2, arg3);
+export function AddWorkspace(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['AddWorkspace'](arg1, arg2, arg3, arg4);
 }
 
 export function AnswerApproval(arg1, arg2, arg3) {
@@ -42,12 +42,20 @@ export function DeleteSession(arg1) {
   return window['go']['main']['App']['DeleteSession'](arg1);
 }
 
+export function DeleteSpecWizard(arg1) {
+  return window['go']['main']['App']['DeleteSpecWizard'](arg1);
+}
+
 export function DeleteToolProfile(arg1) {
   return window['go']['main']['App']['DeleteToolProfile'](arg1);
 }
 
 export function DeleteWorkspace(arg1) {
   return window['go']['main']['App']['DeleteWorkspace'](arg1);
+}
+
+export function DeleteWorkspaceTemplate(arg1) {
+  return window['go']['main']['App']['DeleteWorkspaceTemplate'](arg1);
 }
 
 export function FetchProviderModels(arg1, arg2, arg3, arg4) {
@@ -76,6 +84,10 @@ export function GetAvailableTools() {
 
 export function GetExperts() {
   return window['go']['main']['App']['GetExperts']();
+}
+
+export function GetFixedModelTools(arg1) {
+  return window['go']['main']['App']['GetFixedModelTools'](arg1);
 }
 
 export function GetInstalledSkills() {
@@ -110,6 +122,14 @@ export function GetSkillFullInfo(arg1) {
   return window['go']['main']['App']['GetSkillFullInfo'](arg1);
 }
 
+export function GetSpecWizard(arg1) {
+  return window['go']['main']['App']['GetSpecWizard'](arg1);
+}
+
+export function GetSpecWizards() {
+  return window['go']['main']['App']['GetSpecWizards']();
+}
+
 export function GetStacks(arg1) {
   return window['go']['main']['App']['GetStacks'](arg1);
 }
@@ -130,6 +150,10 @@ export function GetWorkers() {
   return window['go']['main']['App']['GetWorkers']();
 }
 
+export function GetWorkspaceTemplates() {
+  return window['go']['main']['App']['GetWorkspaceTemplates']();
+}
+
 export function GetWorkspaces() {
   return window['go']['main']['App']['GetWorkspaces']();
 }
@@ -138,12 +162,20 @@ export function InstallSkill(arg1, arg2, arg3) {
   return window['go']['main']['App']['InstallSkill'](arg1, arg2, arg3);
 }
 
+export function IsOrchestratorEnabled() {
+  return window['go']['main']['App']['IsOrchestratorEnabled']();
+}
+
 export function ListChatProviders() {
   return window['go']['main']['App']['ListChatProviders']();
 }
 
 export function ListCommands() {
   return window['go']['main']['App']['ListCommands']();
+}
+
+export function ListFixedModels() {
+  return window['go']['main']['App']['ListFixedModels']();
 }
 
 export function OpenDirectoryDialog() {
@@ -182,8 +214,20 @@ export function SaveDBProvider(arg1, arg2) {
   return window['go']['main']['App']['SaveDBProvider'](arg1, arg2);
 }
 
+export function SaveFixedModel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveFixedModel'](arg1, arg2, arg3);
+}
+
 export function SaveProvidersConfig() {
   return window['go']['main']['App']['SaveProvidersConfig']();
+}
+
+export function SaveSpecWizard(arg1) {
+  return window['go']['main']['App']['SaveSpecWizard'](arg1);
+}
+
+export function SaveWorkspaceTemplate(arg1) {
+  return window['go']['main']['App']['SaveWorkspaceTemplate'](arg1);
 }
 
 export function SearchSkills(arg1) {
@@ -208,6 +252,10 @@ export function SetAgentCategories(arg1) {
 
 export function SetAgents(arg1) {
   return window['go']['main']['App']['SetAgents'](arg1);
+}
+
+export function SetFixedModelTools(arg1, arg2) {
+  return window['go']['main']['App']['SetFixedModelTools'](arg1, arg2);
 }
 
 export function SetSessionConfig(arg1, arg2, arg3, arg4, arg5) {

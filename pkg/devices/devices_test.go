@@ -8,9 +8,9 @@ import (
 
 func TestNewService(t *testing.T) {
 	tests := []struct {
-		name   string
-		cfg    Config
-		want   bool
+		name string
+		cfg  Config
+		want bool
 	}{
 		{
 			name: "disabled service",

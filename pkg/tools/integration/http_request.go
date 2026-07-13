@@ -24,7 +24,7 @@ func NewHTTPRequestTool() *HTTPRequestTool {
 	return &HTTPRequestTool{}
 }
 
-func (t *HTTPRequestTool) Name() string        { return "http_request" }
+func (t *HTTPRequestTool) Name() string { return "http_request" }
 func (t *HTTPRequestTool) Description() string {
 	return "Send an HTTP request (GET, POST, PUT, PATCH, DELETE) to a URL. Useful for testing APIs created by the agent. Returns status code, headers, and response body."
 }

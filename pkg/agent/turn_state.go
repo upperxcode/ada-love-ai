@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -399,6 +400,8 @@ func (ts *turnState) requestGracefulInterrupt(hint string) bool {
 	if ts.hardAbort {
 		return false
 	}
+	// Diagnostic: log that a graceful interrupt was requested for this turn
+	fmt.Printf("[turnState] requestGracefulInterrupt: turn=%s session=%s hint=%q\n", ts.turnID, ts.sessionKey, hint)
 	ts.gracefulInterrupt = true
 	ts.gracefulInterruptHint = hint
 	return true

@@ -56,11 +56,11 @@ type InboundMessage struct {
 type ctxKey string
 
 const (
-	OverrideModelKey     ctxKey = "override_model"
-	OverrideModelIDKey   ctxKey = "override_model_id"
-	OverrideThinkingKey  ctxKey = "override_thinking_level"
-	OverrideProviderKey  ctxKey = "override_provider"
-	OverrideModeKey      ctxKey = "override_mode"
+	OverrideModelKey    ctxKey = "override_model"
+	OverrideModelIDKey  ctxKey = "override_model_id"
+	OverrideThinkingKey ctxKey = "override_thinking_level"
+	OverrideProviderKey ctxKey = "override_provider"
+	OverrideModeKey     ctxKey = "override_mode"
 )
 
 // WithOverrides returns a new context with model/thinking/provider/mode overrides attached.

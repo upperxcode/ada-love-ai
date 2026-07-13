@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
-	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/bus"
+	"ada-love-ai/pkg/commands"
 	"ada-love-ai/pkg/config"
+	"ada-love-ai/pkg/contextloader"
+	"ada-love-ai/pkg/profiles"
 	"ada-love-ai/pkg/providers"
-	)
+	"ada-love-ai/pkg/tinybrain"
+)
 
 func (e *Engine) TogglePin(sessionID string) {
 	e.SessionMgr.TogglePin(sessionID)
@@ -106,12 +110,26 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		}
 	}
 
+	// When the frontend did not pass an explicit model override, use the chat's
+	// own configured model/provider (sess.Model / sess.Provider) for generation.
+	// This makes GENERAL responses use the model the user selected for that chat
+	// rather than the agent's hardcoded default.
+	if modelOverride == "" && sess != nil && sess.Model != "" {
+		if provName := sess.Provider; provName != "" {
+			ctx = bus.WithOverrides(ctx, provName+"/"+sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q provider=%q\n", sess.Model, provName)
+		} else {
+			ctx = bus.WithOverrides(ctx, sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q (no provider)\n", sess.Model)
+		}
+	}
+
 	// Sync the agent's folders/personality with the session's workspace WITHOUT
 	// reloading the agent loop (reloading mid-send crashes the app because
 	// goroutines from the old loop are still running). Instead we patch
 	// cfg.Agents.Defaults and the live ContextBuilder in-place.
 	if sess != nil && sess.WorkspaceID != "" {
-		e.syncWorkspaceForTurn(sess.WorkspaceID)
+		e.syncWorkspaceForTurn(sess.WorkspaceID, sessionID)
 	}
 
 	// Variáveis para rastrear modelo e provider
@@ -280,17 +298,156 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 		return "Chat history cleared!", nil
 	}
 
-	fmt.Printf("[SendMessage] step=pre-log sessionID=%q sess=%v\n", sessionID, sess != nil)
-	// Log do contexto sendo enviado (antes de ProcessDirect)
-	// Obtem o histórico da sessão para logging
-	historyForLog := []ChatMessage{}
-	var logWorkspaceID, logWorkerName string
+	// Interceptação do orquestrador: só para mensagens que NÃO são comandos.
+	// Comandos (/clear, etc.) e perguntas aleatórias usam o agent normal com persona do worker.
+	// Injetar o sessionID no contexto para o scope do orchestrate usar.
+	ctx = context.WithValue(ctx, "session_id", sessionID)
+
+	// If session not in SessionMgr, load from DB (handles sessions from previous app runs)
+	if sess == nil && sessionID != "" && e.db != nil {
+		fmt.Printf("[SendMessage] session %q not in SessionMgr, loading from DB\n", sessionID)
+		if dbSess, err := e.db.GetSession(sessionID); err == nil && dbSess != nil {
+			e.SessionMgr.LoadSession(dbSess)
+			sess = dbSess
+			fmt.Printf("[SendMessage] loaded from DB: messages=%d\n", len(dbSess.Messages))
+		} else {
+			fmt.Printf("[SendMessage] session %q not found in DB either: %v\n", sessionID, err)
+		}
+	}
+
+	// When the frontend did not pass an explicit model override, use the chat's
+	// own configured model/provider (sess.Model / sess.Provider) for generation.
+	// This makes GENERAL responses use the model the user selected for that chat
+	// rather than the agent's hardcoded default.
+	if modelOverride == "" && sess != nil && sess.Model != "" {
+		if provName := sess.Provider; provName != "" {
+			ctx = bus.WithOverrides(ctx, provName+"/"+sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q provider=%q\n", sess.Model, provName)
+		} else {
+			ctx = bus.WithOverrides(ctx, sess.Model, sess.Model, thinkingLevel, nil, mode)
+			fmt.Printf("[SendMessage] using chat model override=%q (no provider)\n", sess.Model)
+		}
+	}
+
+	// Sync the agent's folders/personality with the session's workspace WITHOUT
+	// reloading the agent loop (reloading mid-send crashes the app because
+	// goroutines from the old loop are still running). Instead we patch
+	// cfg.Agents.Defaults and the live ContextBuilder in-place.
+	if sess != nil && sess.WorkspaceID != "" {
+		e.syncWorkspaceForTurn(sess.WorkspaceID, sessionID)
+	}
+
+	// --- Greeting System (Zero-Token SQLite-based responses) ---
+	if e.greetingSystem != nil && !isRetry && !isCommand {
+		if response, isGreeting := e.greetingSystem.CheckGreeting(text); isGreeting {
+			fmt.Printf("[SendMessage] Saudação detectada — respondendo via Greeting System (0 tokens)\n")
+			// Add assistant response to history
+			if !isCommand {
+				e.SessionMgr.AddMessage(sessionID, "assistant", response)
+				if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
+					e.db.SaveSession(*sess)
+				}
+			}
+			return response, nil
+		}
+	}
+
+	// --- TinyBrain Intent Classification & Context Injection ---
+	// Default to GENERAL; we'll sanitize the router output before using it.
+	var injectedContext string
+	var activeProfile string
+	var tinybrainIntent tinybrain.Intent = tinybrain.IntentGeneral
+	if e.tinyBrainRouter != nil && !isRetry && !isCommand {
+		if intent, err := e.tinyBrainRouter.DetectIntent(ctx, text); err == nil {
+			// SANITIZAÇÃO CRÍTICA: Remove espaços, quebras de linha e aspas extras que o LLM local possa ter enviado
+			intentStr := strings.TrimSpace(string(intent))
+			intentStr = strings.Trim(intentStr, `"'`+"`")
+			tinybrainIntent = tinybrain.Intent(intentStr)
+			fmt.Printf("[SendMessage] Intenção detectada e sanitizada pelo TinyBrain: %q\n", tinybrainIntent)
+
+			// Load specialist profile based on sanitized intent
+			switch tinybrainIntent {
+			case tinybrain.IntentGoProgramming:
+				activeProfile = profiles.GoSpecialistPrompt
+				// Try to inject active file context
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentCodeReview:
+				activeProfile = profiles.GoSpecialistPrompt
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentDebugging:
+				activeProfile = profiles.GoSpecialistPrompt
+				if fileContext, err := contextloader.GetActiveFileContext(""); err == nil {
+					injectedContext = fileContext
+				}
+			case tinybrain.IntentArchitecture:
+				activeProfile = profiles.GoSpecialistPrompt
+			}
+		} else {
+			fmt.Printf("[SendMessage] Aviso: falha na classificação de intenção: %v\n", err)
+		}
+	}
+
+	// If we have a specialist profile or injected context, update the system prompt and user message
+	if activeProfile != "" || injectedContext != "" {
+		// Build enhanced system prompt
+		enhancedSystemPrompt := activeProfile
+		if injectedContext != "" {
+			enhancedSystemPrompt += "\n\n[Contexto do Arquivo Ativo]:\n" + injectedContext
+		}
+
+		// Update the agent's default system prompt temporarily
+		if e.agentLoop != nil {
+			if reg := e.agentLoop.GetRegistry(); reg != nil {
+				if defAgent := reg.GetDefaultAgent(); defAgent != nil {
+					// legacy field SystemPrompt no longer exists on AgentInstance; set via ContextBuilder instead
+					// defAgent.SystemPrompt = enhancedSystemPrompt
+					// Use ContextBuilder to update runtime personality for the default agent
+					if defAgent.ContextBuilder != nil {
+						defAgent.ContextBuilder.WithPersonality(enhancedSystemPrompt)
+						defAgent.ContextBuilder.InvalidateCache()
+					}
+				}
+			}
+		}
+
+		// Prepend context to user message if we have file context
+		if injectedContext != "" {
+			text = fmt.Sprintf("%s\n\n[Contexto do Arquivo Ativo]:\n%s", text, injectedContext)
+		}
+	}
+
+	// Take a snapshot of the session context now that we have folder/personality sync
+	// but BEFORE attempting to resolve routing rules, so orchestration uses the right model.
+	var logWorkspaceID, logAgentName string
+	var historyForLog []ChatMessage
 	if sess != nil {
 		historyForLog = sess.Messages
 		logWorkspaceID = sess.WorkspaceID
-		logWorkerName = sess.WorkerName
 	}
-	
+
+	// Orchestrator should only run for non-GENERAL intents. If TinyBrain classified
+	// the message as GENERAL (or the router is not configured), bypass the orchestrator
+	// and let the normal agent loop handle the message.
+	if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
+		routingRules := e.resolveWorkspaceRoutingRules(sessionID)
+		if routingRules != "" {
+			fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
+			return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride, string(tinybrainIntent))
+		}
+	} else {
+
+		// Explicit bypass log to make it clear when the orchestrator is skipped.
+		fmt.Printf("[SendMessage] Orchestrator bypassed: tinybrain_intent=%q isRetry=%v isCommand=%v orchestrator_present=%v\n", tinybrainIntent, isRetry, isCommand, e.orchestrator != nil)
+	}
+
+	fmt.Printf("[SendMessage] step=pre-log sessionID=%q sess=%v\n", sessionID, sess != nil)
+	// Log do contexto sendo enviado (antes de ProcessDirect)
+	// Continue with the normal agent processing
+
 	// Determina o modelo e provider finais para logging
 	logModel := modelOverride
 	logProvider := ""
@@ -303,12 +460,12 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 			logProvider = prov.Name()
 		}
 	}
-	
+
 	// Log do contexto completo
 	LogChatContextWithHistory(
 		sessionID,
 		logWorkspaceID,
-		logWorkerName,
+		logAgentName,
 		logModel,
 		logProvider,
 		mode,
@@ -322,8 +479,65 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Track the pending sessionID so the event bridge can map opaque keys
 	e.setPendingSessionID(sessionID)
 
+	// Validação: verificar se há um provider/modelo disponível antes de prosseguir.
+	// Se não há modelOverride e o agent padrão não tem provider, retorna erro claro.
+	if cached == nil && modelOverride == "" {
+		if e.agentLoop != nil {
+			if reg := e.agentLoop.GetRegistry(); reg != nil {
+				if defAgent := reg.GetDefaultAgent(); defAgent != nil && defAgent.Provider == nil {
+					fmt.Printf("[SendMessage] Nenhum provider/modelo configurado — retornando erro ao frontend\n")
+					errMsg := "Nenhum modelo configurado. Abra Settings > AI Providers e adicione um provider com API key, ou selecione um modelo no chat."
+					e.eventBus.Emit(Event{Kind: EventKindError, SessionID: sessionID, Payload: ErrorPayload{Message: errMsg}, Time: time.Now()})
+					return "", fmt.Errorf("%s", errMsg)
+				}
+			}
+		}
+	}
+
+	// If GENERAL intent, temporarily swap the default agent persona to the
+	// workspace's default worker persona (instead of the heavy golang_agent
+	// system prompt). This avoids wasting tokens on code-focused context when
+	// the user asks a general knowledge question. The persona is applied just
+	// for this turn via ContextBuilder, so subsequent turns restore the
+	// workspace personality.
+	servedBy := &ServedByMeta{
+		Intent:   string(tinybrainIntent),
+		RoutedBy: "default",
+		Agent:    "default",
+	}
+	if tinybrainIntent == tinybrain.IntentGeneral && e.agentLoop != nil {
+		if reg := e.agentLoop.GetRegistry(); reg != nil {
+			if defAgent := reg.GetDefaultAgent(); defAgent != nil && defAgent.ContextBuilder != nil {
+				workerPersona := e.resolveWorkerPersona(sessionID)
+				if workerPersona == "" {
+					workerPersona = `Você é uma assistente de IA amigável e prestativa.
+Responda perguntas de forma clara e direta. Você pode falar sobre qualquer assunto: cultura, geografia, história, tecnologia, programação ou entretenimento.
+Seja educada, natural e use português brasileiro.`
+				}
+				defAgent.ContextBuilder.WithPersonality(workerPersona)
+				defAgent.ContextBuilder.InvalidateCache()
+				servedBy.Persona = "worker:" + sess.WorkerName
+				if sess.WorkerName == "" {
+					servedBy.Persona = "worker:" + e.resolveDefaultWorkerName(sess.WorkspaceID)
+					if servedBy.Persona == "worker:" {
+						servedBy.Persona = "worker:default"
+					}
+				}
+				servedBy.RoutedBy = "intent:general"
+				fmt.Printf("[SendMessage] GENERAL intent: swapped to default worker persona (%s)\n", servedBy.Persona)
+			}
+		}
+	}
+
 	fmt.Printf("[SendMessage] step=pre-ProcessDirect sessionID=%q agentLoop=%v\n", sessionID, e.agentLoop != nil)
-	resp, err := e.agentLoop.ProcessDirect(ctx, finalPrompt, sessionKey)
+
+	// Apply an explicit generation timeout so a slow/remote provider (e.g. OpenRouter)
+	// cannot block the whole turn indefinitely. The 120s provider http.Client.Timeout
+	// is a last-resort safety net; this gives a clear, bounded failure path.
+	genCtx, genCancel := context.WithTimeout(ctx, 90*time.Second)
+	defer genCancel()
+
+	resp, err := e.agentLoop.ProcessDirect(genCtx, finalPrompt, sessionKey)
 	fmt.Printf("[SendMessage] step=post-ProcessDirect sessionID=%q err=%v resp_len=%d\n", sessionID, err, len(resp))
 	if err != nil {
 		// Rollback: remove mensagem do usuário que acabou de adicionar (skip for commands)
@@ -336,15 +550,54 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 
 	// 2. Adiciona resposta do assistente ao histórico
 	if !isCommand {
-		e.SessionMgr.AddMessage(sessionID, "assistant", resp)
+		// Auditing: record the model/provider actually used for this turn.
+		if cached != nil {
+			if prov, ok := cached.(interface{ Name() string }); ok {
+				servedBy.Provider = prov.Name()
+			}
+		}
+		if resolvedModelID != "" {
+			servedBy.Model = resolvedModelID
+		} else if modelOverride != "" {
+			servedBy.Model = modelOverride
+		}
+		if sess != nil {
+			if servedBy.Model == "" {
+				servedBy.Model = sess.Model
+			}
+			if servedBy.Provider == "" {
+				servedBy.Provider = sess.Provider
+			}
+			if servedBy.Agent == "default" && sess.WorkerName != "" {
+				servedBy.Agent = "worker:" + sess.WorkerName
+			}
+		}
+		e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", resp, servedBy)
 
 		// 3. Só agora persiste TUDO no DB (user + assistant)
 		if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
+			// Debug: print last message's ServedBy before persisting
+			if len(sess.Messages) > 0 {
+				last := sess.Messages[len(sess.Messages)-1]
+				if b, err := json.Marshal(last.ServedBy); err == nil {
+					fmt.Printf("[DBDEBUG] pre-save session=%q last_msg_id=%d role=%s served_by=%s\n", sessionID, last.ID, last.Role, string(b))
+				} else {
+					fmt.Printf("[DBDEBUG] pre-save session=%q last_msg_id=%d role=%s served_by=<<marshal_error>>\n", sessionID, last.ID, last.Role)
+				}
+			}
 			e.db.SaveSession(*sess)
 		}
 
 		// 4. Gerencia memória de curto prazo (sumarização)
 		e.CheckAndSummarize(sessionID)
+	}
+
+	// Comandos tratados (OutcomeHandled) têm sua saída exibida em um painel
+	// dedicado via evento chat:commandResult. Retornamos vazio para evitar
+	// que a saída vire uma bolha de chat (que someria após o reload da sessão,
+	// já que comandos não são persistidos no histórico).
+	if isCommand {
+		return "", nil
 	}
 
 	return resp, nil
@@ -391,8 +644,44 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 	// Endpoint OpenAI padrão
 	url := fmt.Sprintf("%s/chat/completions", apiBase)
 
+	// Ensure we don't send an empty model field. Prefer configured TinyBrain model;
+	// if missing, try to resolve a model from ModelList for the same provider.
+	modelToUse := strings.TrimSpace(e.adaCfg.TinyBrain.ModelName)
+	prov := strings.TrimSpace(e.adaCfg.TinyBrain.Provider)
+	if modelToUse == "" {
+		for _, m := range e.adaCfg.ModelList {
+			if m == nil {
+				continue
+			}
+			if prov != "" && strings.EqualFold(m.Provider, prov) {
+				modelToUse = strings.TrimSpace(m.ModelName)
+				fmt.Printf("[Engine] SendTinyBrainMessage: TinyBrain.model empty, using ModelList fallback %q for provider %q\n", modelToUse, prov)
+				break
+			}
+		}
+	}
+
+	// Diagnostic logging to help trace why model could be empty in runtime builds
+	fmt.Printf("[Engine] SendTinyBrainMessage: tinybrain.provider=%q tinybrain.model=%q resolvedModel=%q model_list_count=%d\n",
+		prov, e.adaCfg.TinyBrain.ModelName, modelToUse, len(e.adaCfg.ModelList))
+	// Print first few entries from model_list for visibility
+	maxShow := 6
+	for i, mm := range e.adaCfg.ModelList {
+		if i >= maxShow {
+			break
+		}
+		if mm == nil {
+			continue
+		}
+		fmt.Printf("[Engine] SendTinyBrainMessage: model_list[%d] provider=%q model_name=%q api_base=%q\n", i, mm.Provider, mm.ModelName, mm.APIBase)
+	}
+
+	if modelToUse == "" {
+		return "", fmt.Errorf("TinyBrain model not configured for provider %q", e.adaCfg.TinyBrain.Provider)
+	}
+
 	requestBody := map[string]interface{}{
-		"model": e.adaCfg.TinyBrain.ModelName,
+		"model": modelToUse,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
@@ -403,6 +692,9 @@ func (e *Engine) SendTinyBrainMessage(ctx context.Context, prompt string) (strin
 	if err != nil {
 		return "", err
 	}
+
+	// Log the exact payload that will be sent to the provider for auditing
+	fmt.Printf("[Engine] SendTinyBrainMessage: request JSON=%s\n", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -466,4 +758,12 @@ func (e *Engine) RefreshSessions() {
 	fmt.Printf("[Engine] RefreshSessions: loaded %d sessions for %q\n", len(sessions), workspacePath)
 	e.SessionMgr.Reset()
 	e.SessionMgr.LoadSessions(sessions)
+}
+
+// devTaskRe detects messages that are development-related tasks.
+var devTaskRe = regexp.MustCompile(`(?i)(criar|crie|implemente|implementar|faca|fazer|desenvolva|codifique|adicione|adicionar|altere|modifique|corrija|consertar|crie\s+.*(api|rota|handler|servico|service|banco|tabela|query|migration|teste|test|componente|hook|pagina|tela|interface|formulario|form|modal|botao|layout|estilo|css|rota|middleware|model|struct|funcao|function|arquivo|cli|comando|endpoint|controller|use.?case|repositorio|repository|provider|config|docker|deploy|pipeline|action|workflow))|backend|frontend|api\s+rest|graphql|grpc|sql|banco\s+de\s+dados|teste\s+unitario|teste\s+de\s+integracao|e2e|test\s|bdd|tdd|refatorar|refatoracao|refactor|migrate|migracao|deploy|docker|kubernetes|k8s|ci/cd|pipeline|github\s+actions|gitlab\s+ci`)
+
+// isDevTask returns true if the message appears to be a development task.
+func isDevTask(text string) bool {
+	return devTaskRe.MatchString(text)
 }

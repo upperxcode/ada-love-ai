@@ -13,6 +13,7 @@ import * as api from '../api';
 
 interface WorkspaceTreeProps {
   workspaces: api.backend.WorkspaceConfig[];
+  worker_names: string[];
   workers: api.backend.WorkerConfig[];
   onAddChat: (
     workspace: api.backend.WorkspaceConfig,
@@ -272,11 +273,11 @@ function AddWorkerPopover({
   const [open, setOpen] = useState(false);
 
   const handleAdd = async (worker: api.backend.WorkerConfig) => {
-    const currentWorkers = workspace.workers ?? [];
-    const updatedWorkers = [...currentWorkers, worker];
+    const currentWorkerNames = workspace.worker_names ?? [];
+    const updatedWorkerNames = [...currentWorkerNames, worker.name];
     await api.updateWorkspace(workspace.title, {
       ...workspace,
-      workers: updatedWorkers,
+      worker_names: updatedWorkerNames,
     });
     setOpen(false);
     onSaved();
@@ -284,7 +285,7 @@ function AddWorkerPopover({
 
   // Filtra workers que ainda não estão no workspace
   const available = globalWorkers.filter(
-    (gw) => !(workspace.workers ?? []).some((w) => w.name === gw.name),
+    (gw) => !(workspace.worker_names ?? []).some((w) => w === gw.name),
   );
 
   if (available.length === 0) return null;
@@ -326,6 +327,7 @@ function AddWorkerPopover({
 function WorkspacePlusButton({
   workspace,
   onAddChat,
+  globalWorkers,
 }: {
   workspace: api.backend.WorkspaceConfig;
   onAddChat: (
@@ -333,10 +335,11 @@ function WorkspacePlusButton({
     worker: api.backend.WorkerConfig,
     summarized: boolean,
   ) => void;
+  globalWorkers: api.backend.WorkerConfig[];
 }) {
   const [selectedWorker, setSelectedWorker] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const workers = workspace.workers ?? [];
+  const workerNames = workspace.worker_names ?? [];
 
   const handleAdd = (worker: api.backend.WorkerConfig, summarized: boolean) => {
     onAddChat(workspace, worker, summarized);
@@ -345,7 +348,7 @@ function WorkspacePlusButton({
   };
 
   // Se não tem workers, mostra mensagem
-  if (workers.length === 0) {
+  if (workerNames.length === 0) {
     return (
       <span className="text-[9px] text-muted-foreground px-1" title="Adicione workers ao workspace nas configurações">
         +Workers
@@ -371,13 +374,14 @@ function WorkspacePlusButton({
           Workers neste workspace
         </div>
         <div className="mt-1 space-y-0.5">
-          {workers.filter((w) => w.name).map((worker) => {
-            const active = selectedWorker === worker.name;
+          {workerNames.filter((w) => w).map((workerName) => {
+            const worker = globalWorkers.find((w) => w.name === workerName);
+            const active = selectedWorker === workerName;
             return (
               <button
-                key={worker.name}
+                key={workerName}
                 type="button"
-                onClick={() => setSelectedWorker(worker.name)}
+                onClick={() => setSelectedWorker(workerName)}
                 className={cn(
                   'w-full flex items-center justify-between gap-1 px-2 py-1.5 rounded text-left text-[11px] transition-colors',
                   active
@@ -385,7 +389,7 @@ function WorkspacePlusButton({
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
-                <span className="truncate">{worker.icon || '🤖'} {worker.name}</span>
+                <span className="truncate">{worker?.icon || '🤖'} {workerName}</span>
                 {active && (
                   <span className="flex gap-0.5">
                     <button
@@ -394,7 +398,8 @@ function WorkspacePlusButton({
                       title="Novo chat"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleAdd(worker, false);
+                        const w = globalWorkers.find((w) => w.name === workerName);
+                        if (w) handleAdd(w, false);
                       }}
                     >
                       <LuPlus className="w-3.5 h-3.5" />
@@ -405,7 +410,8 @@ function WorkspacePlusButton({
                       title="Chat sumarizado"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleAdd(worker, true);
+                        const w = globalWorkers.find((w) => w.name === workerName);
+                        if (w) handleAdd(w, true);
                       }}
                     >
                       <LuCirclePlus className="w-3.5 h-3.5" />
@@ -423,7 +429,7 @@ function WorkspacePlusButton({
 
 function WorkspaceNode({
   workspace,
-  workers,
+  worker_names,
   globalWorkers,
   sessions,
   expanded,
@@ -436,7 +442,7 @@ function WorkspaceNode({
   onWorkspacesChanged,
 }: {
   workspace: api.backend.WorkspaceConfig;
-  workers: api.backend.WorkerConfig[];
+  worker_names: string[];
   globalWorkers: api.backend.WorkerConfig[];
   sessions: api.backend.ChatSession[];
   expanded: boolean;
@@ -452,6 +458,7 @@ function WorkspaceNode({
   ) => void;
   onWorkspacesChanged: () => void;
 }) {
+  const workerNames = worker_names;
   const active = selectedWorkspace === workspace.path || selectedWorkspace === (workspace.path || workspace.title);
 
   return (
@@ -479,7 +486,7 @@ function WorkspaceNode({
         <span className="flex-1 truncate">{workspace.title || workspace.path}</span>
         {active && (
           <div className="flex items-center gap-0.5 shrink-0">
-            <WorkspacePlusButton workspace={workspace} onAddChat={onAddChat} />
+            <WorkspacePlusButton workspace={workspace} onAddChat={onAddChat} globalWorkers={globalWorkers} />
             <AddWorkerPopover workspace={workspace} globalWorkers={globalWorkers} onSaved={onWorkspacesChanged} />
           </div>
         )}
@@ -490,22 +497,27 @@ function WorkspaceNode({
 
       {expanded && (
         <div className="pb-2 space-y-0.5">
-          {workers.filter((w) => w.name).length === 0 && (
+          {workerNames.filter((w) => w).length === 0 && (
             <div className="px-5 py-2 text-[10px] text-muted-foreground">
               Nenhum worker neste workspace.
             </div>
           )}
-          {workers.filter((w) => w.name).map((worker) => (
-            <WorkerNode
-              key={`${workspace.path || workspace.title}:${worker.name}`}
-              worker={worker}
-              workspace={workspace}
-              sessions={sessions.filter((s) => s.worker_name === worker.name)}
-              selectedWorker={selectedWorker}
-              onSelectWorker={onSelectWorker}
-              onAddChat={onAddChat}
-            />
-          ))}
+          {workerNames.filter((w) => w).map((workerName) => {
+            // Resolve worker from globalWorkers to get icon
+            const worker = globalWorkers.find((w) => w.name === workerName);
+            if (!worker) return null;
+            return (
+              <WorkerNode
+                key={`${workspace.path || workspace.title}:${workerName}`}
+                worker={worker}
+                workspace={workspace}
+                sessions={sessions.filter((s) => s.worker_name === workerName)}
+                selectedWorker={selectedWorker}
+                onSelectWorker={onSelectWorker}
+                onAddChat={onAddChat}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -514,6 +526,7 @@ function WorkspaceNode({
 
 export function WorkspaceTree({
   workspaces,
+  worker_names,
   workers,
   onAddChat,
   onWorkspacesChanged,
@@ -671,7 +684,7 @@ export function WorkspaceTree({
             <WorkspaceNode
               key={ws.path || ws.title}
               workspace={ws}
-              workers={ws.workers ?? []}
+              worker_names={ws.worker_names ?? []}
               globalWorkers={workers}
               sessions={sessions.filter((s) => s.workspace_id === (ws.path || ws.title))}
               expanded={expandedWorkspaces.has(ws.path || ws.title)}

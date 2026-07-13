@@ -18,6 +18,28 @@ export interface LocalMessage {
   elapsed?: number;
 }
 
+export interface OrchestratorSubTask {
+  id: string;
+  agent: string;
+  task: string;
+  status: 'started' | 'completed' | 'error';
+  error?: string;
+}
+
+export interface CommandResult {
+  id: string;
+  command: string;
+  output: string;
+}
+
+export interface OrchestratorState {
+  active: boolean;
+  reasoning: string;
+  nextAgent: string;
+  task: string;
+  subTasks: OrchestratorSubTask[];
+}
+
 export interface ChatState {
   sessions: api.backend.ChatSession[];
   activeSessionId: string | null;
@@ -26,6 +48,8 @@ export interface ChatState {
   stage: string;
   pendingQuestion: { question: string } | null;
   pendingApproval: { id: string; tool: string; args: string } | null;
+  orchestrator: OrchestratorState;
+  commandResult: CommandResult | null;
 }
 
 interface ChatContextValue extends ChatState {
@@ -50,6 +74,7 @@ interface ChatContextValue extends ChatState {
   togglePinSession: (sessionId: string) => Promise<void>;
   setSessionConfig: (model: string, provider: string, mode: string, thinking: string) => Promise<void>;
   deleteMessage: (messageId: string) => void;
+  setCommandResult: (result: CommandResult | null) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -74,6 +99,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [stage, setStage] = useState('');
   const [pendingQuestion, setPendingQuestion] = useState<{ question: string } | null>(null);
   const [pendingApproval, setPendingApproval] = useState<{ id: string; tool: string; args: string } | null>(null);
+  const [orchestrator, setOrchestrator] = useState<OrchestratorState>({
+    active: false,
+    reasoning: '',
+    nextAgent: '',
+    task: '',
+    subTasks: [],
+  });
+  const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const deletedIdsRef = useRef(new Set<string>());
   const { recordSuccess, recordFailure } = useModelHealth();
   const { showSnackbar } = useSnackbar();
@@ -142,6 +175,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       api.onChatEvent('chat:turnEnd', (payload: any) => {
         setLoading(false);
         setStage('');
+        setOrchestrator({ active: false, reasoning: '', nextAgent: '', task: '', subTasks: [] });
         setMessages((prev) =>
           prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
         );
@@ -204,8 +238,86 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setMessages([]);
         setLoading(false);
         setStage('');
+        setOrchestrator({ active: false, reasoning: '', nextAgent: '', task: '', subTasks: [] });
         // Track that this session was just cleared so turnEnd won't reload from DB
         clearedSessionRef.current.add(session_id);
+      }),
+    );
+
+    // --- Command result panel ---
+    unsubs.push(
+      api.onChatEvent('chat:commandResult', (payload: any) => {
+        const { session_id, command, output } = payload || {};
+        if (!session_id || !command) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setCommandResult({
+          id: `${session_id}-cmd-${Date.now()}`,
+          command,
+          output: output || '',
+        });
+      }),
+    );
+
+    // --- Orchestrator events ---
+    unsubs.push(
+      api.onChatEvent('orchestrator:decision', (payload: any) => {
+        const { session_id, reasoning, next_agent, task, sub_tasks } = payload || {};
+        if (!session_id) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setOrchestrator({
+          active: true,
+          reasoning: reasoning || '',
+          nextAgent: next_agent || '',
+          task: task || '',
+          subTasks: Array.from({ length: sub_tasks || 0 }, (_: any, i: number) => ({
+            id: String(i + 1),
+            agent: '',
+            task: '',
+            status: 'started' as const,
+          })),
+        });
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('orchestrator:subtask:start', (payload: any) => {
+        const { session_id, id, agent, task } = payload || {};
+        if (!session_id) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setOrchestrator((prev) => ({
+          ...prev,
+          subTasks: prev.subTasks.map((st) =>
+            st.id === id ? { ...st, agent, task, status: 'started' as const } : st,
+          ),
+        }));
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('orchestrator:subtask:complete', (payload: any) => {
+        const { session_id, id } = payload || {};
+        if (!session_id) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setOrchestrator((prev) => ({
+          ...prev,
+          subTasks: prev.subTasks.map((st) =>
+            st.id === id ? { ...st, status: 'completed' as const } : st,
+          ),
+        }));
+      }),
+    );
+
+    unsubs.push(
+      api.onChatEvent('orchestrator:subtask:error', (payload: any) => {
+        const { session_id, id, error } = payload || {};
+        if (!session_id) return;
+        if (activeSessionRef.current?.id !== session_id) return;
+        setOrchestrator((prev) => ({
+          ...prev,
+          subTasks: prev.subTasks.map((st) =>
+            st.id === id ? { ...st, status: 'error' as const, error } : st,
+          ),
+        }));
       }),
     );
 
@@ -403,6 +515,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setStage('');
     setPendingQuestion(null);
     setPendingApproval(null);
+    setOrchestrator({ active: false, reasoning: '', nextAgent: '', task: '', subTasks: [] });
     setMessages((prev) =>
       prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
     );
@@ -425,6 +538,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     stage,
     pendingQuestion,
     pendingApproval,
+    orchestrator,
+    commandResult,
+    setCommandResult,
     loadSessions,
     loadAllSessions,
     createSession,

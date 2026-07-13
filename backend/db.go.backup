@@ -1,0 +1,682 @@
+package backend
+
+import (
+	"database/sql"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"log"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite"
+
+	"ada-love-ai/pkg/agent/interfaces"
+)
+
+type Memory struct {
+	ID            int       `json:"id"`
+	WorkspacePath string    `json:"workspace_path"`
+	Content       string    `json:"content"`
+	Importance    int       `json:"importance"`
+	Embedding     []float32 `json:"embedding"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type Store struct {
+	db *sql.DB
+}
+
+func NewStore(dbPath string) (*Store, error) {
+	// Garante que o diretório existe
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configurações de pool para SQLite (vários leitores, um escritor típico)
+	db.SetMaxOpenConns(5)        // SQLite lida bem com poucas conexões
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	s := &Store{db: db}
+	if err := s.init(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+func (s *Store) init() error {
+	// PRAGMAs de performance (aplicados uma vez por conexão)
+	if _, err := s.db.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA synchronous=NORMAL;
+		PRAGMA cache_size=-32768;
+		PRAGMA mmap_size=268435456;
+		PRAGMA foreign_keys=ON;
+		PRAGMA temp_store=MEMORY;
+	`); err != nil {
+		return fmt.Errorf("erro ao aplicar pragmas: %v", err)
+	}
+
+	// Tabelas mestres
+	masterQueries := []string{
+		`CREATE TABLE IF NOT EXISTS workspaces (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			nome TEXT NOT NULL,
+			description TEXT,
+			max_prompt INTEGER NOT NULL DEFAULT 4096,
+			max_content INTEGER NOT NULL DEFAULT 8192,
+			commit BOOL NOT NULL DEFAULT 1,
+			spec_provider TEXT,
+			personality TEXT,
+			color TEXT DEFAULT '',
+			icon TEXT DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS workers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			persona TEXT,
+			response_language TEXT DEFAULT 'portuguese',
+			connection_type TEXT NOT NULL,
+			command TEXT,
+			arguments TEXT,
+			environment TEXT,
+			inheritance_folders BOOL NOT NULL DEFAULT 0,
+			inheritance_skills BOOL NOT NULL DEFAULT 0,
+			inheritance_persona BOOL NOT NULL DEFAULT 0,
+			inheritance_knowledge BOOL NOT NULL DEFAULT 0,
+			inheritance_tools BOOL NOT NULL DEFAULT 0,
+			color TEXT DEFAULT '',
+			icon TEXT DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS agents (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			description TEXT,
+			type TEXT NOT NULL CHECK(type IN ('executor','delegator','reviewer','research')),
+			provider_id INTEGER,
+			model_id INTEGER,
+			max_iteration INTEGER NOT NULL DEFAULT 10,
+			temperature REAL NOT NULL DEFAULT 0.7,
+			system_prompt TEXT,
+			color TEXT DEFAULT '',
+			icon TEXT DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS skills (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			description TEXT,
+			tags TEXT,
+			content TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS mcps (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			nome TEXT NOT NULL,
+			connect_type TEXT NOT NULL CHECK(connect_type IN ('websocket','url','cli_command')),
+			command TEXT,
+			arguments TEXT,
+			environment TEXT,
+			color TEXT DEFAULT '',
+			icon TEXT DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS fixedmodels (
+			embedding_provider TEXT NOT NULL,
+			embedding_model TEXT NOT NULL,
+			image_provider TEXT NOT NULL,
+			image_model TEXT NOT NULL,
+			spec_provider TEXT NOT NULL,
+			spec_model TEXT NOT NULL,
+			PRIMARY KEY (embedding_provider, embedding_model, image_provider, image_model, spec_provider, spec_model)
+		)`,
+	}
+
+	// Tabelas de relacionamento (Junction Tables)
+	junctionQueries := []string{
+		`CREATE TABLE IF NOT EXISTS workspace_workers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			workspace_id INTEGER NOT NULL,
+			worker_id INTEGER NOT NULL,
+			enabled BOOL NOT NULL DEFAULT 1,
+			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+			FOREIGN KEY(worker_id) REFERENCES workers(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_agents (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			workspace_id INTEGER NOT NULL,
+			agent_id INTEGER NOT NULL,
+			enabled BOOL NOT NULL DEFAULT 1,
+			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+			FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_skills (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			workspace_id INTEGER NOT NULL,
+			skill_id INTEGER NOT NULL,
+			enabled BOOL NOT NULL DEFAULT 1,
+			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+			FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_tools (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			workspace_id INTEGER NOT NULL,
+			tool_name TEXT NOT NULL,
+			enabled BOOL NOT NULL DEFAULT 1,
+			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+		)`,
+	}
+
+	// Índices
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_workspaces_nome ON workspaces(nome)`,
+		`CREATE INDEX IF NOT EXISTS idx_workers_name ON workers(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_mcps_nome ON mcps(nome)`,
+		`CREATE INDEX IF NOT EXISTS idx_providers_name ON providers(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_provider_models_model ON provider_models(model)`,
+	}
+
+	allQueries := append(masterQueries, junctionQueries...)
+	allQueries = append(allQueries, indexes...)
+
+	// Cria tabelas
+	for _, q := range allQueries {
+		if _, err := s.db.Exec(q); err != nil {
+			return fmt.Errorf("erro ao criar tabela: %v", err)
+		}
+	}
+
+	// Migração: move dados antigos de workspaces (schema antigo) se existirem
+	var legacyCount int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM workspaces_old").Scan(&legacyCount); err == nil && legacyCount > 0 {
+		// Se a tabela legacy existir, migra
+		_, err = s.db.Exec(`
+			INSERT OR IGNORE INTO workspaces (id, nome, description, max_prompt, max_content, commit, spec_provider, personality, color, icon)
+			SELECT id, title, description, max_prompt_send, max_context_length, commit_changes, spec_wizard, agents, color, icon FROM workspaces_old`)
+		if err != nil {
+			return fmt.Errorf("erro ao migrar workspaces antigos: %v", err)
+		}
+	}
+
+	// Insere defaults de fixedmodels se estiver vazia
+	var fixedCount int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM fixedmodels").Scan(&fixedCount); err == nil && fixedCount == 0 {
+		// Inserir alguns defaults (exemplo vazio - ajustar conforme necessário)
+		_, err = s.db.Exec(`INSERT INTO fixedmodels (embedding_provider, embedding_model, image_provider, image_model, spec_provider, spec_model) VALUES (?,?,?,?,?,?)`,
+			"", "", "", "", "", "")
+		if err != nil {
+			return fmt.Errorf("erro ao inserir fixedmodels default: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+// Exec executes a query without returning rows.
+func (s *Store) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return s.db.Exec(query, args...)
+}
+
+// Query executes a query and returns rows.
+func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return s.db.Query(query, args...)
+}
+
+// --- Operações de Configuração ---
+
+func (s *Store) SetGlobalConfig(key string, value interface{}) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, key, string(data))
+	return err
+}
+
+func (s *Store) GetGlobalConfig(key string, target interface{}) (bool, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	err = json.Unmarshal([]byte(value), target)
+	return true, err
+}
+
+// --- Operações de Workspace ---
+
+func (s *Store) SaveWorkspace(ws WorkspaceConfig) error {
+	// Salva ou substitui workspace principal
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO workspaces (id, nome, description, max_prompt, max_content, commit, spec_provider, personality, color, icon)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+t`, ws.id, ws.nome, ws.description, ws.maxPrompt, ws.maxContent, ws.commit, ws.specProvider, ws.Personality, ws.Color, ws.Icon)
+	if err != nil {
+		return err
+	}
+
+	// Limpa e re-insere as relações (junction tables)
+t_, err = s.db.Exec(`DELETE FROM workspace_workers WHERE workspace_id = ?`, ws.id)
+	if err != nil {
+		return err
+	}
+	for _, w := range ws.Workers {
+		_, err = s.db.Exec(`INSERT INTO workspace_workers (workspace_id, worker_id, enabled) VALUES (?, ?, ?)`,
+t	_, err = s.db.Exec(`INSERT INTO workspace_workers (workspace_id, worker_id, enabled) VALUES (?, ?, ?)`,
+			ws.id, w.id, w.enabled)
+		if err != nil {
+			return err
+		}
+	}
+
+t_, err = s.db.Exec(`DELETE FROM workspace_agents WHERE workspace_id = ?`, ws.id)
+	if err != nil {
+		return err
+	}
+	for _, a := range ws.Agents {
+t	_, err = s.db.Exec(`INSERT INTO workspace_agents (workspace_id, agent_id, enabled) VALUES (?, ?, ?)`,
+			ws.id, a.id, a.enabled)
+			ws.id, a.ID, a.Enabled)
+		if err != nil {
+			return err
+		}
+t_, err = s.db.Exec(`DELETE FROM workspace_skills WHERE workspace_id = ?`, ws.id)
+
+	_, err = s.db.Exec(`DELETE FROM workspace_skills WHERE workspace_id = ?`, ws.id)
+	if err != nil {
+		return err
+	}
+t	_, err = s.db.Exec(`INSERT INTO workspace_skills (workspace_id, skill_id, enabled) VALUES (?, ?, ?)`,
+			ws.id, sk.ID, sk.Enabled)
+		_, err = s.db.Exec(`INSERT INTO workspace_skills (workspace_id, skill_id, enabled) VALUES (?, ?, ?)`,
+			sk.ID, sk.ID, sk.Enabled)
+		if err != nil {
+			return err
+t_, err = s.db.Exec(`DELETE FROM workspace_tools WHERE workspace_id = ?`, ws.id)
+	}
+
+	_, err = s.db.Exec(`DELETE FROM workspace_tools WHERE workspace_id = ?`, ws.id)
+	if err != nil {
+		return err
+t	_, err = s.db.Exec(`INSERT INTO workspace_tools (workspace_id, tool_name, enabled) VALUES (?, ?, ?)`,
+			ws.id, t, t.Enabled)
+	for _, t := range ws.Tools {
+		_, err = s.db.Exec(`INSERT INTO workspace_tools (workspace_id, tool_name, enabled) VALUES (?, ?, ?)`,
+			sk.ID, t, t.Enabled) // ajustar se tool for struct
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) GetWorkspaces() ([]WorkspaceConfig, error) {
+	fmt.Printf("[DB] GetWorkspaces: querying all workspaces\n")
+	// Busca workspaces principais
+	rows, err := s.db.Query(`
+		SELECT w.id, w.nome, w.description, w.max_prompt, w.max_content, w.commit, w.spec_provider, w.personality, w.color, w.icon
+		FROM workspaces w`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workspaces []WorkspaceConfig
+	for rows.Next() {
+		var ws WorkspaceConfig
+		var specProvider sql.NullString
+		err := rows.Scan(&ws.id, &ws.nome, &ws.description, &ws.maxPrompt, &ws.maxContent, &ws.commit, &specProvider, &ws.personality, &ws.color, &ws.icon)
+		if err != nil {
+			return nil, err
+		}
+		if specProvider.Valid {
+			ws.specProvider = specProvider.String
+		}
+
+		// Buscar workers vinculados
+		workerRows, err := s.db.Query(`
+			SELECT w.id, w.name, w.persona, w.response_language, w.connection_type, w.command, w.arguments, w.environment,
+				   w.inheritance_folders, w.inheritance_skills, w.inheritance_persona, w.inheritance_knowledge, w.inheritance_tools, w.color, w.icon
+			FROM workers w
+			JOIN workspace_workers ww ON w.id = ww.worker_id
+			WHERE ww.workspace_id = ? AND ww.enabled = 1`, ws.id)
+		if err != nil {
+			return nil, err
+		}
+		for workerRows.Next() {
+			var w Worker
+			err := workerRows.Scan(&w.id, &w.name, &w.persona, &w.responseLanguage, &w.connectionType, &w.command, &w.arguments, &w.environment,
+					&w.inheritanceFolders, &w.inheritanceSkills, &w.inheritancePersona, &w.inheritanceKnowledge, &w.inheritanceTools, &w.color, &w.icon)
+			if err != nil {
+				workerRows.Close()
+				return nil, err
+			}
+			ws.Workers = append(ws.Workers, w)
+		}
+		workerRows.Close()
+
+		// Buscar agents vinculados
+	agentRows, err := s.db.Query(`
+			SELECT a.id, a.name, a.description, a.type, a.provider_id, a.model_id, a.max_iteration, a.temperature, a.system_prompt, a.color, a.icon
+			FROM agents a
+			JOIN workspace_agents wa ON a.id = wa.agent_id
+			WHERE wa.workspace_id = ? AND wa.enabled = 1`, ws.id)
+		if err != nil {
+			return nil, err
+		}
+		for agentRows.Next() {
+			var a Agent
+			err := agentRows.Scan(&a.id, &a.name, &a.description, &a.Type, &a.ProviderID, &a.ModelID, &a.MaxIterations, &a.Temperature, &a.SystemPrompt, &a.Color, &a.Icon)
+			if err != nil {
+				agentRows.Close()
+				return nil, err
+			}
+			ws.Agents = append(ws.Agents, a)
+		}
+	agentRows.Close()
+
+		// Buscar skills vinculados
+		skillRows, err := s.db.Query(`
+			SELECT s.id, s.name, s.description, s.tags, s.content
+			FROM skills s
+			JOIN workspace_skills ws ON s.id = ws.skill_id
+			WHERE ws.workspace_id = ? AND ws.enabled = 1`, ws.id)
+		if err != nil {
+			return nil, err
+		}
+		for skillRows.Next() {
+			var s Skill
+			err := skillRows.Scan(&s.id, &s.Name, &s.Description, &s.Tags, &s.Content)
+			if err != nil {
+				skillRows.Close()
+				return nil, err
+			}
+			ws.Skills = append(ws.Skills, s)
+		}
+		skillRows.Close()
+
+		// Buscar tools vinculados
+		toolRows, err := s.db.Query(`SELECT tool_name, enabled FROM workspace_tools WHERE workspace_id = ?`, ws.id)
+		if err != nil {
+			return nil, err
+		}
+		for toolRows.Next() {
+			var toolName string
+			var enabled bool
+			err := toolRows.Scan(&toolName, &enabled)
+			if err != nil {
+				toolRows.Close()
+				return nil, err
+			}
+			// Criar uma struct Tool básica ou apenas guardar nome; ajustar conforme necessário
+			ws.Tools = append(ws.Tools, WorkspaceTool{Name: toolName, Enabled: enabled})
+		}
+		toolRows.Close()
+
+		fmt.Printf("[DB] GetWorkspaces: carregado workspace %q (id=%d)\n", ws.nome, ws.id)
+		workspaces = append(workspaces, ws)
+	}
+	fmt.Printf("[DB] GetWorkspaces: total %d workspaces encontrados\n", len(workspaces))
+	return workspaces, nil
+}
+
+func (s *Store) DeleteWorkspace(path string) error {
+	_, err := s.db.Exec(`DELETE FROM workspaces WHERE path = ?`, path)
+	return err
+}
+
+// --- Operações de Sessão ---
+
+func (s *Store) SaveSession(sess ChatSession) error {
+	fmt.Printf("[DB] SaveSession: id=%q workspace=%q worker=%q parent=%q title=%q messages=%d pinned=%v model=%q mode=%q\n",
+		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID, sess.Title, len(sess.Messages), sess.Pinned, sess.Model, sess.Mode)
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO sessions (id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.WorkspaceID, sess.WorkerName, sess.ParentSessionID, sess.Title, sess.Summary,
+		sess.Model, sess.Provider, sess.Mode, sess.Thinking,
+		sess.SummarizedContext, sess.SummarizedAt, sess.LastSummarizedMsgID,
+		sess.Pinned, sess.CreatedAt, sess.UpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Salva mensagens - Para simplicidade, limpamos e reinserimos as mensagens da sessão
+	// Em uma implementação mais avançada, faríamos apenas o append.
+	_, err = s.db.Exec(`DELETE FROM messages WHERE session_id = ?`, sess.ID)
+	if err != nil {
+		return err
+	}
+
+	for i, msg := range sess.Messages {
+		result, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
+			sess.ID, msg.Role, msg.Content, msg.Time)
+		if err != nil {
+			log.Printf("Erro ao salvar mensagem: %v", err)
+			continue
+		}
+		// Captura o ID gerado
+		if id, err := result.LastInsertId(); err == nil {
+			sess.Messages[i].ID = id
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) AddMessageToSession(sessionID string, role string, content string) error {
+	_, err := s.db.Exec(`INSERT INTO messages (session_id, role, content, time) VALUES (?, ?, ?, ?)`,
+		sessionID, role, content, time.Now())
+	return err
+}
+
+func (s *Store) GetSessions(workspacePath string) ([]*ChatSession, error) {
+	fmt.Printf("[DB] GetSessions: workspacePath=%q\n", workspacePath)
+	rows, err := s.db.Query(`
+		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at 
+		FROM sessions WHERE workspace_path = ?
+		ORDER BY pinned DESC, updated_at DESC`, workspacePath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*ChatSession
+	for rows.Next() {
+		sess := &ChatSession{}
+		var summarizedAt sql.NullTime
+		err := rows.Scan(&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
+			&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
+			&sess.SummarizedContext, &summarizedAt, &sess.LastSummarizedMsgID,
+			&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		if summarizedAt.Valid {
+			sess.SummarizedAt = summarizedAt.Time
+		}
+		
+		// Carrega mensagens para esta sessão
+		msgRows, err := s.db.Query(`SELECT id, role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, sess.ID)
+		if err == nil {
+			for msgRows.Next() {
+				var msg ChatMessage
+				msgRows.Scan(&msg.ID, &msg.Role, &msg.Content, &msg.Time)
+				sess.Messages = append(sess.Messages, msg)
+			}
+			msgRows.Close()
+		}
+		
+		sessions = append(sessions, sess)
+	}
+	return sessions, nil
+}
+
+func (s *Store) GetSession(id string) (*ChatSession, error) {
+	sess := &ChatSession{}
+	var summarizedAt sql.NullTime
+	err := s.db.QueryRow(`
+		SELECT id, workspace_path, worker_name, parent_session_id, title, summary, model, provider, mode, thinking, summarized_context, summarized_at, last_summarized_msg_id, pinned, created_at, updated_at 
+		FROM sessions WHERE id = ?`, id).Scan(
+		&sess.ID, &sess.WorkspaceID, &sess.WorkerName, &sess.ParentSessionID, &sess.Title, &sess.Summary,
+		&sess.Model, &sess.Provider, &sess.Mode, &sess.Thinking,
+		&sess.SummarizedContext, &summarizedAt, &sess.LastSummarizedMsgID,
+		&sess.Pinned, &sess.CreatedAt, &sess.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if summarizedAt.Valid {
+		sess.SummarizedAt = summarizedAt.Time
+	}
+	msgRows, err := s.db.Query(`SELECT id, role, content, time FROM messages WHERE session_id = ? ORDER BY time ASC`, id)
+	if err == nil {
+		for msgRows.Next() {
+			var msg ChatMessage
+			msgRows.Scan(&msg.ID, &msg.Role, &msg.Content, &msg.Time)
+			sess.Messages = append(sess.Messages, msg)
+		}
+		msgRows.Close()
+	}
+	return sess, nil
+}
+
+func (s *Store) DeleteSession(id string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	return err
+}
+
+// --- Operações de Memória ---
+
+func (s *Store) SaveMemory(workspacePath string, content string, importance int) error {
+	now := time.Now()
+	emb := Float32ToByte(nil) // placeholder - mantido compatível; a engine preenche embedding separadamente
+	_, err := s.db.Exec(`
+		INSERT INTO memories (workspace_path, content, importance, embedding, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		workspacePath, content, importance, emb, now, now)
+	return err
+}
+
+func (s *Store) GetMemories(workspacePath string) ([]interfaces.MemoryEntry, error) {
+	rows, err := s.db.Query(`
+		SELECT id, content, importance, created_at
+		FROM memories
+		WHERE workspace_path = ?
+		ORDER BY importance DESC, created_at DESC`, workspacePath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []interfaces.MemoryEntry
+	for rows.Next() {
+		var m interfaces.MemoryEntry
+		var id, importance int
+		var content string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &content, &importance, &createdAt); err != nil {
+			continue
+		}
+		m.Content = content
+		m.Importance = importance
+		m.CreatedAt = createdAt
+		memories = append(memories, m)
+	}
+	return memories, nil
+}
+
+func (s *Store) DeleteMemory(id int) error {
+	_, err := s.db.Exec(`DELETE FROM memories WHERE id = ?`, id)
+	return err
+}
+
+// --- Operações de Providers ---
+
+func (s *Store) SaveProviders(providers map[string]ProviderConfig) error {
+	data, err := json.Marshal(providers)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)`, "providers", string(data))
+	return err
+}
+
+func (s *Store) GetProviders() (map[string]ProviderConfig, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, "providers").Scan(&value)
+	if err == sql.ErrNoRows {
+		return make(map[string]ProviderConfig), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var providers map[string]ProviderConfig
+	if err := json.Unmarshal([]byte(value), &providers); err != nil {
+		return nil, err
+	}
+	return providers, nil
+}
+
+// SaveDBProvider saves or updates a single provider in the DB.
+// Reads the full map, upserts the entry, and writes it back.
+func (s *Store) SaveDBProvider(name string, cfg ProviderConfig) error {
+	providers, err := s.GetProviders()
+	if err != nil {
+		return err
+	}
+	if providers == nil {
+		providers = make(map[string]ProviderConfig)
+	}
+	providers[name] = cfg
+	return s.SaveProviders(providers)
+}
+
+// DeleteDBProvider removes a single provider from the DB.
+func (s *Store) DeleteDBProvider(name string) error {
+	providers, err := s.GetProviders()
+	if err != nil {
+		return err
+	}
+	delete(providers, name)
+	return s.SaveProviders(providers)
+}
+
+// --- Utilitários de Vetor ---
+
+func Float32ToByte(f []float32) []byte {
+	buf := make([]byte, len(f)*4)
+	for i, v := range f {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+	}
+	return buf
+}
+
+func ByteToFloat32(b []byte) []float32 {
+	if len(b) == 0 {
+		return nil
+	}
+	f := make([]float32, len(b)/4)
+	for i := 0; i < len(f); i++ {
+		f[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return f
+}

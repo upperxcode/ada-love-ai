@@ -354,8 +354,15 @@ func spawnSubTurn(
 	ephemeralStore := newEphemeralSession(nil)
 
 	// Log delegation: who is spawning whom, and what type.
-	fmt.Printf("[SubTurn] SPAWN: parent=%q → child=%q depth=%d async=%v\n",
-		parentTS.agent.ID, baseAgent.ID, parentTS.depth+1, cfg.Async)
+	parentLabel := ""
+	if parentTS != nil && parentTS.agent != nil {
+		parentLabel = parentTS.agent.ID
+	}
+	childLabel := ""
+	if baseAgent != nil {
+		childLabel = baseAgent.ID
+	}
+	fmt.Printf("[SubTurn] SPAWN: parent=%q → child=%q depth=%d async=%v\n", parentLabel, childLabel, parentTS.depth+1, cfg.Async)
 	agent := *baseAgent // shallow copy
 	agent.Sessions = ephemeralStore
 	// Clone the tool registry so child turn's tool registrations

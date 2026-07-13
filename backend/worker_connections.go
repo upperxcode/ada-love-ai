@@ -13,8 +13,8 @@ import (
 // ConnectionDefinition defines a predefined connection type.
 type ConnectionDefinition struct {
 	Name        string `json:"name"`
-	Type        string `json:"type"`        // "ada", "cli", "rest", "mcp"
-	Command     string `json:"command"`      // CLI command (for cli/mcp type)
+	Type        string `json:"type"`    // "ada", "cli", "rest", "mcp"
+	Command     string `json:"command"` // CLI command (for cli/mcp type)
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
 }

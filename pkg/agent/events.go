@@ -47,6 +47,9 @@ const (
 	EventKindSubTurnOrphan
 	// EventKindError is emitted when a turn encounters an execution error.
 	EventKindError
+	// EventKindCommandResult is emitted when a handled slash command produces
+	// output that should be surfaced in a dedicated panel rather than the chat stream.
+	EventKindCommandResult
 
 	eventKindCount
 )
@@ -71,6 +74,7 @@ var eventKindNames = [...]string{
 	"subturn_result_delivered",
 	"subturn_orphan",
 	"error",
+	"command_result",
 }
 
 // String returns the stable string form of an EventKind.
@@ -269,4 +273,11 @@ type SubTurnOrphanPayload struct {
 type ErrorPayload struct {
 	Stage   string
 	Message string
+}
+
+// CommandResultPayload carries the structured output of a handled slash
+// command so the backend bridge can forward it to the frontend command panel.
+type CommandResultPayload struct {
+	Command string
+	Output  string
 }

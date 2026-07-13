@@ -118,6 +118,11 @@ func (p *Pipeline) CallLLM(
 		}
 	}
 
+	// Safety net: if activeProvider is still nil, return a clear error instead of panicking.
+	if exec.activeProvider == nil {
+		return ControlBreak, fmt.Errorf("nenhum provider/modelo configurado. Abra Settings > AI Providers e adicione um provider com API key, ou selecione um modelo no chat")
+	}
+
 	// BeforeLLM hook
 	if p.Hooks != nil {
 		llmReq, decision := p.Hooks.BeforeLLM(turnCtx, &LLMHookRequest{
@@ -227,8 +232,15 @@ func (p *Pipeline) CallLLM(
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
+			// Diagnostic: log finish reason and basic metadata to help debug stop handling
+			if exec.response != nil {
+				fmt.Printf("[Pipeline] LLM response received: FinishReason=%q content_len=%d model=%q provider=%T\n", exec.response.FinishReason, len(exec.response.Content), exec.llmModel, exec.activeProvider)
+			} else {
+				fmt.Printf("[Pipeline] LLM response received: nil response (no error)\n")
+			}
 			break
 		}
+
 		if ts.hardAbortRequested() && errors.Is(err, context.Canceled) {
 			_ = ts.requestHardAbort()
 			exec.abortedByHardAbort = true
@@ -601,7 +613,7 @@ func logFullChatContext(ctx context.Context, ts *turnState, messages []providers
 	// Extract session info from context
 	sessionKey := ts.sessionKey
 	agentID := ts.agent.ID
-	
+
 	// Get mode from context
 	mode := bus.GetOverride(ctx, bus.OverrideModeKey)
 	if mode == "" {
@@ -610,7 +622,7 @@ func logFullChatContext(ctx context.Context, ts *turnState, messages []providers
 
 	// Build a summary of what's being sent
 	var systemContent, userContent strings.Builder
-	
+
 	for i, msg := range messages {
 		if i == 0 && msg.Role == "system" {
 			systemContent.WriteString(msg.Content)

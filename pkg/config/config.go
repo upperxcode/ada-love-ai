@@ -188,16 +188,16 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 type AgentConfig struct {
-	ID         string            `json:"id"`
-	Default    bool              `json:"default,omitempty"`
-	Name       string            `json:"name,omitempty"`
-	Workspace  string            `json:"workspace,omitempty"`
-	Model      *AgentModelConfig `json:"model,omitempty"`
-	Skills     []string          `json:"skills,omitempty"`
-	Subagents  *SubagentsConfig  `json:"subagents,omitempty"`
+	ID        string            `json:"id"`
+	Default   bool              `json:"default,omitempty"`
+	Name      string            `json:"name,omitempty"`
+	Workspace string            `json:"workspace,omitempty"`
+	Model     *AgentModelConfig `json:"model,omitempty"`
+	Skills    []string          `json:"skills,omitempty"`
+	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
 	// Extended fields for ada_config.json compatibility
 	Provider    string `json:"provider,omitempty"`
-	Type        string `json:"type,omitempty"`        // "executor", "delegator", "reviewer", "researcher"
+	Type        string `json:"type,omitempty"` // "executor", "delegator", "reviewer", "researcher"
 	Icon        string `json:"icon,omitempty"`
 	Color       string `json:"color,omitempty"`
 	Personality string `json:"personality,omitempty"` // Custom system prompt
@@ -1580,14 +1580,14 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 	case "write_file":
 		return t.WriteFile.Enabled
 	case "mcp":
-			return t.MCP.Enabled
-		case "prettier_format":
-			return t.PrettierFormat.Enabled
-		case "eslint_check":
-			return t.ESLintCheck.Enabled
-		case "eslint_fix":
-			return t.ESLintFix.Enabled
-		default:
-			return true
-		}
+		return t.MCP.Enabled
+	case "prettier_format":
+		return t.PrettierFormat.Enabled
+	case "eslint_check":
+		return t.ESLintCheck.Enabled
+	case "eslint_fix":
+		return t.ESLintFix.Enabled
+	default:
+		return true
+	}
 }

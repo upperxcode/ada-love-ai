@@ -6,7 +6,6 @@ from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 from pydantic import BaseModel
 
-# Configuração do Logger para monitoramento no terminal
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(message)s",
@@ -14,26 +13,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("classifier")
 
-app = FastAPI(title="Classifier Nano Router GGUF")
+app = FastAPI(title="Classifier Dynamic Router GGUF")
 
-# Pydantic Schemas para manter compatibilidade exata com o seu Backend em Go
 class ClassifyReq(BaseModel):
     text: str
-    candidate_labels: List[str] = [] # Deixado como opcional pois agora o Python gerencia as chaves internas
+    candidate_labels: List[str] # Agora este campo é obrigatório e dinâmico
 
 class ClassifyResp(BaseModel):
     labels: List[str]
     scores: List[float]
     top_label: str
-
-# Mapeamento Estrito: Dá contexto semântico pesado para o Qwen 1.5B não errar,
-# mas mapeia direto para as chaves curtas que o seu switch/case em Go precisa.
-LABEL_MAP = {
-    "desenvolvimento de software e linguagem go": "GO",
-    "desenvolvimento de software e framework react": "REACT",
-    "desenvolvimento de software e framework flutter": "FLUTTER",
-    "assunto geral, perguntas gerais ou conversacao comum": "GERAL"
-}
 
 _llm = None
 
@@ -42,19 +31,16 @@ def get_llm():
     if _llm is None:
         try:
             logger.info("🚀 Baixando/Verificando modelo GGUF estável...")
-            # Baixa e gerencia o cache do modelo Qwen 2.5 1.5B Instruct
             model_path = hf_hub_download(
                 repo_id="Qwen/Qwen2.5-1.5B-Instruct-GGUF",
                 filename="qwen2.5-1.5b-instruct-q4_k_m.gguf"
             )
-
             logger.info(f"📦 Carregando GGUF na memória: {model_path}")
-            # Inicializa os bindings C++ do llama.cpp
             _llm = Llama(
                 model_path=model_path,
-                n_ctx=1024,       # Contexto curto otimizado para roteador (consome menos RAM)
-                n_threads=4,      # Ajustado para os cores da sua CPU
-                verbose=False     # Silencia o dump de logs brutos de C++ no seu terminal
+                n_ctx=1024,
+                n_threads=4,
+                verbose=False
             )
             logger.info("✅ GGUF carregado e pronto para inferência!")
         except Exception as e:
@@ -64,32 +50,31 @@ def get_llm():
 
 @app.post("/classify", response_model=ClassifyResp)
 async def classify(req: ClassifyReq):
-    if not req.text:
-        raise HTTPException(status_code=400, detail="text required")
+    if not req.text or not req.candidate_labels:
+        raise HTTPException(status_code=400, detail="text and candidate_labels required")
 
-    chaves_curtas = list(LABEL_MAP.values())
     texto_limpo = req.text.strip().lower()
 
-    # ⚡ FILTRO 1: Intercepta o Health Check do Orquestrador sem gastar processamento de IA
+    # ⚡ FILTRO RÁPIDO: Se for health check, evita gastar CPU/GPU
     if "health check" in texto_limpo or texto_limpo == "ping":
-        logger.info("📡 [Health Check] Ignorando inferência e retornando GERAL")
-        scores = [1.0 if c == "GERAL" else 0.0 for c in chaves_curtas]
-        return ClassifyResp(labels=chaves_curtas, scores=scores, top_label="GERAL")
+        return ClassifyResp(labels=["GERAL"], scores=[1.0], top_label="GERAL")
 
     logger.info(f"📥 ENTRADA | Texto: '{req.text}'")
 
-    # Lista de frases longas que serão injetadas no prompt da IA
-    candidate_labels = list(LABEL_MAP.keys())
-    labels_str = ", ".join([f"'{l}'" for l in candidate_labels])
+    # Formata as labels dinâmicas vindas do banco para o prompt do Qwen
+    labels_str = "\n- ".join([f"'{l}'" for l in req.candidate_labels])
 
-    # Prompt estruturado ChatML para o Qwen atuar como classificador rígido
     prompt = f"""<|im_start|>system
-Você é um classificador especializado em engenharia de software e tecnologia.
-Sua única tarefa é ler o texto do usuário e escolher a categoria que melhor se aplica dentre as opções fornecidas.
-Responda APENAS E ESTRITAMENTE com o nome exato da categoria escolhida, sem pontuação, sem explicações e sem markdown.<|im_end|>
-<|im_start|>user
-Opções válidas de categorias: [{labels_str}]
+Você é o Cérebro Roteador de um sistema multi-agentes. Sua função é analisar o input do usuário e decidir qual das categorias fornecidas melhor descreve o contexto da mensagem.
 
+Diretrizes estritas:
+1. Responda APENAS com o texto exato de uma das categorias fornecidas na lista abaixo. Nunca adicione explicações, pontuação ou markdown.
+2. Escolha a categoria cujas palavras-chave e descrição melhor se alinhem com a intenção do usuário.
+
+Categorias válidas disponíveis:
+- {labels_str}
+<|im_end|>
+<|im_start|>user
 Texto para analisar: "{req.text}"
 
 Qual a categoria correta?<|im_end|>
@@ -98,33 +83,27 @@ Qual a categoria correta?<|im_end|>
 
     try:
         llm = get_llm()
-
-        # Inferência local determinística via llama.cpp
-        output = llm(
-            prompt,
-            max_tokens=64,
-            temperature=0.0, # Temperatura zero garante que a resposta não mude entre chamadas
-            stop=["<|im_end|>", "\n"]
-        )
-
+        output = llm(prompt, max_tokens=64, temperature=0.0, stop=["<|im_end|>", "\n"])
         predicted_label = output["choices"][0]["text"].strip().replace("'", "").replace('"', '')
         logger.info(f"🤖 Resposta bruta do modelo: '{predicted_label}'")
 
-        # Faz o cruzamento inteligente da resposta da IA com as chaves descritivas do dicionário
-        matched_desc_label = candidate_labels[-1] # Fallback padrão inicial (Assunto Geral)
-        for label in candidate_labels:
+        # Faz o match com a descrição enviada
+        matched_label = req.candidate_labels[-1] # Fallback padrão inicial
+        for label in req.candidate_labels:
             if label.lower() in predicted_label.lower() or predicted_label.lower() in label.lower():
-                matched_desc_label = label
+                matched_label = label
                 break
 
-        # ⚡ TRADUÇÃO DAS CHAVES: Converte a frase longa na sigla curta esperada pelo Go
-        top_label_curto = LABEL_MAP[matched_desc_label]
+        # ⚡ EXTRAÇÃO AUTOMÁTICA DA CHAVE:
+        # Se a label contiver ":", extrai apenas a chave curta (ex: "GO" ou "REACT")
+        top_label_final = matched_label.split(":")[0].strip() if ":" in matched_label else matched_label
 
-        # Calcula o array de scores mockado para manter compatibilidade com o parser do Go
-        scores = [1.0 if c == top_label_curto else 0.0 for c in chaves_curtas]
+        # Limpa o array de labels de retorno para o Go receber apenas os IDs curtos
+        chaves_curtas = [l.split(":")[0].strip() if ":" in l else l for l in req.candidate_labels]
+        scores = [1.0 if c == top_label_final else 0.0 for c in chaves_curtas]
 
-        logger.info(f"📤 SAÍDA   | Top Label Traduzida: '{top_label_curto}'")
-        return ClassifyResp(labels=chaves_curtas, scores=scores, top_label=top_label_curto)
+        logger.info(f"📤 SAÍDA   | Chave do Banco Selecionada: '{top_label_final}'")
+        return ClassifyResp(labels=chaves_curtas, scores=scores, top_label=top_label_final)
 
     except Exception as e:
         logger.error(f"❌ Erro durante a inferência GGUF: {e}")

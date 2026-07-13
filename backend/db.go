@@ -1078,30 +1078,72 @@ func (s *Store) DeleteWorker(id int64) error {
 // --- Operações de Agent ---
 
 func (s *Store) SaveAgent(a AgentConfig) (int64, error) {
-	// If no explicit ID provided, insert a fresh row and let SQLite assign the PK.
+	// Transactional upsert by name to avoid race conditions that can create duplicates.
 	if a.ID <= 0 {
-		res, err := s.db.Exec(`
-				INSERT INTO agents (name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if strings.TrimSpace(a.Name) == "" {
+			return 0, fmt.Errorf("agent name is required")
+		}
+
+		tx, err := s.db.Begin()
+		if err != nil {
+			return 0, err
+		}
+		defer func() {
+			_ = tx.Rollback()
+		}()
+
+		// Check existing by name within the transaction
+		var existingID int64
+		err = tx.QueryRow(`SELECT id FROM agents WHERE name = ? LIMIT 1`, a.Name).Scan(&existingID)
+		if err == nil && existingID > 0 {
+			// Update existing
+			if _, err := tx.Exec(`UPDATE agents SET name = ?, description = ?, type = ?, provider_id = ?, model_id = ?, max_iteration = ?, temperature = ?, system_prompt = ?, color = ?, icon = ? WHERE id = ?`,
+				a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon, existingID); err != nil {
+				return 0, err
+			}
+			if err := tx.Commit(); err != nil {
+				return 0, err
+			}
+			return existingID, nil
+		}
+		if err != nil && err != sql.ErrNoRows {
+			return 0, err
+		}
+
+		// Insert new
+		res, err := tx.Exec(`INSERT INTO agents (name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon)
 		if err != nil {
 			return 0, err
 		}
 		if id, err := res.LastInsertId(); err == nil && id > 0 {
+			if err := tx.Commit(); err != nil {
+				return 0, err
+			}
 			return id, nil
 		}
-		// Fallback: try to lookup by name (best-effort)
+		// Fallback lookup
 		var id int64
-		s.db.QueryRow(`SELECT id FROM agents WHERE name = ?`, a.Name).Scan(&id)
+		if err := tx.QueryRow(`SELECT id FROM agents WHERE name = ? LIMIT 1`, a.Name).Scan(&id); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
 		return id, nil
 	}
 
-	// If caller provided an ID, do an upsert by ID (preserve explicit id semantics).
-	_, err := s.db.Exec(`
-			INSERT OR REPLACE INTO agents (id, name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon)
+	// If caller provided an ID, do an upsert by ID within a transaction.
+	tx, err := s.db.Begin()
 	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO agents (id, name, description, type, provider_id, model_id, max_iteration, temperature, system_prompt, color, icon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Name, a.Description, a.Type, a.ProviderID, a.ModelID, a.MaxIterations, a.Temperature, a.SystemPrompt, a.Color, a.Icon); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return a.ID, nil

@@ -1764,21 +1764,14 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 	}
 
 	// STATIC ROUTING: call classifier and route directly to a registered agent
-	candidateLabels := []string{"React", "Go", "Tester", "Geral"}
+	candidateLabels := orchestrator.CandidateLabels()
 	topLabel, scores, err := tinybrain.ClassifyWithCandidates(ctx, tinybrain.GetRouterEndpoint(e.GetRouter()), text, candidateLabels, 2*time.Second)
 	if err == nil && topLabel != "" {
 		fmt.Printf("[StaticRouter] classifier returned top_label=%q scores=%v\n", topLabel, scores)
 		label := strings.ToLower(strings.TrimSpace(topLabel))
-		// Build candidate agent name list according to label
+		// Build candidate agent name list according to label using centralized mapping
 		var candidates []string
-		switch label {
-		case "react", "flutter":
-			candidates = []string{"react", "react_agent", "reactjs", "reactjs_agent"}
-		case "go", "golang":
-			candidates = []string{"go", "golang", "go_agent", "golang_agent", "galang", "golanger"}
-		case "tester", "test":
-			candidates = []string{"tester", "test", "tester_agent", "testing"}
-		case "geral", "assunto geral":
+		if label == "geral" || label == "assunto geral" || label == "general" {
 			// GENERAL intent: bypass heavy orchestrator and process directly on default agent
 			fmt.Printf("[StaticRouter] classified as GENERAL — bypassing orchestrator\n")
 			sessionKey := "ada:default"
@@ -1791,8 +1784,8 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 			}
 			fmt.Printf("[StaticRouter] GENERAL direct ProcessDirect failed: %v — falling back to orchestrator\n", err)
 			// fallthrough to orchestrator LLM routing below
-		default:
-			// unknown label — let orchestrator handle with LLM
+		} else {
+			candidates = orchestrator.ResolveIntentCandidates(label)
 		}
 
 		// If we have candidate names, try to find a registered agent matching them

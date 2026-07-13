@@ -34,8 +34,10 @@ func NewInternalRouter(endpoint string, labels []string, timeout time.Duration) 
 // is kept as a variable on the struct so callers can mutate it at runtime.
 func NewInternalRouterDefault() *InternalRouter {
 	labels := []string{
-		"desenvolvimento de software, programacao, go, backend, code review, banco de dados, refatoracao",
-		"assunto geral, conversas casuais, cultura, geografia, historia, entretenimento",
+		"GO",
+		"REACT",
+		"FLUTTER",
+		"GERAL",
 	}
 	return NewInternalRouter("http://127.0.0.1:8008/classify", labels, 2*time.Second)
 }

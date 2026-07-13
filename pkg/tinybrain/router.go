@@ -38,8 +38,8 @@ func NewTinyBrainRouter(model providers.LLMProvider, modelName string) *TinyBrai
 }
 
 func (r *TinyBrainRouter) DetectIntent(ctx context.Context, userInput string) (Intent, error) {
-    // Prompt otimizado com Few-Shot e delimitação estrita
-    systemPrompt := `You are a strict binary and multi-class intent router for an AI assistant.
+	// Prompt otimizado com Few-Shot e delimitação estrita
+	systemPrompt := `You are a strict binary and multi-class intent router for an AI assistant.
 Your ONLY job is to output one of these exact tokens: GENERAL, GO_PROGRAMMING, CODE_REVIEW, DEBUGGING, ARCHITECTURE.
 
 CRITICAL RULES:
@@ -67,39 +67,61 @@ Assistant: GENERAL
 
 Respond ONLY with the category token. No markdown, no punctuation, no explanations.`
 
-    messages := []providers.Message{
-        {Role: "system", Content: systemPrompt},
-        {Role: "user", Content: userInput},
-    }
+	messages := []providers.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userInput},
+	}
 
-    // Forçamos a temperatura para 0.0 absoluto
-    // Use the configured modelName so the provider receives a non-empty model field
-    modelToSend := r.modelName
-    resp, err := r.model.Chat(ctx, messages, nil, modelToSend, map[string]any{
-        "temperature": 0.0,
-        "max_tokens":  6, // Reduzido para 6 pois o maior token é GO_PROGRAMMING (aprox. 4-5 tokens)
-    })
-    if err != nil {
-        return IntentGeneral, fmt.Errorf("tinybrain classification failed: %w", err)
-    }
+	// Forçamos a temperatura para 0.0 absoluto
+	// Use the configured modelName so the provider receives a non-empty model field
+	modelToSend := r.modelName
+	resp, err := r.model.Chat(ctx, messages, nil, modelToSend, map[string]any{
+		"temperature": 0.0,
+		"max_tokens":  6, // Reduzido para 6 pois o maior token é GO_PROGRAMMING (aprox. 4-5 tokens)
+	})
+	if err != nil {
+		return IntentGeneral, fmt.Errorf("tinybrain classification failed: %w", err)
+	}
 
-    // Sanitização defensiva da string
-    result := strings.ToUpper(strings.TrimSpace(resp.Content))
+	// Sanitização defensiva da string
+	result := strings.ToUpper(strings.TrimSpace(resp.Content))
 
-    // Usando Contains para blindar contra pontuações ou prefixos como "1. GENERAL"
-    if strings.Contains(result, "GO_PROGRAMMING") {
-        return IntentGoProgramming, nil
-    }
-    if strings.Contains(result, "CODE_REVIEW") {
-        return IntentCodeReview, nil
-    }
-    if strings.Contains(result, "DEBUGGING") {
-        return IntentDebugging, nil
-    }
-    if strings.Contains(result, "ARCHITECTURE") {
-        return IntentArchitecture, nil
-    }
+	// Usando Contains para blindar contra pontuações ou prefixos como "1. GENERAL"
+	if strings.Contains(result, "GO_PROGRAMMING") {
+		return IntentGoProgramming, nil
+	}
+	if strings.Contains(result, "CODE_REVIEW") {
+		return IntentCodeReview, nil
+	}
+	if strings.Contains(result, "DEBUGGING") {
+		return IntentDebugging, nil
+	}
+	if strings.Contains(result, "ARCHITECTURE") {
+		return IntentArchitecture, nil
+	}
 
-    // Qualquer outra coisa (ou falha) cai com segurança no GENERAL
-    return IntentGeneral, nil
+	// Qualquer outra coisa (ou falha) cai com segurança no GENERAL
+	return IntentGeneral, nil
+}
+
+// GetRouterEndpoint returns the HTTP endpoint URL used by known Router implementations.
+// If the router is nil or the endpoint cannot be determined, it falls back to DefaultJinaEndpoint.
+func GetRouterEndpoint(r Router) string {
+	if r == nil {
+		return DefaultJinaEndpoint
+	}
+	switch v := r.(type) {
+	case *JinaRouter:
+		if v.endpoint != "" {
+			return v.endpoint
+		}
+		return DefaultJinaEndpoint
+	case *InternalRouter:
+		if v.Endpoint != "" {
+			return v.Endpoint
+		}
+		return DefaultJinaEndpoint
+	default:
+		return DefaultJinaEndpoint
+	}
 }

@@ -249,8 +249,8 @@ func (s *SessionManager) AddMessage(id, role, content string) (int, bool) {
 // auditoria (ServedBy), registrando qual persona/agente/modelo/provider respondeu.
 func (s *SessionManager) AddMessageWithMeta(id, role, content string, servedBy *ServedByMeta) (int, bool) {
 	return s.AddRichMessage(id, ChatMessage{
-		Role:      role,
-		Content:   content,
+		Role:     role,
+		Content:  content,
 		ServedBy: servedBy,
 	})
 }

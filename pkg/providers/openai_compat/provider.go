@@ -341,7 +341,6 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-
 	req.Header.Set("Content-Type", "application/json")
 	if p.userAgent != "" {
 		req.Header.Set("User-Agent", p.userAgent)

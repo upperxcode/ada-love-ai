@@ -3,6 +3,9 @@
 package agent
 
 import (
+	"context"
+	"fmt"
+
 	"ada-love-ai/pkg/audio/asr"
 	"ada-love-ai/pkg/channels"
 	"ada-love-ai/pkg/config"
@@ -27,6 +30,41 @@ func (al *AgentLoop) GetRegistry() *AgentRegistry {
 	al.mu.RLock()
 	defer al.mu.RUnlock()
 	return al.registry
+}
+
+// RunAgentByID runs a single user turn against the specified agent ID.
+// If sessionKey is empty, it will use the agent's main session key.
+// This is a thin wrapper that prepares processOptions and delegates to runAgentLoop.
+func (al *AgentLoop) RunAgentByID(ctx context.Context, targetAgentID string, content string, sessionKey string) (string, error) {
+	if err := al.ensureHooksInitialized(ctx); err != nil {
+		return "", err
+	}
+	if err := al.ensureMCPInitialized(ctx); err != nil {
+		return "", err
+	}
+
+	registry := al.GetRegistry()
+	if registry == nil {
+		return "", fmt.Errorf("agent registry not initialized")
+	}
+
+	agent, ok := registry.GetAgent(targetAgentID)
+	if !ok || agent == nil {
+		return "", fmt.Errorf("agent %s not found", targetAgentID)
+	}
+
+	// If no explicit session key provided, let runAgentLoop choose a main session key
+	dispatch := DispatchRequest{
+		SessionKey:  sessionKey,
+		UserMessage: content,
+	}
+	opts := processOptions{
+		Dispatch:        dispatch,
+		DefaultResponse: defaultResponse,
+		EnableSummary:   true,
+		SendResponse:    false,
+	}
+	return al.runAgentLoop(ctx, agent, opts)
 }
 
 func (al *AgentLoop) GetConfig() *config.Config {

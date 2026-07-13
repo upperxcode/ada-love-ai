@@ -54,8 +54,8 @@ func main() {
 	}
 
 	requestBody := map[string]interface{}{
-		"model": modelToUse,
-		"messages": []map[string]string{{"role": "user", "content": "hello from check"}},
+		"model":       modelToUse,
+		"messages":    []map[string]string{{"role": "user", "content": "hello from check"}},
 		"temperature": 0.3,
 	}
 	b, _ := json.MarshalIndent(requestBody, "", "  ")

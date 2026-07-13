@@ -10,7 +10,7 @@ import (
 // to distinguish programming/debugging intents from general conversation.
 // This is intentionally conservative and deterministic: it prefers GENERAL when
 // unsure to avoid triggering the orchestrator incorrectly.
-type KeywordRouter struct{
+type KeywordRouter struct {
 }
 
 func NewKeywordRouter() *KeywordRouter {

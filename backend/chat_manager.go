@@ -432,13 +432,13 @@ func (e *Engine) SendMessage(ctx context.Context, text string, sessionID string,
 	// Orchestrator should only run for non-GENERAL intents. If TinyBrain classified
 	// the message as GENERAL (or the router is not configured), bypass the orchestrator
 	// and let the normal agent loop handle the message.
-if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
-			routingRules := e.resolveWorkspaceRoutingRules(sessionID)
-			if routingRules != "" {
-				fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
-				return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride, string(tinybrainIntent))
-			}
-		} else {
+	if e.orchestrator != nil && !isRetry && !isCommand && tinybrainIntent != tinybrain.IntentGeneral {
+		routingRules := e.resolveWorkspaceRoutingRules(sessionID)
+		if routingRules != "" {
+			fmt.Printf("[SendMessage] Orquestrador ativo para sessionID=%q (routingRules=%q)\n", sessionID, routingRules[:min(len(routingRules), 50)])
+			return e.ProcessOrchestrated(ctx, text, sessionID, modelOverride, string(tinybrainIntent))
+		}
+	} else {
 
 		// Explicit bypass log to make it clear when the orchestrator is skipped.
 		fmt.Printf("[SendMessage] Orchestrator bypassed: tinybrain_intent=%q isRetry=%v isCommand=%v orchestrator_present=%v\n", tinybrainIntent, isRetry, isCommand, e.orchestrator != nil)
@@ -576,6 +576,15 @@ Seja educada, natural e use português brasileiro.`
 
 		// 3. Só agora persiste TUDO no DB (user + assistant)
 		if sess, ok := e.SessionMgr.sessions[sessionID]; ok && e.db != nil {
+			// Debug: print last message's ServedBy before persisting
+			if len(sess.Messages) > 0 {
+				last := sess.Messages[len(sess.Messages)-1]
+				if b, err := json.Marshal(last.ServedBy); err == nil {
+					fmt.Printf("[DBDEBUG] pre-save session=%q last_msg_id=%d role=%s served_by=%s\n", sessionID, last.ID, last.Role, string(b))
+				} else {
+					fmt.Printf("[DBDEBUG] pre-save session=%q last_msg_id=%d role=%s served_by=<<marshal_error>>\n", sessionID, last.ID, last.Role)
+				}
+			}
 			e.db.SaveSession(*sess)
 		}
 

@@ -21,6 +21,7 @@ import (
 	"ada-love-ai/pkg/orchestrator"
 	"ada-love-ai/pkg/profiles"
 	"ada-love-ai/pkg/providers"
+	"ada-love-ai/pkg/routing"
 	"ada-love-ai/pkg/skills"
 	"ada-love-ai/pkg/tinybrain"
 	adatools "ada-love-ai/pkg/tools"
@@ -61,7 +62,7 @@ type Engine struct {
 	// Orchestrator for multi-agent routing
 	orchestrator *orchestrator.Orchestrator
 	// Routing & Injection components
-	greetingSystem  *greeting.GreetingSystem
+	greetingSystem *greeting.GreetingSystem
 	// tinyBrainRouter is a pluggable router for intent classification. Use the
 	// Router interface so we can swap implementations (LLM-based or fast local).
 	tinyBrainRouter tinybrain.Router
@@ -414,7 +415,6 @@ func NewEngine() (*Engine, error) {
 
 	// Sincroniza o workspace ativo com a configuração antes de iniciar
 	e.syncActiveWorkspaceToAgent()
-
 
 	// Sincroniza agentes do ada_config.json com cfg.Agents.List
 	syncAdaAgentsToConfig(e.adaCfg.Agents, &cfg.Agents.List)
@@ -1184,6 +1184,15 @@ func (e *Engine) GetRouter() tinybrain.Router {
 	return e.tinyBrainRouter
 }
 
+// TinyBrainRouter is an exported accessor kept for backward compatibility with
+// older commands/tools that expect Engine.TinyBrainRouter(). It returns the
+// currently configured tinybrain.Router (may be nil).
+func (e *Engine) TinyBrainRouter() tinybrain.Router {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.tinyBrainRouter
+}
+
 // SetRouterConfig updates the router configuration in runtime and persists it to DB.
 func (e *Engine) SetRouterConfig(name, endpoint string, labels []string, routerType string, backendModel string) error {
 	e.mu.Lock()
@@ -1754,6 +1763,153 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		fmt.Printf("[ProcessOrchestrated] provider is NIL - using heuristic routing\n")
 	}
 
+	// STATIC ROUTING: call classifier and route directly to a registered agent
+	candidateLabels := []string{"React", "Go", "Tester", "Geral"}
+	topLabel, scores, err := tinybrain.ClassifyWithCandidates(ctx, tinybrain.GetRouterEndpoint(e.GetRouter()), text, candidateLabels, 2*time.Second)
+	if err == nil && topLabel != "" {
+		fmt.Printf("[StaticRouter] classifier returned top_label=%q scores=%v\n", topLabel, scores)
+		label := strings.ToLower(strings.TrimSpace(topLabel))
+		// Build candidate agent name list according to label
+		var candidates []string
+		switch label {
+		case "react", "flutter":
+			candidates = []string{"react", "react_agent", "reactjs", "reactjs_agent"}
+		case "go", "golang":
+			candidates = []string{"go", "golang", "go_agent", "golang_agent", "galang", "golanger"}
+		case "tester", "test":
+			candidates = []string{"tester", "test", "tester_agent", "testing"}
+		case "geral", "assunto geral":
+			// GENERAL intent: bypass heavy orchestrator and process directly on default agent
+			fmt.Printf("[StaticRouter] classified as GENERAL — bypassing orchestrator\n")
+			sessionKey := "ada:default"
+			if sessionID != "" {
+				sessionKey = "ada:" + sessionID
+			}
+			resp, err := e.agentLoop.ProcessDirect(ctx, text, sessionKey)
+			if err == nil {
+				return resp, nil
+			}
+			fmt.Printf("[StaticRouter] GENERAL direct ProcessDirect failed: %v — falling back to orchestrator\n", err)
+			// fallthrough to orchestrator LLM routing below
+		default:
+			// unknown label — let orchestrator handle with LLM
+		}
+
+		// If we have candidate names, try to find a registered agent matching them
+		if len(candidates) > 0 && e.agentLoop != nil {
+			registry := e.agentLoop.GetRegistry()
+			if registry != nil {
+				// Normalize candidate set
+				candNorm := make([]string, 0, len(candidates))
+				for _, c := range candidates {
+					candNorm = append(candNorm, routing.NormalizeAgentID(c))
+				}
+
+				// 1) Try direct agent ID match
+				var foundAgentID string
+				for _, c := range candNorm {
+					if _, ok := registry.GetAgent(c); ok {
+						foundAgentID = c
+						break
+					}
+				}
+
+				// 2) Try matching against agent names
+				if foundAgentID == "" {
+					for _, aid := range registry.ListAgentIDs() {
+						ag, ok := registry.GetAgent(aid)
+						if !ok || ag == nil {
+							continue
+						}
+						nameNorm := routing.NormalizeAgentID(ag.Name)
+						for _, c := range candNorm {
+							if nameNorm == c {
+								foundAgentID = aid
+								break
+							}
+						}
+						if foundAgentID != "" {
+							break
+						}
+					}
+				}
+
+				// 3) If found, call the agent directly
+				if foundAgentID != "" {
+					sessionKey := "ada:default"
+					if sessionID != "" {
+						sessionKey = "ada:" + sessionID
+					}
+					resp, err := e.agentLoop.RunAgentByID(ctx, foundAgentID, text, sessionKey)
+					if err == nil {
+						// Audit and persist
+						var agentLabel string
+						if ag, ok := registry.GetAgent(foundAgentID); ok && ag != nil && ag.Name != "" {
+							agentLabel = ag.Name
+						} else {
+							agentLabel = foundAgentID
+						}
+						servedBy := &ServedByMeta{
+							Intent:   detectedIntent,
+							RoutedBy: "intent:static",
+							Agent:    agentLabel,
+						}
+						if provider != nil {
+							if p, ok := provider.(interface{ Name() string }); ok {
+								servedBy.Provider = p.Name()
+							}
+						}
+						if modelName != "" {
+							servedBy.Model = modelName
+						}
+
+						// Add assistant response with meta and persist
+						e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", resp, servedBy)
+						if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
+							e.db.SaveSession(*sess)
+						}
+						e.CheckAndSummarize(sessionID)
+						return resp, nil
+					}
+					fmt.Printf("[StaticRouter] direct call to agent %q failed: %v — falling back to orchestrator\n", foundAgentID, err)
+				}
+
+				// 4) If not found, fallback to session.WorkerName (Option A)
+				if sessionID != "" {
+					if sess := e.SessionMgr.GetSession(sessionID); sess != nil && strings.TrimSpace(sess.WorkerName) != "" {
+						workerAgentID := routing.NormalizeAgentID(sess.WorkerName)
+						if _, ok := registry.GetAgent(workerAgentID); ok {
+							sessionKey := "ada:default"
+							if sessionID != "" {
+								sessionKey = "ada:" + sessionID
+							}
+							resp, err := e.agentLoop.RunAgentByID(ctx, workerAgentID, text, sessionKey)
+							if err == nil {
+								servedBy := &ServedByMeta{Intent: detectedIntent, RoutedBy: "intent:worker", Agent: sess.WorkerName}
+								if provider != nil {
+									if p, ok := provider.(interface{ Name() string }); ok {
+										servedBy.Provider = p.Name()
+									}
+								}
+								if modelName != "" {
+									servedBy.Model = modelName
+								}
+								e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", resp, servedBy)
+								if s := e.SessionMgr.GetSession(sessionID); s != nil && e.db != nil {
+									e.db.SaveSession(*s)
+								}
+								e.CheckAndSummarize(sessionID)
+								return resp, nil
+							}
+							fmt.Printf("[StaticRouter] worker agent %q call failed: %v — falling back to orchestrator\n", workerAgentID, err)
+						}
+					}
+				}
+			}
+		}
+	}
+	fmt.Printf("[StaticRouter] classifier failed: %v — falling back to orchestrator LLM\n", err)
+
 	// 2. Resolve routing rules do workspace
 	routingRules := e.resolveWorkspaceRoutingRules(sessionID)
 	fmt.Printf("[ProcessOrchestrated] routingRules=%q\n", routingRules)
@@ -1881,34 +2037,34 @@ func (e *Engine) ProcessOrchestrated(ctx context.Context, text string, sessionID
 		}
 	}
 
-		// 9. Salva na sessão (com auditoria served_by)
-		servedBy := &ServedByMeta{
-			Intent:   detectedIntent,
-			RoutedBy: "orchestrator",
-			Agent:    "",
+	// 9. Salva na sessão (com auditoria served_by)
+	servedBy := &ServedByMeta{
+		Intent:   detectedIntent,
+		RoutedBy: "orchestrator",
+		Agent:    "",
+	}
+	if decision.NextAgent != "" {
+		servedBy.Agent = string(decision.NextAgent)
+	} else {
+		servedBy.Agent = "orchestrator"
+	}
+	// Determine provider/model if available
+	if provider != nil {
+		if p, ok := provider.(interface{ Name() string }); ok {
+			servedBy.Provider = p.Name()
 		}
-		if decision.NextAgent != "" {
-			servedBy.Agent = string(decision.NextAgent)
-		} else {
-			servedBy.Agent = "orchestrator"
-		}
-		// Determine provider/model if available
-		if provider != nil {
-			if p, ok := provider.(interface{ Name() string }); ok {
-				servedBy.Provider = p.Name()
-			}
-		}
-		if modelName != "" {
-			servedBy.Model = modelName
-		}
+	}
+	if modelName != "" {
+		servedBy.Model = modelName
+	}
 
-		e.SessionMgr.AddMessage(sessionID, "user", text)
-		e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", output, servedBy)
-		if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
-			e.db.SaveSession(*sess)
-		}
+	e.SessionMgr.AddMessage(sessionID, "user", text)
+	e.SessionMgr.AddMessageWithMeta(sessionID, "assistant", output, servedBy)
+	if sess := e.SessionMgr.GetSession(sessionID); sess != nil && e.db != nil {
+		e.db.SaveSession(*sess)
+	}
 
-		return output, nil
+	return output, nil
 }
 
 // resolveProviderForSession resolve o LLMProvider a partir do modelOverride do frontend.

@@ -98,3 +98,33 @@ func (r *JinaRouter) DetectIntent(ctx context.Context, text string) (Intent, err
 	}
 	return IntentGeneral, nil
 }
+
+// ClassifyWithCandidates calls the HTTP classifier endpoint with an explicit set of
+// candidate labels and returns the top label and scores (raw). This is used for
+// static routing where we need the exact top_label instead of the coarse Intent.
+func ClassifyWithCandidates(ctx context.Context, endpoint string, text string, candidateLabels []string, timeout time.Duration) (string, []float64, error) {
+	reqBody := jinaRequest{Text: text, CandidateLabels: candidateLabels}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", nil, err
+	}
+	client := &http.Client{Timeout: timeout}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("falha ao conectar no microservico classifier: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("status de erro do microservico: %d", resp.StatusCode)
+	}
+	var jr jinaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+		return "", nil, err
+	}
+	return jr.TopLabel, jr.Scores, nil
+}
